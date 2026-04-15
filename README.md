@@ -2,16 +2,16 @@
 
 ## Description
 
-VAILISM is a premium, Netflix-inspired streaming web application designed to deliver an infinite, seamless catalog of content. It features a modern, responsive frontend built entirely with core web technologies, utilizing a secure serverless Vercel engine to safely fetch and proxy dynamic metadata from the TMDB API without compromising client-side security.
+VAILISM is a polished, Netflix-inspired streaming web application delivering an infinite, seamless catalog of content. It features a modern, responsive frontend built with core web technologies, utilizing a secure serverless Vercel engine to safely fetch and proxy dynamic metadata from TMDB without exposing sensitive credentials.
 
 ## Features
 
-- **Netflix-style UI**: Polished interface with scale-on-hover card expansions, horizontal scroll snapping, and atmospheric hero gradients.
-- **Dynamic movie loading (TMDB)**: Real-time acquisition and categorization of global media endpoints.
+- **Netflix-style UI**: Modern interface with scale-on-hover card expansions, horizontal scroll snapping, and atmospheric hero gradients.
+- **Dynamic movie loading**: Real-time acquisition and categorization of global media endpoints.
 - **Infinite scroll**: Dual-layer intersection tracking automatically loads subsequent pages across horizontal rows and vertical categories.
 - **Search functionality**: Debounced real-time query system traversing native database indices.
-- **Serverless API**: Architecture designed to obscure API tokens via Vercel edge functions.
-- **Responsive design**: Seamless layout adaptation scaling gracefully from ultra-wide desktops down to mobile viewports.
+- **Serverless API**: Secure architecture using Vercel edge functions to protect sensitive data.
+- **Responsive design**: Seamless layout adaptation from ultra-wide desktops to mobile viewports.
 
 ## Tech Stack
 
@@ -32,7 +32,6 @@ VAILISM is a premium, Netflix-inspired streaming web application designed to del
 ├── player.html          # Dynamic iframe embedding portal
 ├── style.css            # Stylesheets and native animations
 ├── script.js            # Client-side component logic
-├── server.js            # Local development node proxy
 ├── vercel.json          # Deployment configuration
 ├── .env                 # Local private credential registry
 └── .gitignore           # Ignored deployment tracks
