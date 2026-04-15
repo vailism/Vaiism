@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAILISM - Unlimited Movies & TV Shows</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-left">
+            <h1 class="logo" onclick="window.location.reload()">VAILISM</h1>
+            <ul class="nav-links">
+                <li><a href="#" class="active">Home</a></li>
+                <li><a href="#">TV Shows</a></li>
+                <li><a href="#">Movies</a></li>
+                <li><a href="#">New & Popular</a></li>
+                <li><a href="#">My List</a></li>
+            </ul>
+        </div>
+        <div class="nav-right">
+            <div class="search-container">
+                <span class="search-icon"><i data-lucide="search"></i></span>
+                <input type="text" id="search-input" placeholder="Titles, genres...">
+            </div>
+            <div class="profile-icon"><i data-lucide="user"></i></div>
+        </div>
+    </nav>
+
+    <!-- Search Overlay -->
+    <div id="search-view" class="search-view hidden">
+        <div class="search-wrapper">
+            <h2>Search Results</h2>
+            <div id="search-results" class="search-grid"></div>
+        </div>
+    </div>
+
+    <!-- Main App Container (Hidden during search) -->
+    <div id="app-content">
+        <!-- Hero Section -->
+        <header class="hero" id="hero">
+            <div class="hero-vignette"></div>
+            <div class="hero-content">
+                <h1 class="hero-title skeleton-text" id="hero-title"></h1>
+                <p class="hero-description skeleton-text" id="hero-desc"></p>
+                <div class="hero-buttons">
+                    <button class="btn btn-play" id="hero-play" style="display: none;">
+                        <i data-lucide="play" fill="currentColor"></i> Play
+                    </button>
+                    <button class="btn btn-info" style="display: none;">
+                        <i data-lucide="info"></i> More Info
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Rows Container -->
+        <main class="main-content" id="main-content">
+            <!-- Dynamically injected rows -->
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+      lucide.createIcons();
+    </script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAILISM - Player</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .back-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 20px;
+            text-decoration: none;
+            z-index: 10;
+            transition: transform 0.2s, background 0.2s;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .back-button:hover {
+            transform: scale(1.05);
+            background: var(--primary-red);
+        }
+
+        .iframe-container {
+            width: 100vw;
+            height: 100vh;
+            border: none;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            outline: none;
+        }
+
+        .loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--primary-red);
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(229, 9, 20, 0.3);
+            border-top: 4px solid var(--primary-red);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-button">← Back to Browse</a>
+    
+    <div class="loader" id="loader">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="iframe-container" id="iframe-container">
+        <!-- Iframe injected via JS -->
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const movieId = urlParams.get('id');
+        const mediaType = urlParams.get('type') || 'movie'; // Default movie, else 'tv'
+
+        if (!movieId) {
+            document.body.innerHTML = '<div style="color:white; text-align:center; margin-top:50px;"><h1>Error: No Media ID Provided.</h1><a href="index.html" style="color:#e50914;">Return Home</a></div>';
+        } else {
+            const iframeContainer = document.getElementById('iframe-container');
+            const loader = document.getElementById('loader');
+
+            // Construct Vidking embed URL based on type
+            let embedUrl = '';
+            
+            // Check for saved progress automatically
+            const storageKey = `vailism_progress_${movieId}`;
+            const savedProgressObj = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            let progressQuery = '';
+            
+            if (savedProgressObj && savedProgressObj.timestamp) {
+                // Vidking accepts progress in seconds
+                progressQuery = `&progress=${Math.floor(savedProgressObj.timestamp)}`;
+            }
+
+            if (mediaType === 'tv') {
+                // Default to season 1 episode 1 if unknown, however, if we saved progress, it could resume
+                // Note: savedProgressObj could technically hold saved season/episode but let's default 1/1
+                let s = 1;
+                let e = 1;
+                if (savedProgressObj && savedProgressObj.season) s = savedProgressObj.season;
+                if (savedProgressObj && savedProgressObj.episode) e = savedProgressObj.episode;
+                
+                embedUrl = `https://www.vidking.net/embed/tv/${movieId}/${s}/${e}?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true${progressQuery}`;
+            } else {
+                embedUrl = `https://www.vidking.net/embed/movie/${movieId}?color=e50914&autoPlay=true${progressQuery}`;
+            }
+
+            const iframe = document.createElement('iframe');
+            iframe.src = embedUrl;
+            iframe.setAttribute('frameborder', '0');
+            iframe.allowFullscreen = true;
+            iframe.setAttribute('allow', 'autoplay; fullscreen');
+            
+            iframe.onload = () => {
+                loader.style.display = 'none';
+                iframeContainer.style.opacity = '1';
+            };
+
+            iframeContainer.appendChild(iframe);
+            
+            // Setup Watch Progress Tracking Listener
+            window.addEventListener("message", function (event) {
+                try {
+                    // Try parsing the message; Vidking sends specific payload
+                    let payload = event.data;
+                    if (typeof payload === 'string') payload = JSON.parse(payload);
+                    
+                    if (payload && payload.type === "PLAYER_EVENT" && payload.data) {
+                        const eventData = payload.data;
+                        
+                        // Save to local storage on continuous ticks or pause
+                        if (eventData.event === 'timeupdate' || eventData.event === 'pause') {
+                            localStorage.setItem(storageKey, JSON.stringify({
+                                timestamp: eventData.currentTime,
+                                duration: eventData.duration,
+                                season: eventData.season,
+                                episode: eventData.episode
+                            }));
+                        }
+                    }
+                } catch(e) {
+                    // Ignore non-json or unformatted messages safely
+                }
+            });
+        }
+    </script>
+</body>
+</html>
