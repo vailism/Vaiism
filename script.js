@@ -176,11 +176,11 @@ document.addEventListener('DOMContentLoaded', () => {
             card.onclick = () => playMovie(movie.id, type);
             
             const imgPath = movie.poster_path ? movie.poster_path : movie.backdrop_path;
-            const fallbackImg = `onerror="this.src='https://via.placeholder.com/342x513/1a1a1a/e50914?text=Image+Not+Found'"`
+            const fallbackImg = `onerror="this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'"`
             
             // Use aspect-ratio and width/height to prevent layout shifts
             card.innerHTML = `
-                <img src="${IMG_BASE_URL}${imgPath}" alt="${movie.title || movie.name || 'Movie'}" loading="lazy" width="342" height="513" style="aspect-ratio: 2/3; object-fit: cover;" ${fallbackImg}>
+                <img src="${imgPath ? IMG_BASE_URL + imgPath : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}" alt="${movie.title || movie.name || 'Movie'}" loading="lazy" width="342" height="513" style="aspect-ratio: 2/3; object-fit: cover;" ${fallbackImg}>
                 <div class="card-overlay">
                     <span style="font-weight: 600; font-size: 14px; text-shadow:1px 1px 2px rgba(0,0,0,1); color: white;">
                         ${movie.title || movie.name || ""}

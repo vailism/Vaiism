@@ -39,7 +39,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         console.log("Successfully resolved metadata payload:", details);
 
-        // Hero Image configuration
         if (details.backdrop_path || details.poster_path) {
             const bg = details.backdrop_path || details.poster_path;
             const bgUrl = `https://image.tmdb.org/t/p/original${bg}`;
@@ -53,7 +52,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             heroHeader.style.backgroundImage = `url(${bgUrl})`;
         } else {
-            heroHeader.style.backgroundImage = `url(https://via.placeholder.com/1920x1080/1a1a1a/e50914?text=VAILISM)`;
+            heroHeader.style.backgroundImage = `none`;
+            heroHeader.style.backgroundColor = `#141414`;
         }
 
         titleEl.textContent = details.title || details.name || "Details";
@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         epCard.className = 'episode-card';
                         epCard.onclick = () => window.playMovie(id, type);
                         
-                        const img = ep.still_path ? `https://image.tmdb.org/t/p/w342${ep.still_path}` : 'https://via.placeholder.com/342x192/1a1a1a/e50914?text=No+Preview';
+                        const img = ep.still_path ? `https://image.tmdb.org/t/p/w342${ep.still_path}` : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
                         
                         epCard.innerHTML = `
                             <div class="ep-img">
