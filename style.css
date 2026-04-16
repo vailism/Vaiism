@@ -55,10 +55,11 @@ body {
 }
 
 .logo {
-    color: var(--primary-red);
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: 2px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 30px;
+    letter-spacing: 3px;
+    color: #e50914;
+    text-shadow: 0 0 10px rgba(229,9,20,0.6);
     cursor: pointer;
 }
 
