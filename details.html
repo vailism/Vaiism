@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAILISM - Details</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-left">
+            <h1 class="logo" onclick="window.location.href='index.html'">VAILISM</h1>
+        </div>
+    </nav>
+
+    <div id="details-view" class="details-view fade-in">
+        <header class="hero details-hero" id="details-hero">
+            <div class="hero-vignette details-vignette"></div>
+            <div class="hero-content details-content">
+                <h1 class="hero-title skeleton-text" id="details-title">Loading...</h1>
+                
+                <div class="details-meta" id="details-meta" style="opacity: 0;">
+                    <span id="details-rating" class="meta-rating"></span>
+                    <span id="details-year" class="meta-year"></span>
+                    <span id="details-runtime" class="meta-runtime"></span>
+                </div>
+                
+                <div class="details-genres" id="details-genres"></div>
+                
+                <p class="hero-description skeleton-text" id="details-desc"></p>
+                
+                <div class="hero-buttons">
+                    <button class="btn btn-play" id="details-play" style="display: none;">
+                        <i data-lucide="play" fill="currentColor"></i> Play
+                    </button>
+                    <!-- Episodes shortcut visible only for TV -->
+                    <button class="btn btn-info" id="details-episodes-btn" style="display: none;" onclick="document.getElementById('episodes-section').scrollIntoView({behavior: 'smooth'})">
+                        <i data-lucide="list"></i> Episodes
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content details-main">
+            <!-- Episodes Section (Hidden for movies) -->
+            <section id="episodes-section" class="row hidden">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 class="row-header" style="margin-bottom: 0;">Episodes</h2>
+                    <select id="season-select" class="season-select"></select>
+                </div>
+                <div class="episodes-list" id="episodes-list">
+                    <!-- Episodes injected dynamically -->
+                </div>
+            </section>
+
+            <!-- Similar Content -->
+            <section class="row" id="similar-section">
+                <h2 class="row-header">Similar Titles</h2>
+                <div class="row-posters" id="similar-posters">
+                    <!-- Skeletons render initially -->
+                    <div class="card skeleton"></div>
+                    <div class="card skeleton"></div>
+                    <div class="card skeleton"></div>
+                    <div class="card skeleton"></div>
+                    <div class="card skeleton"></div>
+                    <div class="card skeleton"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Core App Logic -->
+    <script src="script.js"></script>
+    <script src="details.js"></script>
+</body>
+</html>

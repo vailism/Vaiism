@@ -21,6 +21,9 @@ export default async function handler(request, response) {
     const tmdbResponse = await fetch(url.toString());
     const data = await tmdbResponse.json();
     
+    // Advanced Performance Optimization: Edge Caching
+    response.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+    
     // CORS headers for local/cross-origin safety during Vercel deployments
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Methods', 'GET');

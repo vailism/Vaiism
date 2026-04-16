@@ -2,7 +2,7 @@
 
 // Basic Backend Router Setup (Protects API Key)
 const BASE_URL = '/api/tmdb'; // Points to Vercel Serverless Function
-const IMG_BASE_URL = 'https://image.tmdb.org/t/p/w500';
+const IMG_BASE_URL = 'https://image.tmdb.org/t/p/w342'; // Optimal scaling payload replacing heavy w500
 const HERO_IMG_URL = 'https://image.tmdb.org/t/p/original';
 
 const ENDPOINTS = [
@@ -21,21 +21,34 @@ let globalCategoryIndex = 0;
 let apiKeyErrorShown = false;
 
 // Generic Fetch Function
+const apiCache = new Map();
+
 async function fetchMovies(endpoint, page = 1) {
+    const cacheKey = `${endpoint}-${page}`;
+    if (apiCache.has(cacheKey)) {
+        return apiCache.get(cacheKey);
+    }
+
     try {
         const pathBlock = encodeURIComponent(endpoint.split('?')[0]);
         const paramsBlock = endpoint.includes('?') ? (endpoint.split('?')[1] + '&') : '';
         const res = await fetch(`${BASE_URL}?path=${pathBlock}&${paramsBlock}page=${page}`);
         
         // Handle rate limiting gracefully
-        if(res.status === 429) {
-            console.warn("TMDB Rate Limit reached. Waiting...");
-            await new Promise(r => setTimeout(r, 1000));
-            return fetchMovies(endpoint, page);
+        if (!res.ok) {
+            if(res.status === 429) {
+                console.warn("TMDB Rate Limit reached. Waiting...");
+                await new Promise(r => setTimeout(r, 1000));
+                return fetchMovies(endpoint, page);
+            }
+            throw new Error(`API Error: ${res.status}`);
         }
         
         const data = await res.json();
-        return data.results || [];
+        const results = data.results || [];
+        // Cache successful requests
+        if (results.length > 0) apiCache.set(cacheKey, results); 
+        return results;
     } catch (e) {
         console.error('Failed to fetch from API Proxy:', e);
         return [];
@@ -79,7 +92,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Ensure image paths exist to prevent null errors
         const heroBg = movie.backdrop_path ? movie.backdrop_path : movie.poster_path;
         if (heroBg && heroHeader) {
-            heroHeader.style.backgroundImage = `url(${HERO_IMG_URL}${heroBg})`;
+            const bgUrl = `${HERO_IMG_URL}${heroBg}`;
+            // Preload critical hero background dynamically
+            const preloadLink = document.createElement('link');
+            preloadLink.rel = 'preload';
+            preloadLink.as = 'image';
+            preloadLink.href = bgUrl;
+            document.head.appendChild(preloadLink);
+
+            heroHeader.style.backgroundImage = `url(${bgUrl})`;
         }
         
         if (heroTitle) heroTitle.textContent = movie.title || movie.name || "Featured Movie";
@@ -92,18 +113,25 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Set more info button to visible
         const btnInfo = document.querySelector('.btn-info');
-        if (btnInfo) btnInfo.style.display = 'flex';
+        if (btnInfo) {
+            btnInfo.style.display = 'flex';
+            btnInfo.onclick = () => window.location.href = `details.html?id=${movie.id}&type=${type}`;
+        }
         
         if(window.lucide) window.lucide.createIcons();
     }
 
     // Append movies logic extracting card building
     function appendMoviesToContainer(movies, container) {
+        const fragment = document.createDocumentFragment();
+        const existingIds = new Set(Array.from(container.querySelectorAll('.card')).map(c => c.dataset.id));
+
         movies.forEach(movie => {
             if (!movie.poster_path && !movie.backdrop_path) return;
             
             // CRITICAL FIX: Ensure entirely unique elements, skipping exact duplicates
-            if (container.querySelector(`[data-id="${movie.id}"]`)) return;
+            if (existingIds.has(String(movie.id))) return;
+            existingIds.add(String(movie.id));
             
             const type = movie.media_type || (movie.name ? 'tv' : 'movie');
             
@@ -113,9 +141,11 @@ document.addEventListener('DOMContentLoaded', () => {
             card.onclick = () => playMovie(movie.id, type);
             
             const imgPath = movie.poster_path ? movie.poster_path : movie.backdrop_path;
+            const fallbackImg = `onerror="this.src='https://via.placeholder.com/342x513/1a1a1a/e50914?text=Image+Not+Found'"`
             
+            // Use aspect-ratio and width/height to prevent layout shifts
             card.innerHTML = `
-                <img src="${IMG_BASE_URL}${imgPath}" alt="${movie.title || movie.name || 'Movie'}" loading="lazy">
+                <img src="${IMG_BASE_URL}${imgPath}" alt="${movie.title || movie.name || 'Movie'}" loading="lazy" width="342" height="513" style="aspect-ratio: 2/3; object-fit: cover;" ${fallbackImg}>
                 <div class="card-overlay">
                     <span style="font-weight: 600; font-size: 14px; text-shadow:1px 1px 2px rgba(0,0,0,1); color: white;">
                         ${movie.title || movie.name || ""}
@@ -123,37 +153,45 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="play-icon"><i data-lucide="play" fill="currentColor" size="16"></i></div>
                 </div>
             `;
-            container.appendChild(card);
+            fragment.appendChild(card);
         });
         
+        container.appendChild(fragment);
         if(window.lucide) window.lucide.createIcons();
     }
 
-    // Horizontal Infinite Scroll
-    async function handleHorizontalScroll(rowElement, rowSection) {
-        const remainingScroll = rowElement.scrollWidth - rowElement.scrollLeft - rowElement.clientWidth;
-        if (remainingScroll < 300 && !rowElement.dataset.fetching) {
-            rowElement.dataset.fetching = "true";
-            
-            let nextPage = parseInt(rowSection.dataset.page) + 1;
-            rowSection.dataset.page = nextPage;
-            
-            // Skeletons
-            for(let i=0; i<4; i++) {
-                const skeleton = document.createElement('div');
-                skeleton.classList.add('card', 'skeleton');
-                rowElement.appendChild(skeleton);
+    // Advanced Horizontal Intersection Scroll
+    const horizontalObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const targetCard = entry.target;
+                const rowSection = targetCard.closest('section.row');
+                const rowPosters = rowSection.querySelector('.row-posters');
+                
+                // Disconnect to avoid loops while fetching
+                observer.unobserve(targetCard);
+                loadNextHorizontalPage(rowPosters, rowSection, observer);
             }
-            
-            const path = rowSection.dataset.path;
-            const movies = await fetchMovies(path, nextPage);
-            
-            // Remove temporary skeletons
-            const skeletons = rowElement.querySelectorAll('.skeleton');
-            skeletons.forEach(s => s.remove());
-            
-            appendMoviesToContainer(movies, rowElement);
-            rowElement.dataset.fetching = "";
+        });
+    }, { rootMargin: '0px 300px 0px 0px' });
+
+    async function loadNextHorizontalPage(rowElement, rowSection, activeObserver) {
+        if (rowElement.dataset.fetching) return;
+        rowElement.dataset.fetching = "true";
+        
+        let nextPage = parseInt(rowSection.dataset.page) + 1;
+        rowSection.dataset.page = nextPage;
+        
+        const path = rowSection.dataset.path;
+        const movies = await fetchMovies(path, nextPage);
+        
+        appendMoviesToContainer(movies, rowElement);
+        rowElement.dataset.fetching = "";
+        
+        // Re-attach observer exactly to the newly loaded final card
+        const newlyRenderedCards = rowElement.querySelectorAll('.card');
+        if (newlyRenderedCards.length > 0) {
+            activeObserver.observe(newlyRenderedCards[newlyRenderedCards.length - 1]);
         }
     }
 
@@ -192,6 +230,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (movies && movies.length > 0) {
             appendMoviesToContainer(movies, rowPosters);
+            // Arm observer to the final nested card exclusively
+            const loadedCards = rowPosters.querySelectorAll('.card');
+            if (loadedCards.length > 0) horizontalObserver.observe(loadedCards[loadedCards.length - 1]);
         } else {
             rowPosters.style.display = 'block';
             rowPosters.innerHTML = `
@@ -202,9 +243,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
         }
-        
-        // Setup Horizontal Infinite Fetch
-        rowPosters.addEventListener('scroll', () => handleHorizontalScroll(rowPosters, rowSection));
     }
 
     // Continue Watching Row Tracking Engine
@@ -271,9 +309,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Vertical Infinite Scroll (Loading new rows)
+    let isFetchingVertical = false;
     async function loadMoreRows() {
-        if (document.body.dataset.fetchingVertical === "true") return;
-        document.body.dataset.fetchingVertical = "true";
+        if (isFetchingVertical) return;
+        isFetchingVertical = true;
         
         for(let i=0; i<2; i++) {
             if (globalCategoryIndex < ENDPOINTS.length) {
@@ -282,15 +321,25 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        document.body.dataset.fetchingVertical = "false";
+        isFetchingVertical = false;
     }
 
-    window.addEventListener('scroll', () => {
-        // Determine bottom
-        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 600) {
-            loadMoreRows();
-        }
-    });
+    // Replace Scroll with IntersectionObserver for better DOM performance
+    const mainContent = document.getElementById('main-content');
+    if (mainContent) {
+        const sentinel = document.createElement('div');
+        sentinel.id = 'vertical-sentinel';
+        sentinel.style.height = '10px';
+        mainContent.after(sentinel);
+
+        const verticalObserver = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                loadMoreRows();
+            }
+        }, { rootMargin: '0px 0px 500px 0px' });
+
+        verticalObserver.observe(sentinel);
+    }
 
     // Setup Search Selectors Inside DOM Load
     const searchIcon = document.querySelector('.search-icon');
@@ -365,8 +414,10 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.addEventListener('input', debouncedSearch);
     }
 
-    // Boot Up
-    loadHeroBanner();
-    loadContinueWatching();
-    loadMoreRows();
+    // Boot Up Home Page
+    if (document.getElementById('hero') && document.getElementById('search-input')) {
+        loadHeroBanner();
+        loadContinueWatching();
+        loadMoreRows();
+    }
 });
