@@ -185,15 +185,9 @@
         }
 
         function buildIframe() {
-            // ── Build embed URL ────────────────────────────────────────────────
+            // ── Build embed URL (REMOVE instant progress to prevent freezing) ─────
             var embedUrl = '';
-            var progressQuery = '';
-
-            if (savedData && savedData.timestamp) {
-                var resumeTime = Math.floor(parseFloat(savedData.timestamp));
-                if (resumeTime > 0) progressQuery = '&progress=' + resumeTime;
-            }
-
+            
             if (mediaType === 'tv') {
                 var s = (savedData && savedData.season) ? savedData.season : 1;
                 var e = (savedData && savedData.episode) ? savedData.episode : 1;
@@ -203,10 +197,10 @@
                 if (paramE) e = paramE;
 
                 embedUrl = 'https://www.vidking.net/embed/tv/' + movieId + '/' + s + '/' + e +
-                           '?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true' + progressQuery;
+                           '?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true';
             } else {
                 embedUrl = 'https://www.vidking.net/embed/movie/' + movieId +
-                           '?color=e50914&autoPlay=true' + progressQuery;
+                           '?color=e50914&autoPlay=true';
             }
 
             console.log('[VAILISM] Player URL:', embedUrl);
@@ -219,13 +213,48 @@
             iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
             iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
 
-            function hideLoader() {
-                loader.style.display = 'none';
-                playerWrap.style.opacity = '1';
+            var resumeAttempted = false;
+
+            function handleResume() {
+                if (resumeAttempted || !savedData || !savedData.timestamp) return;
+                resumeAttempted = true;
+
+                var ts  = parseFloat(savedData.timestamp);
+                var dur = parseFloat(savedData.duration);
+
+                // Safe resume rules
+                if (ts > 0 && dur > 0 && ts < (dur - 10)) {
+                    var seekTo = Math.min(ts, dur - 5);
+                    console.log('[VAILISM] Applying delayed resume after 3s delay. Target:', seekTo.toFixed(1) + 's');
+                    
+                    setTimeout(function() {
+                        try {
+                            // Method 1: Standard Player postMessage
+                            var msg = JSON.stringify({ event: 'command', func: 'seekTo', args: [seekTo] });
+                            iframe.contentWindow.postMessage(msg, '*');
+                            
+                            // Method 2: Fallback simplified format
+                            iframe.contentWindow.postMessage({ type: 'SEEK', time: seekTo }, '*');
+                            
+                            console.log('[VAILISM] Resume command sent.');
+                        } catch (e) {
+                            console.error('[VAILISM] Resume command failed, restarting normally.', e);
+                        }
+                    }, 3000);
+                } else {
+                    console.log('[VAILISM] Resume skipped (too near end or invalid).');
+                }
             }
 
-            iframe.addEventListener('load', hideLoader);
-            setTimeout(hideLoader, 8000);
+            function onPlayerLoad() {
+                loader.style.display = 'none';
+                playerWrap.style.opacity = '1';
+                console.log('[VAILISM] Player loaded. Establishing session...');
+                handleResume();
+            }
+
+            iframe.addEventListener('load', onPlayerLoad);
+            setTimeout(onPlayerLoad, 8000);
 
             playerWrap.appendChild(iframe);
         }
