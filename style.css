@@ -30,6 +30,7 @@ img {
 
 html {
     overflow-x: hidden;
+    scroll-behavior: smooth;
     /* Fixes Windows DPI scaling layout bugs */
     -ms-text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;
@@ -269,7 +270,7 @@ body {
     max-width: 850px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
 }
 
 /* Staggered Reveal System */
@@ -319,11 +320,11 @@ body {
 
 .hero-description {
     animation: trailerFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 1s forwards;
-    font-size: clamp(0.95rem, 1.5vw, 1.35rem);
-    color: rgba(255, 255, 255, 0.55);
-    line-height: 1.75;
-    margin-bottom: 40px;
-    max-width: 650px;
+    font-size: clamp(0.95rem, 1.5vw, 1.2rem);
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.8;
+    margin-bottom: 36px;
+    max-width: 600px;
     font-weight: 400;
     word-break: break-word;
     overflow-wrap: break-word;
@@ -341,19 +342,25 @@ body {
 }
 
 .btn {
-    padding: 14px 45px;
-    font-size: 0.95rem;
+    height: 48px;
+    padding: 0 36px;
+    font-size: 0.9rem;
     font-weight: 700;
-    border-radius: 8px;
+    border-radius: 6px;
     border: none;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+    /* Consistent fast transition for all buttons */
+    transition: transform 0.15s ease, filter 0.15s ease,
+                background-color 0.15s ease, box-shadow 0.15s ease,
+                opacity 0.15s ease, border-color 0.15s ease;
     letter-spacing: 0.5px;
     text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* Page Load Pulse (Once) */
@@ -366,60 +373,39 @@ body {
 .btn-play {
     background-color: #fff;
     color: #000;
-    padding: 14px 45px;
-    font-size: 1.05rem;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-    animation: singlePulse 2s ease-out 1s; /* Focused draw-in on load */
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    animation: singlePulse 2s ease-out 1s;
 }
 
-/* Netflix-style Hover Expansion */
 .btn-play:hover {
-    background-color: #fff;
-    transform: scale(1.08) translateY(-4px);
-    padding: 14px 55px; /* Visual expansion */
-    gap: 12px; /* icon spacing increase */
-    box-shadow: 0 15px 35px rgba(255,255,255,0.25), 0 5px 15px rgba(0,0,0,0.5);
-    filter: brightness(1.1);
-}
-
-.btn-play i {
-    transition: transform 0.4s ease;
-}
-
-.btn-play:hover i {
-    transform: scale(1.15);
+    filter: brightness(1.06);
+    transform: scale(1.03) translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
 }
 
 .btn-play:active {
-    transform: scale(0.94) translateY(0);
-    transition: transform 0.1s;
+    transform: scale(0.97);
+    filter: brightness(0.95);
 }
 
 .btn-info {
-    background-color: rgba(255, 255, 255, 0.08); /* Softer glass */
+    background-color: rgba(255, 255, 255, 0.1);
     color: #fff;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255,255,255,0.1);
-    font-weight: 500; /* Lighter weight */
-    opacity: 0.85; /* Less visual weight */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    font-weight: 600;
 }
 
 .btn-info:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255,255,255,0.3);
-    transform: translateY(-2px);
-    opacity: 1;
-}
-
-/* Focus Shift: Fade Info when Play is hovered */
-.hero-buttons:hover .btn-info:not(:hover) {
-    opacity: 0.4;
-    transform: scale(0.98);
+    background-color: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.28);
+    transform: scale(1.03) translateY(-2px);
 }
 
 .btn-info:active {
-    transform: scale(0.96);
+    transform: scale(0.97);
+    filter: brightness(0.9);
 }
 
 /* Rows & Movie Cards */
@@ -431,7 +417,7 @@ body {
 }
 
 .row {
-    margin-bottom: 40px;
+    margin-bottom: 48px;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -439,11 +425,12 @@ body {
 }
 
 .row-header {
-    font-size: 1.4rem;
+    font-size: 1.25rem;
     font-weight: 600;
-    margin-bottom: 15px;
+    margin-bottom: 4px;
     padding-left: 5px;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    letter-spacing: 0.3px;
+    color: rgba(255,255,255,0.9);
 }
 
 .row-posters {
@@ -476,9 +463,10 @@ body {
     position: relative;
     flex: 0 0 calc(100% / 6 - 8px);
     width: calc(100% / 6 - 8px);
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
-    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s ease, filter 0.6s ease;
+    /* Reduced to 200ms for snappier, less flashy feel */
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
     transform-origin: center center;
     aspect-ratio: 2/3;
     background-color: var(--dark-search);
@@ -486,6 +474,7 @@ body {
     scroll-snap-align: start;
     z-index: 5;
     pointer-events: auto;
+    overflow: hidden; /* Clip image within border-radius cleanly */
 }
 
 .search-grid .card {
@@ -497,16 +486,16 @@ body {
     height: 100%;
     object-fit: cover;
     display: block;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.5);
-    transition: opacity 0.5s ease;
-    border-radius: 4px;
+    /* No shadow on img itself — shadow is on card:hover below */
+    transition: opacity 0.4s ease;
+    border-radius: 0; /* card overflow:hidden handles clipping */
 }
 
 .card:hover {
-    transform: translateY(-8px) scale(1.05); /* Soft, ambient lift */
-    filter: brightness(1.1);
+    transform: translateY(-4px) scale(1.03); /* Subtle — not distracting */
+    filter: brightness(1.08);
     z-index: 20;
-    box-shadow: 0 15px 45px rgba(0,0,0,1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.7);
 }
 
 /* Netflix style row expansion logic for extreme left/right edges */
@@ -694,15 +683,20 @@ body {
     display: flex;
     align-items: center;
     gap: 20px;
-    padding: 15px;
-    border-radius: 4px;
-    background: rgba(255,255,255,0.05);
+    padding: 14px 16px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
     cursor: pointer;
-    transition: background 0.2s;
-    border-bottom: 1px solid #333;
+    transition: background 0.15s ease;
+    /* Single consistent separator — no double border noise */
+    border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .episode-card:hover {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.08);
+}
+
+.episode-card:active {
+    background: rgba(255,255,255,0.06);
 }
 
 .ep-img {
@@ -783,13 +777,14 @@ body {
     color: var(--text-muted);
 }
 .ep-desc {
-    font-size: 0.95rem;
-    color: #999;
-    line-height: 1.4;
+    font-size: 0.88rem;
+    color: rgba(255,255,255,0.45);
+    line-height: 1.55;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    margin-top: 4px;
 }
 
 @media (max-width: 768px) {
