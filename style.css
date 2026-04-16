@@ -168,15 +168,35 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(to top, var(--dark-bg) 5%, transparent 60%),
-                linear-gradient(to right, rgba(20,20,20,0.95) 0%, transparent 60%);
+    background: linear-gradient(to top, rgba(20,20,20,1) 0%, transparent 40%),
+                linear-gradient(to right, rgba(20,20,20,1) 0%, rgba(20,20,20,0.85) 35%, transparent 70%);
     z-index: 1;
 }
 
 .hero-content {
     position: relative;
     z-index: 2;
-    max-width: 600px;
+    max-width: 650px;
+}
+
+/* Hero UI Hierarchy */
+.hero-meta {
+    font-size: 1rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    margin-bottom: 8px;
+    transition: opacity 0.3s;
+}
+
+.hero-genres {
+    display: flex;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: #a3a3a3;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
 }
 
 .hero-title {

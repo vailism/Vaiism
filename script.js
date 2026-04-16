@@ -77,8 +77,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!movies || movies.length === 0) return;
         
         // Pick a random highly rated movie from the first page
-        const movie = movies[Math.floor(Math.random() * Math.min(movies.length, 5))];
-        const type = movie.media_type || (movie.name ? 'tv' : 'movie');
+        const baseMovie = movies[Math.floor(Math.random() * Math.min(movies.length, 5))];
+        const type = baseMovie.media_type || (baseMovie.name ? 'tv' : 'movie');
+
+        // Fetch FULL details to populate accurate metadata
+        let movie = baseMovie;
+        try {
+            const detailsRes = await fetch(`/api/tmdb?path=/${type}/${baseMovie.id}`);
+            if (detailsRes.ok) {
+                movie = await detailsRes.json();
+            }
+        } catch (e) {
+            console.error("Failed full details hero fetch");
+        }
         
         const heroTitle = document.getElementById('hero-title');
         const heroDesc = document.getElementById('hero-desc');
@@ -88,6 +99,30 @@ document.addEventListener('DOMContentLoaded', () => {
         // Remove skeletons
         if(heroTitle) heroTitle.classList.remove('skeleton-text');
         if(heroDesc) heroDesc.classList.remove('skeleton-text');
+        
+        // Populate Meta
+        const year = movie.release_date ? movie.release_date.split('-')[0] : (movie.first_air_date ? movie.first_air_date.split('-')[0] : '');
+        const rating = movie.vote_average ? (movie.vote_average * 10).toFixed(0) + '% Match' : '';
+        
+        let runtimeText = '';
+        if (type === 'movie' && movie.runtime) {
+            const hours = Math.floor(movie.runtime / 60);
+            const mins = movie.runtime % 60;
+            runtimeText = `${hours}h ${mins}m`;
+        } else if (type === 'tv' && movie.number_of_seasons) {
+            runtimeText = `${movie.number_of_seasons} Season${movie.number_of_seasons > 1 ? 's' : ''}`;
+        } else if (type === 'tv' && movie.episode_run_time && movie.episode_run_time.length > 0) {
+            runtimeText = `${movie.episode_run_time[0]}m`;
+        }
+
+        if (document.getElementById('hero-rating')) document.getElementById('hero-rating').textContent = rating;
+        if (document.getElementById('hero-year')) document.getElementById('hero-year').textContent = year;
+        if (document.getElementById('hero-runtime')) document.getElementById('hero-runtime').textContent = runtimeText;
+        if (document.getElementById('hero-meta')) document.getElementById('hero-meta').style.opacity = '1';
+
+        if (document.getElementById('hero-genres') && movie.genres) {
+            document.getElementById('hero-genres').innerHTML = movie.genres.map(g => `<span>${g.name}</span>`).join('<span class="dot">•</span>');
+        }
         
         // Ensure image paths exist to prevent null errors
         const heroBg = movie.backdrop_path ? movie.backdrop_path : movie.poster_path;

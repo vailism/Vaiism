@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const urlParams = new URLSearchParams(window.location.search);
     const id = urlParams.get('id');
-    const type = urlParams.get('type') || 'movie';
+    let type = urlParams.get('type') || 'movie';
 
     if (!id) {
         window.location.href = 'index.html';
@@ -19,13 +19,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Generic Fetch Wrapper
     async function fetchApi(path) {
+        console.log(`Evaluating TMDB API at: ${path}`);
         const res = await fetch(`/api/tmdb?path=${encodeURIComponent(path)}`);
-        if (!res.ok) throw new Error('API fetch failed');
+        if (!res.ok) throw new Error(`API fetch failed HTTP ${res.status}`);
         return await res.json();
     }
 
     try {
-        const details = await fetchApi(`/${type}/${id}`);
+        let details = null;
+        
+        // Smart fetch logic handling missing or incorrect media_types
+        try {
+            details = await fetchApi(`/${type}/${id}`);
+        } catch (e) {
+            console.warn(`Fetch failed for assumed type: ${type}. Attempting cross-reference fallback...`);
+            type = type === 'movie' ? 'tv' : 'movie'; // flip type
+            details = await fetchApi(`/${type}/${id}`);
+        }
+        
+        console.log("Successfully resolved metadata payload:", details);
 
         // Hero Image configuration
         if (details.backdrop_path || details.poster_path) {
@@ -40,6 +52,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.head.appendChild(preloadLink);
             
             heroHeader.style.backgroundImage = `url(${bgUrl})`;
+        } else {
+            heroHeader.style.backgroundImage = `url(https://via.placeholder.com/1920x1080/1a1a1a/e50914?text=VAILISM)`;
         }
 
         titleEl.textContent = details.title || details.name || "Details";
@@ -61,6 +75,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('details-runtime').textContent = `${hours}h ${mins}m`;
         } else if (type === 'tv' && details.number_of_seasons) {
             document.getElementById('details-runtime').textContent = `${details.number_of_seasons} Season${details.number_of_seasons > 1 ? 's' : ''}`;
+        } else if (type === 'tv' && details.episode_run_time && details.episode_run_time.length > 0) {
+            document.getElementById('details-runtime').textContent = `${details.episode_run_time[0]}m`;
         }
         metaEl.style.opacity = '1';
 
@@ -74,7 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         playBtn.onclick = () => window.playMovie(id, type);
 
         // TV Shows - Episodes List handling
-        if (type === 'tv') {
+        if (type === 'tv' && details.seasons) {
             document.getElementById('details-episodes-btn').style.display = 'flex';
             document.getElementById('episodes-section').classList.remove('hidden');
             
@@ -169,7 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error("Failed fetching Details metadata:", e);
         titleEl.textContent = "Error Loading Details";
         titleEl.classList.remove('skeleton-text');
-        descEl.textContent = "Please make sure your API backend is active and try again.";
+        descEl.textContent = `Error: ${e.message}. Check console for details.`;
         descEl.classList.remove('skeleton-text');
     }
 });
