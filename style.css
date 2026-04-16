@@ -682,3 +682,21 @@ body {
     background-color: white;
     color: black;
 }
+
+/* --- MINIMALIST UI CLEANUP --- */
+.nav-links, .btn-list, .plus-icon {
+    display: none !important;
+}
+
+.navbar {
+    justify-content: space-between;
+    padding-left: 5%;
+    padding-right: 5%;
+}
+
+@media (min-width: 1200px) {
+    .navbar {
+        padding-left: 6%;
+        padding-right: 6%;
+    }
+}
