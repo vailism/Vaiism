@@ -375,7 +375,7 @@ body {
     width: calc(100% / 6 - 8px);
     border-radius: 4px;
     cursor: pointer;
-    transition: transform 0.3s ease, box-shadow 0.3s;
+    transition: transform 0.4s cubic-bezier(0.2, 1, 0.3, 1), box-shadow 0.4s ease, filter 0.3s ease;
     transform-origin: center center;
     aspect-ratio: 2/3;
     background-color: var(--dark-search);
@@ -400,9 +400,10 @@ body {
 }
 
 .card:hover {
-    transform: scale(1.15);
-    z-index: 10;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.8);
+    transform: scale(1.08) translateY(-10px);
+    filter: brightness(1.15);
+    z-index: 20;
+    box-shadow: 0 15px 35px rgba(0,0,0,1);
 }
 
 /* Netflix style row expansion logic for extreme left/right edges */
