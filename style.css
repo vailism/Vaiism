@@ -657,21 +657,52 @@ body {
     border-radius: 4px;
     box-shadow: 0 4px 8px rgba(0,0,0,0.5);
 }
+.ep-img::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 1;
+}
+
+.episode-card:hover .ep-img::after {
+    opacity: 1;
+}
+
 .episode-card .play-icon {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 40px;
-    height: 40px;
-    background: rgba(0,0,0,0.5);
-    border: 2px solid white;
+    width: 48px;
+    height: 48px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     opacity: 0;
-    transition: opacity 0.2s, transform 0.2s;
+    z-index: 5;
+    transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+    box-shadow: 0 0 15px rgba(0,0,0,0.5);
 }
+
+.episode-card .play-icon i {
+    color: #fff;
+    margin-left: 3px; /* Optically center triangle */
+}
+
 .episode-card:hover .play-icon {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1.1);
+    background: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 0 20px rgba(255,255,255,0.2), 0 0 15px rgba(0,0,0,0.5);
 }
 
 .ep-info {
