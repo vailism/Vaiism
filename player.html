@@ -120,18 +120,25 @@
         var loader     = document.getElementById('loader');
         var playerWrap = document.getElementById('player-wrap');
 
-        // ── Guard: no ID ──────────────────────────────────────────────────
-        if (!movieId) {
+        // ── Storage key ──────────────────────────────────────────────────
+        var storageKey = 'vailism_progress_' + movieId;
+
+        // ── Guard: invalid ID ─────────────────────────────────────────────
+        if (!movieId || movieId === 'undefined' || movieId === 'null') {
+            console.error('[VAILISM] Invalid ID provided:', movieId);
+            // Cleanup storage if we have a key but the ID itself is bad
+            if (movieId) {
+                try { localStorage.removeItem(storageKey); } catch (e) {}
+            }
+            
             document.body.innerHTML =
                 '<div style="color:#fff;text-align:center;padding:60px 20px;">' +
-                '<h1 style="margin-bottom:20px;">No Media ID Provided</h1>' +
+                '<h1 style="margin-bottom:20px;">Invalid Content ID</h1>' +
+                '<p style="color:#999;margin-bottom:20px;">The requested content could not be loaded.</p>' +
                 '<a href="index.html" style="color:#e50914;font-size:18px;">← Return Home</a>' +
                 '</div>';
             return;
         }
-
-        // ── Storage key ──────────────────────────────────────────────────
-        var storageKey = 'vailism_progress_' + movieId;
 
         // ── Load saved progress ───────────────────────────────────────────
         var savedData = null;
@@ -142,65 +149,88 @@
         }
 
         // ── Validate saved data ───────────────────────────────────────────
-        // Prevent corrupted state: ensure timestamp < duration and both are numbers
         if (savedData) {
             var st = parseFloat(savedData.timestamp);
             var sd = parseFloat(savedData.duration);
             if (!isFinite(st) || !isFinite(sd) || st <= 0 || st >= sd) {
-                console.log('[VAILISM] Saved progress invalid or complete – resetting.');
                 savedData = null;
             }
         }
 
-        // ── Build embed URL ────────────────────────────────────────────────
-        var embedUrl = '';
-        var progressQuery = '';
+        // ── Pre-flight check: Ensure ID exists for this mediaType ────────────────
+        async function initPlayer() {
+            try {
+                var checkPath = '/' + mediaType + '/' + movieId;
+                var res = await fetch('/api/tmdb?path=' + encodeURIComponent(checkPath));
+                
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        console.error('[VAILISM] API 404: Content not found. Cleaning up.');
+                        try { localStorage.removeItem(storageKey); } catch (e) {}
+                        throw new Error('Content not found (404)');
+                    }
+                    // For other errors (rate limits, etc.), try loading anyway
+                }
 
-        if (savedData && savedData.timestamp) {
-            var resumeTime = Math.floor(parseFloat(savedData.timestamp));
-            if (resumeTime > 0) {
-                progressQuery = '&progress=' + resumeTime;
-                console.log('[VAILISM] Resuming from ' + resumeTime + 's');
+                buildIframe();
+            } catch (err) {
+                console.error('[VAILISM] Init failed:', err);
+                document.body.innerHTML =
+                    '<div style="color:#fff;text-align:center;padding:60px 20px;">' +
+                    '<h1 style="margin-bottom:20px;">Media Unavailable</h1>' +
+                    '<p style="color:#999;margin-bottom:20px;">' + err.message + '</p>' +
+                    '<a href="index.html" style="color:#e50914;font-size:18px;">← Return Home</a>' +
+                    '</div>';
             }
         }
 
-        if (mediaType === 'tv') {
-            var s = (savedData && savedData.season)  ? savedData.season  : 1;
-            var e = (savedData && savedData.episode) ? savedData.episode : 1;
-            embedUrl = 'https://www.vidking.net/embed/tv/' + movieId + '/' + s + '/' + e +
-                       '?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true' + progressQuery;
-        } else {
-            embedUrl = 'https://www.vidking.net/embed/movie/' + movieId +
-                       '?color=e50914&autoPlay=true' + progressQuery;
+        function buildIframe() {
+            // ── Build embed URL ────────────────────────────────────────────────
+            var embedUrl = '';
+            var progressQuery = '';
+
+            if (savedData && savedData.timestamp) {
+                var resumeTime = Math.floor(parseFloat(savedData.timestamp));
+                if (resumeTime > 0) progressQuery = '&progress=' + resumeTime;
+            }
+
+            if (mediaType === 'tv') {
+                var s = (savedData && savedData.season) ? savedData.season : 1;
+                var e = (savedData && savedData.episode) ? savedData.episode : 1;
+                var paramS = params.get('s');
+                var paramE = params.get('e');
+                if (paramS) s = paramS;
+                if (paramE) e = paramE;
+
+                embedUrl = 'https://www.vidking.net/embed/tv/' + movieId + '/' + s + '/' + e +
+                           '?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true' + progressQuery;
+            } else {
+                embedUrl = 'https://www.vidking.net/embed/movie/' + movieId +
+                           '?color=e50914&autoPlay=true' + progressQuery;
+            }
+
+            console.log('[VAILISM] Player URL:', embedUrl);
+
+            var iframe = document.createElement('iframe');
+            iframe.src = embedUrl;
+            iframe.setAttribute('frameborder', '0');
+            iframe.setAttribute('scrolling', 'no');
+            iframe.setAttribute('allowfullscreen', 'true');
+            iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+            iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+
+            function hideLoader() {
+                loader.style.display = 'none';
+                playerWrap.style.opacity = '1';
+            }
+
+            iframe.addEventListener('load', hideLoader);
+            setTimeout(hideLoader, 8000);
+
+            playerWrap.appendChild(iframe);
         }
 
-        console.log('[VAILISM] Embedding:', embedUrl);
-
-        // ── Create iframe (single instance, never re-created) ─────────────
-        var iframe = document.createElement('iframe');
-        iframe.src = embedUrl;
-        iframe.setAttribute('frameborder', '0');
-        iframe.setAttribute('scrolling', 'no');
-        iframe.setAttribute('allowfullscreen', 'true');
-        iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
-        iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
-
-        // ── Reveal player once iframe fires load ──────────────────────────
-        var loaderHidden = false;
-        function hideLoader() {
-            if (loaderHidden) return;
-            loaderHidden = true;
-            loader.style.display = 'none';
-            playerWrap.style.opacity = '1';
-            console.log('[VAILISM] Player visible.');
-        }
-
-        iframe.addEventListener('load', hideLoader);
-
-        // Fallback: force show after 8s if load event never fires (some embeds don't trigger it)
-        setTimeout(hideLoader, 8000);
-
-        playerWrap.appendChild(iframe);
+        initPlayer();
 
         // ── Progress tracking via postMessage ─────────────────────────────
         // Vidking sends postMessages with player state. We intercept and save.
@@ -249,14 +279,18 @@
                     saveThrottle = setTimeout(function () { saveThrottle = null; }, 3000);
 
                     var toSave = {
-                        timestamp: currentTime,
-                        duration:  duration,
-                        id:        movieId,
+                        id:        parseInt(movieId, 10),
                         mediaType: mediaType,
-                        date:      new Date().toISOString()
+                        timestamp: Math.max(0, Math.min(currentTime, duration)),
+                        duration:  duration,
+                        updatedAt: Date.now()
                     };
-                    if (data.season)  toSave.season  = data.season;
-                    if (data.episode) toSave.episode = data.episode;
+
+                    if (mediaType === 'tv') {
+                        // Use existing season/ep from current playback or fallback to saved/default
+                        toSave.season  = parseInt(data.season  || (savedData ? savedData.season : 1), 10);
+                        toSave.episode = parseInt(data.episode || (savedData ? savedData.episode : 1), 10);
+                    }
 
                     try {
                         localStorage.setItem(storageKey, JSON.stringify(toSave));

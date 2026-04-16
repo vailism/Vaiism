@@ -23,47 +23,85 @@ let globalCategoryIndex = 0;
 // ─── Safe localStorage helpers ────────────────────────────────────────────────
 // All localStorage access goes through these — never throws, never crashes UI.
 
+// ─── Safe localStorage helpers ────────────────────────────────────────────────
 function lsGet(key) {
     try {
         const raw = localStorage.getItem(key);
-        if (raw === null || raw === undefined) return null;
+        if (raw === null) return null;
         return JSON.parse(raw);
     } catch (e) {
-        console.warn('[VAILISM] localStorage read failed for key:', key, e);
+        console.warn('[VAILISM] localStorage parse failed for key:', key);
+        localStorage.removeItem(key); // Clear corrupted data
         return null;
     }
 }
 
 function lsSet(key, value) {
+    if (!key || value === undefined) return;
+    
+    // Standardize and validate progress entries
+    if (key.startsWith('vailism_progress_')) {
+        if (!isValidProgress(value)) {
+            console.warn('[VAILISM] Attempted to save invalid progress:', value);
+            return;
+        }
+        // Force number types and clamp
+        value.id        = parseInt(value.id, 10);
+        value.timestamp = Math.max(0, Math.min(parseFloat(value.timestamp), parseFloat(value.duration)));
+        value.duration  = parseFloat(value.duration);
+        value.updatedAt = Date.now();
+        
+        // TV specific sanity
+        if (value.mediaType === 'tv') {
+            value.season  = parseInt(value.season, 10) || 1;
+            value.episode = parseInt(value.episode, 10) || 1;
+        }
+    }
+
     try {
         localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
-        console.warn('[VAILISM] localStorage write failed for key:', key, e);
+        console.warn('[VAILISM] localStorage write failed:', e);
     }
 }
 
 function lsRemove(key) {
-    try {
-        localStorage.removeItem(key);
-    } catch (e) {
-        // ignore
-    }
+    try { localStorage.removeItem(key); } catch (e) {}
 }
 
 function lsKeys() {
-    try {
-        return Object.keys(localStorage);
-    } catch (e) {
-        return [];
-    }
+    try { return Object.keys(localStorage); } catch (e) { return []; }
 }
 
-// ─── Progress data validator ──────────────────────────────────────────────────
 function isValidProgress(data) {
     if (!data || typeof data !== 'object') return false;
-    const ts  = parseFloat(data.timestamp);
+    const id = parseInt(data.id, 10);
+    const mediaType = data.mediaType;
+    const ts = parseFloat(data.timestamp);
     const dur = parseFloat(data.duration);
-    return isFinite(ts) && isFinite(dur) && ts > 0 && dur > 0 && ts < dur;
+    
+    if (isNaN(id) || !mediaType || (mediaType !== 'movie' && mediaType !== 'tv')) return false;
+    if (isNaN(ts) || isNaN(dur) || dur <= 0) return false;
+    return true;
+}
+
+function autoCleanup() {
+    const keys = lsKeys().filter(k => k.startsWith('vailism_progress_'));
+    const now = Date.now();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+
+    keys.forEach(key => {
+        const data = lsGet(key);
+        if (!data || !isValidProgress(data)) {
+            lsRemove(key);
+            return;
+        }
+
+        const age = now - (data.updatedAt || 0);
+        if (age > thirtyDaysMs || data.timestamp <= 0 || data.timestamp >= data.duration) {
+            lsRemove(key);
+        }
+    });
 }
 
 // ─── API Cache & Fetch ────────────────────────────────────────────────────────
@@ -99,10 +137,16 @@ async function fetchMovies(endpoint, page = 1) {
 
 // ─── Global actions (called from inline HTML onclick attributes) ──────────────
 
-window.playMovie = function (id, type) {
-    if (!id) return;
+window.playMovie = function (id, type, s, e) {
+    if (!id || id === 'undefined' || id === 'null') {
+        console.warn('[VAILISM] Invalid ID provided to playMovie:', id);
+        return;
+    }
     type = type || 'movie';
-    window.location.href = `player.html?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`;
+    let url = `player.html?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`;
+    if (s) url += `&s=${encodeURIComponent(s)}`;
+    if (e) url += `&e=${encodeURIComponent(e)}`;
+    window.location.href = url;
 };
 
 window.toggleMyList = function (movie, btn) {
@@ -133,6 +177,7 @@ window.toggleMyList = function (movie, btn) {
 document.addEventListener('DOMContentLoaded', () => {
 
     // ── Navbar scroll effect (throttled, null-safe) ───────────────────────────
+    autoCleanup();
     const navbar = document.getElementById('navbar');
     if (navbar) {
         let scrollTicking = false;
@@ -378,13 +423,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const mainContent = document.getElementById('main-content');
         if (!mainContent) return;
 
+        // Fetch and validate entries
+        const progressEntries = keys
+            .map(key => ({ key, data: lsGet(key) }))
+            .filter(item => isValidProgress(item.data))
+            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
+
+        if (progressEntries.length === 0) return;
+
         const rowSection = document.createElement('section');
         rowSection.classList.add('row');
-
         const rowHeader = document.createElement('h2');
         rowHeader.classList.add('row-header');
         rowHeader.textContent = 'Continue Watching';
-
         const rowPosters = document.createElement('div');
         rowPosters.classList.add('row-posters');
 
@@ -392,23 +443,19 @@ document.addEventListener('DOMContentLoaded', () => {
         rowSection.appendChild(rowHeader);
         rowSection.appendChild(rowPosters);
 
-        const fetchPromises = keys.map(async key => {
-            // ── Safe data read ──────────────────────────────────────────────
-            const savedData = lsGet(key);
-            if (!isValidProgress(savedData)) {
-                // Stale / corrupted entry — clean up silently
-                lsRemove(key);
-                return;
-            }
-
-            const movieId  = key.replace('vailism_progress_', '');
-            const typePath = savedData.mediaType || (savedData.season ? 'tv' : 'movie');
-            const ts       = parseFloat(savedData.timestamp);
-            const dur      = parseFloat(savedData.duration);
+        const fetchPromises = progressEntries.map(async item => {
+            const savedData = item.data;
+            const movieId   = savedData.id;
+            const typePath  = savedData.mediaType;
+            const ts        = savedData.timestamp;
+            const dur       = savedData.duration;
 
             try {
                 const res = await fetch(`/api/tmdb?path=${encodeURIComponent('/' + typePath + '/' + movieId)}`);
-                if (!res.ok) return;
+                if (!res.ok) {
+                    if (res.status === 404) lsRemove(item.key); // Failsafe removal
+                    return;
+                }
                 const data = await res.json();
                 if (!data || (!data.poster_path && !data.backdrop_path)) return;
 

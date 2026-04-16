@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const epCard = document.createElement('div');
                             epCard.className = 'episode-card';
                             // Single onclick — no stacking
-                            epCard.onclick = () => window.playMovie(id, type);
+                            epCard.onclick = () => window.playMovie(id, type, seasonNum, ep.episode_number);
 
                             const imgSrc = ep.still_path
                                 ? `https://image.tmdb.org/t/p/w342${ep.still_path}`
