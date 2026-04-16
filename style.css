@@ -272,27 +272,31 @@ body {
 .hero-buttons {
     display: flex;
     gap: 15px;
-    margin-top: -10px; /* Bring closer to description */
+    margin-top: -10px;
+    perspective: 1000px;
 }
 
 .btn {
     padding: 12px 35px;
     font-size: 0.95rem;
     font-weight: 700;
-    border-radius: 8px; /* Rounded but modern */
+    border-radius: 8px;
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    transition: all 0.3s cubic-bezier(0.2, 1, 0.3, 1);
+    gap: 8px;
+    transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
     letter-spacing: 0.5px;
     text-transform: uppercase;
 }
 
-.btn:active {
-    transform: scale(0.96); /* Tiny press effect */
+/* Page Load Focus Animation */
+@keyframes entranceGlow {
+    0% { box-shadow: 0 0 0 rgba(255,255,255,0); transform: scale(1); }
+    50% { box-shadow: 0 0 30px rgba(255,255,255,0.4); transform: scale(1.02); }
+    100% { box-shadow: 0 4px 15px rgba(0,0,0,0.3); transform: scale(1); }
 }
 
 .btn-play {
@@ -301,27 +305,56 @@ body {
     padding: 14px 45px;
     font-size: 1.05rem;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    animation: entranceGlow 2.5s ease-out 1s; /* Subtle draw-focus on load */
 }
 
+/* Netflix-style Hover Expansion */
 .btn-play:hover {
-    background-color: rgba(255,255,255,0.9);
-    transform: scale(1.04) translateY(-2px);
-    box-shadow: 0 8px 25px rgba(255,255,255,0.2);
+    background-color: #fff;
+    transform: scale(1.08) translateY(-4px);
+    padding: 14px 55px; /* Visual expansion */
+    gap: 12px; /* icon spacing increase */
+    box-shadow: 0 15px 35px rgba(255,255,255,0.25), 0 5px 15px rgba(0,0,0,0.5);
+    filter: brightness(1.1);
+}
+
+.btn-play i {
+    transition: transform 0.4s ease;
+}
+
+.btn-play:hover i {
+    transform: scale(1.15);
+}
+
+.btn-play:active {
+    transform: scale(0.94) translateY(0);
+    transition: transform 0.1s;
 }
 
 .btn-info {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.12);
     color: #fff;
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255,255,255,0.1);
     font-weight: 600;
+    opacity: 0.9;
 }
 
 .btn-info:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255,255,255,0.3);
-    box-shadow: 0 5px 15px rgba(255,255,255,0.05);
-    transform: translateY(-1px);
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255,255,255,0.4);
+    transform: translateY(-2px);
+    opacity: 1;
+}
+
+/* Focus Shift: Fade Info when Play is hovered */
+.hero-buttons:hover .btn-info:not(:hover) {
+    opacity: 0.5;
+    transform: scale(0.98);
+}
+
+.btn-info:active {
+    transform: scale(0.96);
 }
 
 /* Rows & Movie Cards */
