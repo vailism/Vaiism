@@ -61,6 +61,24 @@ window.playMovie = function(id, type = 'movie') {
     window.location.href = `player.html?id=${id}&type=${type}`;
 };
 
+// Toggle My List (Local persistence)
+window.toggleMyList = function(movie, btn) {
+    let myList = JSON.parse(localStorage.getItem('vailism_mylist') || '[]');
+    const id = String(movie.id);
+    const index = myList.findIndex(m => String(m.id) === id);
+    
+    if (index === -1) {
+        myList.push(movie);
+        if (btn) btn.classList.add('added');
+    } else {
+        myList.splice(index, 1);
+        if (btn) btn.classList.remove('added');
+    }
+    
+    localStorage.setItem('vailism_mylist', JSON.stringify(myList));
+    if(window.lucide) window.lucide.createIcons();
+};
+
 // Start logic when DOM is completely loaded
 document.addEventListener('DOMContentLoaded', () => {
     
@@ -146,6 +164,15 @@ document.addEventListener('DOMContentLoaded', () => {
             heroPlay.onclick = () => playMovie(movie.id, type);
         }
         
+        // My List Button
+        const btnList = document.querySelector('.btn-list');
+        if (btnList) {
+            btnList.style.display = 'flex';
+            const myList = JSON.parse(localStorage.getItem('vailism_mylist') || '[]');
+            if (myList.some(m => String(m.id) === String(movie.id))) btnList.classList.add('added');
+            btnList.onclick = () => toggleMyList(movie, btnList);
+        }
+
         // Set more info button to visible
         const btnInfo = document.querySelector('.btn-info');
         if (btnInfo) {
@@ -173,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.classList.add('card');
             card.dataset.id = movie.id;
-            card.onclick = () => playMovie(movie.id, type);
+            card.onclick = () => window.location.href = `details.html?id=${movie.id}&type=${type}`;
             
             const imgPath = movie.poster_path ? movie.poster_path : movie.backdrop_path;
             const fallbackImg = `onerror="this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'"`
@@ -181,11 +208,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Use aspect-ratio and width/height to prevent layout shifts
             card.innerHTML = `
                 <img src="${imgPath ? IMG_BASE_URL + imgPath : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}" alt="${movie.title || movie.name || 'Movie'}" loading="lazy" width="342" height="513" style="aspect-ratio: 2/3; object-fit: cover;" ${fallbackImg}>
+                <div class="card-info-btn" onclick="event.stopPropagation(); window.location.href='details.html?id=${movie.id}&type=${type}'"><i data-lucide="info" size="14"></i></div>
                 <div class="card-overlay">
                     <span style="font-weight: 600; font-size: 14px; text-shadow:1px 1px 2px rgba(0,0,0,1); color: white;">
                         ${movie.title || movie.name || ""}
                     </span>
-                    <div class="play-icon"><i data-lucide="play" fill="currentColor" size="16"></i></div>
+                    <div class="play-icon" onclick="event.stopPropagation(); playMovie('${movie.id}', '${type}')"><i data-lucide="play" fill="currentColor" size="16"></i></div>
                 </div>
             `;
             fragment.appendChild(card);
@@ -317,7 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data && (data.poster_path || data.backdrop_path)) {
                     const card = document.createElement('div');
                     card.classList.add('card');
-                    card.onclick = () => playMovie(movieId, typePath);
+                    card.onclick = () => window.location.href = `details.html?id=${movieId}&type=${typePath}`;
                     
                     const imgPath = data.poster_path || data.backdrop_path;
                     
@@ -327,11 +355,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     card.innerHTML = `
                         <img src="${IMG_BASE_URL}${imgPath}" alt="${data.title || data.name || 'Movie'}">
                         <div style="height:4px;width:100%;background:rgba(255,255,255,0.2);position:absolute;bottom:0px;"><div style="height:100%;width:${percentComplete}%;background:var(--primary-red);"></div></div>
+                        <div class="card-info-btn" onclick="event.stopPropagation(); window.location.href='details.html?id=${movieId}&type=${typePath}'"><i data-lucide="info" size="14"></i></div>
                         <div class="card-overlay">
                             <span style="font-weight: 600; font-size: 14px; text-shadow:1px 1px 2px rgba(0,0,0,1); color: white;">
                                 ${data.title || data.name || ""}
                             </span>
-                            <div class="play-icon"><i data-lucide="play" fill="currentColor" size="16"></i></div>
+                            <div class="play-icon" onclick="event.stopPropagation(); playMovie('${movieId}', '${typePath}')"><i data-lucide="play" fill="currentColor" size="16"></i></div>
                         </div>
                     `;
                     rowPosters.appendChild(card);
