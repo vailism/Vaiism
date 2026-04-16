@@ -200,123 +200,124 @@ body {
     margin-top: 20px;
 }
 
-/* Hero Section */
+/* Hero Section - Immersive Cinematic */
 .hero {
     position: relative;
-    height: 85vh;
-    background-size: 100%;
-    background-position: top center;
+    height: 95vh;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
     display: flex;
     align-items: center;
-    padding: 0 4%;
-    animation: fadeIn 0.8s ease, kenBurns 35s linear infinite alternate, backgroundPan 1.5s ease-out forwards;
-    /* transition: background-image 0.5s ease; removed for reliable animation */
+    padding: 0 8%;
+    animation: fadeIn 1.2s cubic-bezier(0.2, 1, 0.3, 1), kenBurns 40s linear infinite alternate;
 }
 
 @keyframes kenBurns {
-    from { background-size: 100%; }
-    to { background-size: 110%; }
-}
-@keyframes backgroundPan {
-    from { opacity: 0; transform: scale(1.05); }
-    to { opacity: 1; transform: scale(1); }
+    from { background-size: 105%; }
+    to { background-size: 115%; }
 }
 
 .hero-vignette {
     position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(to top, rgba(20,20,20,1) 0%, transparent 40%),
-                linear-gradient(to right, rgba(20,20,20,1) 0%, rgba(20,20,20,0.85) 35%, transparent 70%);
+    inset: 0;
+    background: radial-gradient(circle at 20% 50%, transparent 0%, rgba(10,10,10,0.4) 40%, rgba(10,10,10,0.95) 100%),
+                linear-gradient(to right, rgba(10,10,10,1) 0%, rgba(10,10,10,0.8) 20%, transparent 60%),
+                linear-gradient(to top, rgba(10,10,10,1) 0%, transparent 30%);
     z-index: 1;
 }
 
 .hero-content {
     position: relative;
     z-index: 2;
-    max-width: 650px;
+    max-width: 800px;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: suiteFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 0.5s forwards;
+}
+
+@keyframes suiteFadeIn {
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* Hero UI Hierarchy */
 .hero-meta {
-    font-size: 1rem;
-    color: var(--text-muted);
-    display: flex;
-    gap: 15px;
-    align-items: center;
-    margin-bottom: 8px;
-    transition: opacity 0.3s;
-}
-
-.hero-genres {
-    display: flex;
-    gap: 10px;
     font-size: 0.9rem;
-    color: #a3a3a3;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
+    color: rgba(255, 255, 255, 0.5);
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
 }
 
 .hero-title {
-    font-size: 4rem;
+    font-family: 'Playfair Display', serif;
+    font-size: 5rem;
     font-weight: 700;
-    margin-bottom: 20px;
-    text-shadow: 2px 2px 6px rgba(0,0,0,0.6);
-    min-height: 4rem;
+    margin-bottom: 25px;
+    line-height: 1.1;
+    text-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    background: linear-gradient(to bottom, #fff, #ccc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .hero-description {
-    font-size: 1.2rem;
-    line-height: 1.5;
-    margin-bottom: 30px;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.6);
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    min-height: 5.4rem;
+    font-size: 1.25rem;
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.6;
+    margin-bottom: 40px;
+    max-width: 600px;
+    font-weight: 400;
 }
 
 .hero-buttons {
     display: flex;
-    gap: 15px;
+    gap: 20px;
 }
 
 .btn {
-    padding: 10px 30px;
-    font-size: 1.2rem;
+    padding: 14px 40px;
+    font-size: 1rem;
     font-weight: 600;
-    border-radius: 4px;
+    border-radius: 50px;
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 10px;
-    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.2s, background-color 0.2s;
+    gap: 12px;
+    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    letter-spacing: 1px;
 }
 
 .btn:hover {
     transform: scale(1.05);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.3);
 }
 
 .btn-play {
-    background-color: var(--text-light);
-    color: black;
+    background-color: #fff;
+    color: #000;
 }
 
 .btn-play:hover {
-    background-color: rgba(255, 255, 255, 0.7);
+    background-color: #e0e0e0;
+    box-shadow: 0 0 20px rgba(255,255,255,0.4);
 }
 
 .btn-info {
-    background-color: rgba(109, 109, 110, 0.7);
-    color: white;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
 }
 
 .btn-info:hover {
-    background-color: rgba(109, 109, 110, 0.4);
+    background-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 20px rgba(255,255,255,0.1);
 }
 
 /* Rows & Movie Cards */
