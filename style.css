@@ -196,16 +196,27 @@ body {
 }
 
 /* Hero Section - Immersive Cinematic */
+/* Hero Section - Elite Movie Trailer Aesthetic */
 .hero {
     position: relative;
-    height: 95vh;
+    height: 98vh;
     background-size: cover;
-    background-position: center center;
+    background-position: center bottom;
     background-repeat: no-repeat;
     display: flex;
     align-items: center;
-    padding: 0 8%;
-    animation: fadeIn 1.2s cubic-bezier(0.2, 1, 0.3, 1), kenBurns 40s linear infinite alternate;
+    padding: 0 10%;
+    animation: fadeIn 1.5s cubic-bezier(0.2, 1, 0.3, 1), kenBurns 45s linear infinite alternate;
+    overflow: hidden;
+}
+
+/* Subtle Cinematic Tint Overlay */
+.hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 10, 10, 0.2); /* Very soft atmospheric tint */
+    z-index: 1;
 }
 
 @keyframes kenBurns {
@@ -216,68 +227,76 @@ body {
 .hero-vignette {
     position: absolute;
     inset: 0;
-    background: radial-gradient(circle at 20% 50%, transparent 0%, rgba(10,10,10,0.4) 40%, rgba(10,10,10,0.95) 100%),
-                linear-gradient(to right, rgba(10,10,10,1) 0%, rgba(10,10,10,0.8) 20%, transparent 60%),
-                linear-gradient(to top, rgba(10,10,10,1) 0%, transparent 30%);
-    z-index: 1;
+    background: radial-gradient(circle at 25% 50%, transparent 0%, rgba(10,10,10,0.5) 45%, rgba(10,10,10,0.95) 100%),
+                linear-gradient(to right, rgba(10,10,10,1) 0%, rgba(10,10,10,0.85) 25%, transparent 60%),
+                linear-gradient(to top, rgba(10,10,10,1) 0%, rgba(10,10,10,0.7) 15%, transparent 40%);
+    z-index: 2;
 }
 
 .hero-content {
     position: relative;
-    z-index: 2;
-    max-width: 800px;
-    opacity: 0;
-    transform: translateY(20px);
-    animation: suiteFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 0.5s forwards;
-}
-
-@keyframes suiteFadeIn {
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* Hero UI Hierarchy */
-.hero-meta {
-    font-size: 0.9rem;
-    color: rgba(255, 255, 255, 0.5);
+    z-index: 3;
+    max-width: 850px;
     display: flex;
-    gap: 20px;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Staggered Reveal System */
+.hero-title, .hero-description, .hero-buttons, .hero-meta {
+    opacity: 0;
+    transform: translateY(30px);
+}
+
+.hero-meta {
+    animation: trailerFadeIn 0.8s cubic-bezier(0.2, 1, 0.3, 1) 0.6s forwards;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.45);
+    display: flex;
+    gap: 25px;
     align-items: center;
-    margin-bottom: 12px;
-    letter-spacing: 2px;
+    letter-spacing: 3px;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .hero-title {
+    animation: trailerFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 0.8s forwards;
     font-family: 'Playfair Display', serif;
-    font-size: 5rem;
+    font-size: 5.5rem;
     font-weight: 700;
-    margin-bottom: 25px;
-    line-height: 1.1;
-    text-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    background: linear-gradient(to bottom, #fff, #ccc);
+    line-height: 1.05;
+    letter-spacing: -1px;
+    margin-bottom: 20px;
+    text-shadow: 0 15px 40px rgba(0,0,0,0.6);
+    background: linear-gradient(180deg, #fff 0%, #d1d5db 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
 .hero-description {
-    font-size: 1.25rem;
-    color: rgba(255, 255, 255, 0.6);
-    line-height: 1.6;
-    margin-bottom: 40px;
-    max-width: 600px;
+    animation: trailerFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 1s forwards;
+    font-size: 1.3rem;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1.7;
+    margin-bottom: 35px;
+    max-width: 650px;
     font-weight: 400;
 }
 
 .hero-buttons {
+    animation: trailerFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 1.2s forwards;
     display: flex;
-    gap: 15px;
-    margin-top: -10px;
+    gap: 20px;
     perspective: 1000px;
 }
 
+@keyframes trailerFadeIn {
+    to { opacity: 1; transform: translateY(0); }
+}
+
 .btn {
-    padding: 12px 35px;
+    padding: 14px 45px;
     font-size: 0.95rem;
     font-weight: 700;
     border-radius: 8px;
