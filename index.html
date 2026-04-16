@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="VAILISM — Stream movies and TV shows instantly. A premium Netflix-style streaming experience.">
+    <title>VAILISM — Stream Everything</title>
     <link rel="stylesheet" href="style.css">
     <!-- Advanced Loading Preconnections -->
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
@@ -18,7 +21,7 @@
         <div class="nav-right">
             <div class="search-container">
                 <span class="search-icon"><i data-lucide="search"></i></span>
-                <input type="text" id="search-input" placeholder="Titles, genres...">
+                <input type="text" id="search-input" placeholder="Titles, genres..." autocomplete="off">
             </div>
         </div>
     </nav>
@@ -49,7 +52,7 @@
                     <button class="btn btn-play" id="hero-play" style="display: none;">
                         <i data-lucide="play" fill="currentColor"></i> Play
                     </button>
-                    <button class="btn btn-info" style="display: none;">
+                    <button class="btn btn-info" id="hero-info" style="display: none;">
                         <i data-lucide="info"></i> More Info
                     </button>
                 </div>
@@ -64,7 +67,7 @@
 
     <script src="script.js"></script>
     <script>
-      lucide.createIcons();
+      if (window.lucide) lucide.createIcons();
     </script>
 </body>
 </html>

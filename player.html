@@ -2,50 +2,58 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>VAILISM - Player</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        body {
+        html, body {
             margin: 0;
             padding: 0;
             background-color: #000;
             overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
+            height: 100dvh;
         }
 
         .back-button {
-            position: absolute;
+            position: fixed;
             top: 20px;
             left: 20px;
             color: white;
-            font-size: 20px;
+            font-size: 16px;
             text-decoration: none;
-            z-index: 10;
+            z-index: 100;
             transition: transform 0.2s, background 0.2s;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.75);
             padding: 10px 20px;
             border-radius: 4px;
             font-weight: 500;
+            font-family: 'Outfit', 'Arial', sans-serif;
         }
 
         .back-button:hover {
             transform: scale(1.05);
-            background: var(--primary-red);
+            background: #e50914;
         }
 
-        .iframe-container {
-            width: 100vw;
-            height: 100vh;
-            border: none;
-            opacity: 0;
-            transition: opacity 0.5s ease;
+        .player-wrap {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
         }
 
-        iframe {
+        .player-wrap iframe {
+            display: block;
             width: 100%;
             height: 100%;
             border: none;
@@ -53,119 +61,233 @@
         }
 
         .loader {
-            position: absolute;
+            position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             display: flex;
             flex-direction: column;
             align-items: center;
-            color: var(--primary-red);
+            color: #e50914;
+            z-index: 50;
         }
 
         .spinner {
             width: 50px;
             height: 50px;
             border: 4px solid rgba(229, 9, 20, 0.3);
-            border-top: 4px solid var(--primary-red);
+            border-top: 4px solid #e50914;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
+            0%   { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        .loader-text {
+            color: rgba(255,255,255,0.6);
+            font-family: 'Outfit', 'Arial', sans-serif;
+            font-size: 14px;
+            letter-spacing: 1px;
         }
     </style>
 </head>
 <body>
 
     <a href="index.html" class="back-button">← Back to Browse</a>
-    
+
     <div class="loader" id="loader">
         <div class="spinner"></div>
+        <span class="loader-text">Loading...</span>
     </div>
 
-    <div class="iframe-container" id="iframe-container">
+    <div class="player-wrap" id="player-wrap" style="opacity:0; transition: opacity 0.4s ease;">
         <!-- Iframe injected via JS -->
     </div>
 
     <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const movieId = urlParams.get('id');
-        const mediaType = urlParams.get('type') || 'movie'; // Default movie, else 'tv'
+    (function () {
+        'use strict';
 
+        // ── Parse URL params ──────────────────────────────────────────────
+        var params    = new URLSearchParams(window.location.search);
+        var movieId   = params.get('id');
+        var mediaType = params.get('type') || 'movie';
+
+        var loader     = document.getElementById('loader');
+        var playerWrap = document.getElementById('player-wrap');
+
+        // ── Guard: no ID ──────────────────────────────────────────────────
         if (!movieId) {
-            document.body.innerHTML = '<div style="color:white; text-align:center; margin-top:50px;"><h1>Error: No Media ID Provided.</h1><a href="index.html" style="color:#e50914;">Return Home</a></div>';
-        } else {
-            const iframeContainer = document.getElementById('iframe-container');
-            const loader = document.getElementById('loader');
-
-            // Construct Vidking embed URL based on type
-            let embedUrl = '';
-            
-            // Check for saved progress automatically
-            const storageKey = `vailism_progress_${movieId}`;
-            const savedProgressObj = JSON.parse(localStorage.getItem(storageKey) || 'null');
-            let progressQuery = '';
-            
-            if (savedProgressObj && savedProgressObj.timestamp) {
-                // Vidking accepts progress in seconds
-                progressQuery = `&progress=${Math.floor(savedProgressObj.timestamp)}`;
-            }
-
-            if (mediaType === 'tv') {
-                // Default to season 1 episode 1 if unknown, however, if we saved progress, it could resume
-                // Note: savedProgressObj could technically hold saved season/episode but let's default 1/1
-                let s = 1;
-                let e = 1;
-                if (savedProgressObj && savedProgressObj.season) s = savedProgressObj.season;
-                if (savedProgressObj && savedProgressObj.episode) e = savedProgressObj.episode;
-                
-                embedUrl = `https://www.vidking.net/embed/tv/${movieId}/${s}/${e}?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true${progressQuery}`;
-            } else {
-                embedUrl = `https://www.vidking.net/embed/movie/${movieId}?color=e50914&autoPlay=true${progressQuery}`;
-            }
-
-            const iframe = document.createElement('iframe');
-            iframe.src = embedUrl;
-            iframe.setAttribute('frameborder', '0');
-            iframe.allowFullscreen = true;
-            iframe.setAttribute('allow', 'autoplay; fullscreen');
-            
-            iframe.onload = () => {
-                loader.style.display = 'none';
-                iframeContainer.style.opacity = '1';
-            };
-
-            iframeContainer.appendChild(iframe);
-            
-            // Setup Watch Progress Tracking Listener
-            window.addEventListener("message", function (event) {
-                try {
-                    // Try parsing the message; Vidking sends specific payload
-                    let payload = event.data;
-                    if (typeof payload === 'string') payload = JSON.parse(payload);
-                    
-                    if (payload && payload.type === "PLAYER_EVENT" && payload.data) {
-                        const eventData = payload.data;
-                        
-                        // Save to local storage on continuous ticks or pause
-                        if (eventData.event === 'timeupdate' || eventData.event === 'pause') {
-                            localStorage.setItem(storageKey, JSON.stringify({
-                                timestamp: eventData.currentTime,
-                                duration: eventData.duration,
-                                season: eventData.season,
-                                episode: eventData.episode
-                            }));
-                        }
-                    }
-                } catch(e) {
-                    // Ignore non-json or unformatted messages safely
-                }
-            });
+            document.body.innerHTML =
+                '<div style="color:#fff;text-align:center;padding:60px 20px;">' +
+                '<h1 style="margin-bottom:20px;">No Media ID Provided</h1>' +
+                '<a href="index.html" style="color:#e50914;font-size:18px;">← Return Home</a>' +
+                '</div>';
+            return;
         }
+
+        // ── Storage key ──────────────────────────────────────────────────
+        var storageKey = 'vailism_progress_' + movieId;
+
+        // ── Load saved progress ───────────────────────────────────────────
+        var savedData = null;
+        try {
+            savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+        } catch (e) {
+            savedData = null;
+        }
+
+        // ── Validate saved data ───────────────────────────────────────────
+        // Prevent corrupted state: ensure timestamp < duration and both are numbers
+        if (savedData) {
+            var st = parseFloat(savedData.timestamp);
+            var sd = parseFloat(savedData.duration);
+            if (!isFinite(st) || !isFinite(sd) || st <= 0 || st >= sd) {
+                console.log('[VAILISM] Saved progress invalid or complete – resetting.');
+                savedData = null;
+            }
+        }
+
+        // ── Build embed URL ────────────────────────────────────────────────
+        var embedUrl = '';
+        var progressQuery = '';
+
+        if (savedData && savedData.timestamp) {
+            var resumeTime = Math.floor(parseFloat(savedData.timestamp));
+            if (resumeTime > 0) {
+                progressQuery = '&progress=' + resumeTime;
+                console.log('[VAILISM] Resuming from ' + resumeTime + 's');
+            }
+        }
+
+        if (mediaType === 'tv') {
+            var s = (savedData && savedData.season)  ? savedData.season  : 1;
+            var e = (savedData && savedData.episode) ? savedData.episode : 1;
+            embedUrl = 'https://www.vidking.net/embed/tv/' + movieId + '/' + s + '/' + e +
+                       '?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true' + progressQuery;
+        } else {
+            embedUrl = 'https://www.vidking.net/embed/movie/' + movieId +
+                       '?color=e50914&autoPlay=true' + progressQuery;
+        }
+
+        console.log('[VAILISM] Embedding:', embedUrl);
+
+        // ── Create iframe (single instance, never re-created) ─────────────
+        var iframe = document.createElement('iframe');
+        iframe.src = embedUrl;
+        iframe.setAttribute('frameborder', '0');
+        iframe.setAttribute('scrolling', 'no');
+        iframe.setAttribute('allowfullscreen', 'true');
+        iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+        iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+
+        // ── Reveal player once iframe fires load ──────────────────────────
+        var loaderHidden = false;
+        function hideLoader() {
+            if (loaderHidden) return;
+            loaderHidden = true;
+            loader.style.display = 'none';
+            playerWrap.style.opacity = '1';
+            console.log('[VAILISM] Player visible.');
+        }
+
+        iframe.addEventListener('load', hideLoader);
+
+        // Fallback: force show after 8s if load event never fires (some embeds don't trigger it)
+        setTimeout(hideLoader, 8000);
+
+        playerWrap.appendChild(iframe);
+
+        // ── Progress tracking via postMessage ─────────────────────────────
+        // Vidking sends postMessages with player state. We intercept and save.
+        var saveThrottle    = null;
+        var lastLoggedTime  = -1;
+
+        function onPlayerMessage(event) {
+            var payload = event.data;
+            if (!payload) return;
+
+            try {
+                if (typeof payload === 'string') payload = JSON.parse(payload);
+            } catch (e) {
+                return; // not JSON – ignore
+            }
+
+            if (!payload || typeof payload !== 'object') return;
+
+            // Vidking event format: { type: "PLAYER_EVENT", data: { ... } }
+            var data = null;
+            if (payload.type === 'PLAYER_EVENT' && payload.data) {
+                data = payload.data;
+            } else if (payload.event && payload.currentTime !== undefined) {
+                data = payload; // flattened variant
+            }
+            if (!data) return;
+
+            var evtName     = data.event || data.type || '';
+            var currentTime = parseFloat(data.currentTime) || 0;
+            var duration    = parseFloat(data.duration)    || 0;
+
+            // Throttle debug logging to once every 30s to keep console clean
+            if (evtName === 'timeupdate') {
+                if (currentTime - lastLoggedTime >= 30) {
+                    console.log('[VAILISM] time=' + currentTime.toFixed(0) + 's / ' + duration.toFixed(0) + 's');
+                    lastLoggedTime = currentTime;
+                }
+            } else {
+                console.log('[VAILISM][' + evtName + '] time=' + currentTime.toFixed(1));
+            }
+
+            // Save on timeupdate and pause
+            if (evtName === 'timeupdate' || evtName === 'pause') {
+                if (currentTime > 0 && duration > 0 && currentTime < duration) {
+                    if (saveThrottle) return;
+                    saveThrottle = setTimeout(function () { saveThrottle = null; }, 3000);
+
+                    var toSave = {
+                        timestamp: currentTime,
+                        duration:  duration,
+                        id:        movieId,
+                        mediaType: mediaType,
+                        date:      new Date().toISOString()
+                    };
+                    if (data.season)  toSave.season  = data.season;
+                    if (data.episode) toSave.episode = data.episode;
+
+                    try {
+                        localStorage.setItem(storageKey, JSON.stringify(toSave));
+                    } catch (e) {
+                        console.warn('[VAILISM] localStorage write failed:', e);
+                    }
+                }
+            }
+
+            // Clear storage when video completes
+            if (evtName === 'ended' || evtName === 'complete') {
+                try { localStorage.removeItem(storageKey); } catch (e) {}
+                console.log('[VAILISM] Playback complete – progress cleared.');
+            }
+        }
+
+        window.addEventListener('message', onPlayerMessage);
+
+        // ── Cleanup on page unload (prevents memory leaks / stacking on
+        //    browsers that keep pages in bfcache) ────────────────────────
+        function cleanup() {
+            window.removeEventListener('message', onPlayerMessage);
+            if (saveThrottle) {
+                clearTimeout(saveThrottle);
+                saveThrottle = null;
+            }
+        }
+        window.addEventListener('pagehide',    cleanup);
+        window.addEventListener('beforeunload', cleanup);
+
+    })();
     </script>
 </body>
 </html>
