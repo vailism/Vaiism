@@ -206,22 +206,29 @@ body {
     display: flex;
     align-items: center;
     padding: 0 10%;
-    animation: fadeIn 1.5s cubic-bezier(0.2, 1, 0.3, 1), kenBurns 45s linear infinite alternate;
+    animation: fadeIn 1.5s ease-out, breathingBackground 25s ease-in-out infinite alternate;
     overflow: hidden;
 }
 
-/* Subtle Cinematic Tint Overlay */
+/* Subtle Cinematic Tint Overlay & Light Sweep */
 .hero::before {
     content: '';
     position: absolute;
     inset: 0;
-    background: rgba(10, 10, 10, 0.2); /* Very soft atmospheric tint */
+    background: linear-gradient(110deg, transparent, rgba(255,255,255,0.02), transparent);
+    background-size: 200% 100%;
+    animation: lightSweep 15s linear infinite;
     z-index: 1;
 }
 
-@keyframes kenBurns {
-    from { background-size: 105%; }
-    to { background-size: 115%; }
+@keyframes breathingBackground {
+    from { transform: scale(1); }
+    to { transform: scale(1.03); }
+}
+
+@keyframes lightSweep {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
 }
 
 .hero-vignette {
@@ -311,11 +318,11 @@ body {
     text-transform: uppercase;
 }
 
-/* Page Load Focus Animation */
-@keyframes entranceGlow {
-    0% { box-shadow: 0 0 0 rgba(255,255,255,0); transform: scale(1); }
-    50% { box-shadow: 0 0 30px rgba(255,255,255,0.4); transform: scale(1.02); }
-    100% { box-shadow: 0 4px 15px rgba(0,0,0,0.3); transform: scale(1); }
+/* Page Load Pulse (Once) */
+@keyframes singlePulse {
+    0% { box-shadow: 0 0 0 rgba(255,255,255,0); }
+    50% { box-shadow: 0 0 35px rgba(255,255,255,0.5); }
+    100% { box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
 }
 
 .btn-play {
@@ -324,7 +331,7 @@ body {
     padding: 14px 45px;
     font-size: 1.05rem;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    animation: entranceGlow 2.5s ease-out 1s; /* Subtle draw-focus on load */
+    animation: singlePulse 2s ease-out 1s; /* Focused draw-in on load */
 }
 
 /* Netflix-style Hover Expansion */
@@ -432,11 +439,11 @@ body {
     width: calc(100% / 6 - 8px);
     border-radius: 4px;
     cursor: pointer;
-    transition: transform 0.4s cubic-bezier(0.2, 1, 0.3, 1), box-shadow 0.4s ease, filter 0.3s ease;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s ease, filter 0.6s ease;
     transform-origin: center center;
     aspect-ratio: 2/3;
     background-color: var(--dark-search);
-    flex-shrink: 0; /* CRITICAL FIX: absolutely guarantees card dimensions */
+    flex-shrink: 0;
     scroll-snap-align: start;
     z-index: 5;
     pointer-events: auto;
@@ -457,10 +464,10 @@ body {
 }
 
 .card:hover {
-    transform: scale(1.08) translateY(-10px);
-    filter: brightness(1.15);
+    transform: translateY(-8px) scale(1.05); /* Soft, ambient lift */
+    filter: brightness(1.1);
     z-index: 20;
-    box-shadow: 0 15px 35px rgba(0,0,0,1);
+    box-shadow: 0 15px 45px rgba(0,0,0,1);
 }
 
 /* Netflix style row expansion logic for extreme left/right edges */
