@@ -58,6 +58,7 @@ async function fetchMovies(endpoint, page = 1) {
 // Navigate to player
 window.playMovie = function(id, type = 'movie') {
     if (!id) return;
+    console.log(`🎬 PLAYING: ${type} with ID ${id}`);
     window.location.href = `player.html?id=${id}&type=${type}`;
 };
 

@@ -272,6 +272,8 @@ body {
     margin-bottom: 40px;
     display: flex;
     flex-direction: column;
+    position: relative;
+    z-index: 10;
 }
 
 .row-header {
@@ -320,6 +322,8 @@ body {
     background-color: var(--dark-search);
     flex-shrink: 0; /* CRITICAL FIX: absolutely guarantees card dimensions */
     scroll-snap-align: start;
+    z-index: 5;
+    pointer-events: auto;
 }
 
 .search-grid .card {
@@ -358,6 +362,11 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    pointer-events: none; /* Let clicks pass through to the card */
+}
+
+.card-overlay * {
+    pointer-events: auto; /* Re-enable for buttons inside */
 }
 
 .card:hover .card-overlay {
