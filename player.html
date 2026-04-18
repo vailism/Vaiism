@@ -108,6 +108,12 @@
         <!-- Iframe injected via JS -->
     </div>
 
+    <!-- Vercel Web Analytics -->
+    <script type="module">
+      import { inject } from './node_modules/@vercel/analytics/dist/index.mjs';
+      inject();
+    </script>
+
     <script>
     (function () {
         'use strict';

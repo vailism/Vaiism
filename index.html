@@ -65,6 +65,10 @@
         </main>
     </div>
 
+    <script type="module">
+      import { inject } from './node_modules/@vercel/analytics/dist/index.mjs';
+      inject();
+    </script>
     <script src="script.js"></script>
     <script>
       if (window.lucide) lucide.createIcons();
