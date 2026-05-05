@@ -228,25 +228,20 @@ body {
     display: flex;
     align-items: center;
     padding: 0 10%;
-    animation: fadeIn 1.5s ease-out, breathingBackground 12s ease-in-out infinite alternate;
+    animation: fadeIn 1.5s ease-out;
     overflow: hidden;
 }
 
-/* Subtle Cinematic Tint Overlay & Light Sweep */
+/* Subtle Cinematic Tint Overlay — runs once then stops */
 .hero::before {
     content: '';
     position: absolute;
     inset: 0;
     background: linear-gradient(110deg, transparent, rgba(255,255,255,0.02), transparent);
     background-size: 200% 100%;
-    animation: lightSweep 15s linear infinite;
+    animation: lightSweep 3s ease-out forwards;
     z-index: 1;
     pointer-events: none;
-}
-
-@keyframes breathingBackground {
-    from { transform: scale(1); }
-    to { transform: scale(1.05); }
 }
 
 @keyframes lightSweep {
@@ -389,10 +384,8 @@ body {
 }
 
 .btn-info {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(109, 109, 110, 0.4);
     color: #fff;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.15);
     font-weight: 600;
 }
@@ -573,6 +566,7 @@ body {
     background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
     background-size: 200% 100%;
     animation: loading 1.5s infinite;
+    will-change: background-position;
 }
 
 .skeleton-text {
@@ -582,6 +576,7 @@ body {
     color: transparent !important;
     text-shadow: none !important;
     border-radius: 4px;
+    will-change: background-position;
 }
 
 @keyframes loading {
@@ -734,9 +729,7 @@ body {
     transform: translate(-50%, -50%);
     width: 48px;
     height: 48px;
-    background: rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(20, 20, 20, 0.8);
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.2);
     display: flex;
@@ -744,7 +737,7 @@ body {
     justify-content: center;
     opacity: 0;
     z-index: 5;
-    transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+    transition: opacity 0.2s ease, transform 0.2s ease;
     box-shadow: 0 0 15px rgba(0,0,0,0.5);
 }
 

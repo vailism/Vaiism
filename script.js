@@ -20,6 +20,17 @@ const ENDPOINTS = [
 
 let globalCategoryIndex = 0;
 
+// Debounced Lucide icon refresh — prevents calling createIcons() dozens of times
+let lucideRafPending = false;
+function refreshIcons() {
+    if (lucideRafPending) return;
+    lucideRafPending = true;
+    requestAnimationFrame(function() {
+        if (window.lucide) window.lucide.createIcons();
+        lucideRafPending = false;
+    });
+}
+
 // ─── Safe localStorage helpers ────────────────────────────────────────────────
 // All localStorage access goes through these — never throws, never crashes UI.
 
@@ -280,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnList.onclick = () => window.toggleMyList(movie, btnList);
         }
 
-        if (window.lucide) window.lucide.createIcons();
+        refreshIcons();
     }
 
     // ── Card Builder ──────────────────────────────────────────────────────────
@@ -336,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         container.appendChild(fragment);
-        if (window.lucide) window.lucide.createIcons();
+        refreshIcons();
     }
 
     // ── Horizontal Infinite Scroll ────────────────────────────────────────────
@@ -499,7 +510,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>`;
 
                 rowPosters.appendChild(card);
-                if (window.lucide) window.lucide.createIcons();
             } catch (e) {
                 console.warn('[VAILISM] Continue Watching fetch failed for', key, e);
             }
@@ -510,6 +520,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Remove the section entirely if nothing loaded
         if (rowPosters.children.length === 0) {
             rowSection.remove();
+        } else {
+            refreshIcons();
         }
     }
 

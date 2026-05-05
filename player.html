@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>VAILISM - Player</title>
-    <link rel="stylesheet" href="style.css">
     <style>
         html, body {
             margin: 0;
@@ -47,24 +46,21 @@
             color: white;
             font-size: 15px;
             text-decoration: none;
-            transition: all 0.2s ease;
-            background: rgba(20, 20, 20, 0.6);
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+            background: rgba(10, 10, 10, 0.85);
             padding: 8px 18px;
             border-radius: 6px;
             font-weight: 500;
             font-family: 'Outfit', sans-serif;
             border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
         .back-button:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(40, 40, 40, 0.9);
             border-color: rgba(255,255,255,0.3);
-            transform: translateY(-1px);
         }
 
         .right-controls {
@@ -77,10 +73,8 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            background: rgba(20, 20, 20, 0.6);
+            background: rgba(10, 10, 10, 0.85);
             border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
             color: #fff;
             padding: 8px 16px;
             border-radius: 6px;
@@ -88,11 +82,11 @@
             font-size: 14px;
             font-weight: 500;
             font-family: 'Outfit', sans-serif;
-            transition: all 0.2s ease;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
         }
 
         .premium-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(40, 40, 40, 0.9);
             border-color: rgba(255,255,255,0.3);
         }
 
@@ -103,18 +97,17 @@
             position: absolute;
             top: calc(100% + 12px);
             right: 0;
-            background: rgba(20, 20, 20, 0.95);
+            background: rgba(14, 14, 14, 0.98);
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px;
             padding: 20px;
             min-width: 280px;
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
             z-index: 200;
             box-shadow: 0 10px 40px rgba(0,0,0,0.8);
             font-family: 'Outfit', sans-serif;
-            transform: translateY(-10px);
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            transform: translateY(-8px);
+            transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+            will-change: opacity, transform;
         }
 
         .popover.show {
@@ -184,7 +177,7 @@
             text-align: left;
             cursor: pointer;
             font-family: 'Outfit', sans-serif;
-            transition: all 0.2s;
+            transition: background-color 0.15s ease, border-color 0.15s ease;
             display: flex;
             flex-direction: column;
             gap: 2px;
@@ -218,8 +211,14 @@
             border: 3px solid rgba(229, 9, 20, 0.1);
             border-top: 3px solid #e50914;
             border-radius: 50%;
-            animation: spin 1s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
+            animation: spin 1s linear infinite;
             margin-bottom: 20px;
+            will-change: transform;
+        }
+
+        @keyframes spin {
+            0%   { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         .loader-text {
             color: rgba(255,255,255,0.7);
@@ -525,8 +524,17 @@
             }, 3000);
         }
 
-        document.addEventListener('mousemove', resetControlsTimer);
-        document.addEventListener('touchstart', resetControlsTimer);
+        // Throttled mousemove via rAF to prevent 60+ calls/sec
+        var mouseMoveRaf = false;
+        document.addEventListener('mousemove', function() {
+            if (mouseMoveRaf) return;
+            mouseMoveRaf = true;
+            requestAnimationFrame(function() {
+                resetControlsTimer();
+                mouseMoveRaf = false;
+            });
+        }, { passive: true });
+        document.addEventListener('touchstart', resetControlsTimer, { passive: true });
         resetControlsTimer(); // Init
 
         // ── Embed Provider URLs ───────────────────────────────────────────
