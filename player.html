@@ -23,25 +23,73 @@
             height: 100dvh;
         }
 
-        .back-button {
+        .top-controls {
             position: fixed;
             top: 20px;
             left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .back-button {
             color: white;
             font-size: 16px;
             text-decoration: none;
-            z-index: 100;
             transition: transform 0.2s, background 0.2s;
             background: rgba(0, 0, 0, 0.75);
             padding: 10px 20px;
             border-radius: 4px;
             font-weight: 500;
             font-family: 'Outfit', 'Arial', sans-serif;
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
 
         .back-button:hover {
             transform: scale(1.05);
             background: #e50914;
+            border-color: #e50914;
+        }
+
+        .server-selector {
+            display: flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            font-family: 'Outfit', 'Arial', sans-serif;
+        }
+
+        .server-btn {
+            background: transparent;
+            color: rgba(255,255,255,0.7);
+            border: none;
+            padding: 6px 12px;
+            margin: 0 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+            font-family: 'Outfit', 'Arial', sans-serif;
+        }
+
+        .server-btn:hover {
+            color: white;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .server-btn.active {
+            background: #e50914;
+            color: white;
+            box-shadow: 0 0 10px rgba(229, 9, 20, 0.4);
         }
 
         .player-wrap {
@@ -97,7 +145,15 @@
 </head>
 <body>
 
-    <a href="index.html" class="back-button">← Back to Browse</a>
+    <div class="top-controls">
+        <a href="index.html" class="back-button">← Back to Browse</a>
+        <div class="server-selector">
+            <span style="color: rgba(255,255,255,0.6); font-size: 13px; margin-right: 10px;">Audio / Source:</span>
+            <button class="server-btn active" onclick="switchServer('vidlink', this)">Source 1</button>
+            <button class="server-btn" onclick="switchServer('vidsrc', this)">Source 2</button>
+            <button class="server-btn" onclick="switchServer('super', this)">Source 3</button>
+        </div>
+    </div>
 
     <div class="loader" id="loader">
         <div class="spinner"></div>
@@ -184,45 +240,64 @@
             }
         }
 
-        function buildIframe() {
-            var embedUrl = '';
-            
-            // Determine resume time if saved data is valid
+        function getEmbedUrl(server, movieId, s, e, ts) {
             var startTimeParam = '';
+            if (ts > 0) {
+                // Not all servers support startTime natively, but we apply it where possible
+                startTimeParam = '&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts);
+            }
+
+            if (mediaType === 'tv') {
+                if (server === 'vidlink') return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                if (server === 'vidsrc')  return 'https://vidsrc.me/embed/tv?tmdb=' + movieId + '&season=' + s + '&episode=' + e + startTimeParam;
+                if (server === 'super')   return 'https://multiembed.mov/directstream.php?video_id=' + movieId + '&tmdb=1&s=' + s + '&e=' + e;
+            } else {
+                if (server === 'vidlink') return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                if (server === 'vidsrc')  return 'https://vidsrc.me/embed/movie?tmdb=' + movieId + startTimeParam;
+                if (server === 'super')   return 'https://multiembed.mov/directstream.php?video_id=' + movieId + '&tmdb=1';
+            }
+            return '';
+        }
+
+        var currentServer = 'vidlink';
+        var currentIframe = null;
+
+        function buildIframe() {
+            // Refresh savedData to capture any progress made on previous server
+            try {
+                var freshData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                if (freshData) savedData = freshData;
+            } catch (e) {}
+
+            var ts = 0;
             if (savedData && savedData.timestamp && savedData.duration) {
-                var ts = parseFloat(savedData.timestamp);
+                var rawTs = parseFloat(savedData.timestamp);
                 var dur = parseFloat(savedData.duration);
-                if (ts > 0 && dur > 0 && ts < (dur - 10)) {
-                    var seekTo = Math.min(ts, dur - 5);
-                    startTimeParam = '&startTime=' + Math.floor(seekTo);
-                    console.log('[VAILISM] Native resume applied. Target:', Math.floor(seekTo) + 's');
+                if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+                    ts = Math.min(rawTs, dur - 5);
                 }
             }
             
+            var s = 1, e = 1;
             if (mediaType === 'tv') {
-                var s = (savedData && savedData.season) ? savedData.season : 1;
-                var e = (savedData && savedData.episode) ? savedData.episode : 1;
-                var paramS = params.get('s');
-                var paramE = params.get('e');
-                if (paramS) s = paramS;
-                if (paramE) e = paramE;
-
-                embedUrl = 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e +
-                           '?primaryColor=e50914&autoplay=true&nextEpisodeButton=true' + startTimeParam;
-            } else {
-                embedUrl = 'https://vidlink.pro/movie/' + movieId +
-                           '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                s = params.get('s') || (savedData && savedData.season) || 1;
+                e = params.get('e') || (savedData && savedData.episode) || 1;
             }
 
+            var embedUrl = getEmbedUrl(currentServer, movieId, s, e, ts);
             console.log('[VAILISM] Player URL:', embedUrl);
 
-            var iframe = document.createElement('iframe');
-            iframe.src = embedUrl;
-            iframe.setAttribute('frameborder', '0');
-            iframe.setAttribute('scrolling', 'no');
-            iframe.setAttribute('allowfullscreen', 'true');
-            iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
-            iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+            playerWrap.innerHTML = ''; // Clear existing
+            loader.style.display = 'flex';
+            playerWrap.style.opacity = '0';
+
+            currentIframe = document.createElement('iframe');
+            currentIframe.src = embedUrl;
+            currentIframe.setAttribute('frameborder', '0');
+            currentIframe.setAttribute('scrolling', 'no');
+            currentIframe.setAttribute('allowfullscreen', 'true');
+            currentIframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+            currentIframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
 
             function onPlayerLoad() {
                 loader.style.display = 'none';
@@ -230,11 +305,24 @@
                 console.log('[VAILISM] Player loaded. Establishing session...');
             }
 
-            iframe.addEventListener('load', onPlayerLoad);
-            setTimeout(onPlayerLoad, 8000);
+            currentIframe.addEventListener('load', onPlayerLoad);
+            setTimeout(onPlayerLoad, 8000); // fallback
 
-            playerWrap.appendChild(iframe);
+            playerWrap.appendChild(currentIframe);
         }
+
+        // Setup Server Selector UI
+        window.switchServer = function(serverName, btn) {
+            if (currentServer === serverName) return;
+            currentServer = serverName;
+            
+            // Update UI active state
+            document.querySelectorAll('.server-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Rebuild iframe
+            buildIframe();
+        };
 
         initPlayer();
 
