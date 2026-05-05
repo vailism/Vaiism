@@ -6,6 +6,15 @@ const IMG_BASE_URL  = 'https://image.tmdb.org/t/p/w342';
 const HERO_IMG_URL  = 'https://image.tmdb.org/t/p/original';
 const FALLBACK_IMG  = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
+// requestIdleCallback polyfill for Safari/older browsers
+window.requestIdleCallback = window.requestIdleCallback || function(cb) {
+    var start = Date.now();
+    return setTimeout(function() {
+        cb({ didTimeout: false, timeRemaining: function() { return Math.max(0, 50 - (Date.now() - start)); } });
+    }, 1);
+};
+window.cancelIdleCallback = window.cancelIdleCallback || function(id) { clearTimeout(id); };
+
 const ENDPOINTS = [
     { title: 'Trending Now',     path: '/trending/all/week' },
     { title: 'Popular Choices',  path: '/movie/popular' },
@@ -265,6 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (heroBg && heroHeader) {
             const bgUrl = `${HERO_IMG_URL}${heroBg}`;
             const preloadImg = new Image();
+            preloadImg.fetchPriority = 'high';
             preloadImg.onload = () => {
                 heroHeader.style.backgroundImage = `url(${bgUrl})`;
             };
@@ -331,6 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <img src="${imgSrc}"
                      alt="${(movie.title || movie.name || 'Movie').replace(/"/g, '&quot;')}"
                      loading="lazy"
+                     decoding="async"
                      width="342"
                      height="513"
                      style="aspect-ratio:2/3;object-fit:cover;"
@@ -492,6 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <img src="${IMG_BASE_URL}${imgPath}"
                          alt="${title}"
                          loading="lazy"
+                         decoding="async"
                          onerror="this.src='${FALLBACK_IMG}'">
                     <div style="height:4px;width:100%;background:rgba(255,255,255,0.2);
                                 position:absolute;bottom:0;left:0;">
@@ -517,7 +529,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 rowPosters.appendChild(card);
             } catch (e) {
-                console.warn('[VAILISM] Continue Watching fetch failed for', key, e);
+                console.warn('[VAILISM] Continue Watching fetch failed for', item.key, e);
             }
         });
 

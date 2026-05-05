@@ -13,9 +13,10 @@
         body {
             background-color: #141414;
             color: #fff;
-            font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+            font-family: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             overflow-x: hidden;
             -webkit-font-smoothing: antialiased;
+            touch-action: manipulation;
         }
         .hidden { display: none !important; }
         .navbar {
@@ -55,6 +56,7 @@
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://vidlink.pro">
 
     <!-- Full CSS: deferred to unblock first paint -->
     <link rel="stylesheet" href="style.css" media="print" onload="this.media='all'">

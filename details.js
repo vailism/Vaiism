@@ -164,6 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     <img src="${imgSrc}"
                                          alt="${epName}"
                                          loading="lazy"
+                                         decoding="async"
                                          onerror="this.src='${FALLBACK_IMG}'">
                                     <div class="play-icon">
                                         <i data-lucide="play" fill="currentColor" size="16"></i>
@@ -233,6 +234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <img src="https://image.tmdb.org/t/p/w342${img}"
                              alt="${altText}"
                              loading="lazy"
+                             decoding="async"
                              style="aspect-ratio:2/3;object-fit:cover;"
                              onerror="this.src='${FALLBACK_IMG}'">
                         <div class="card-overlay">

@@ -38,9 +38,10 @@ html {
 body {
     background-color: var(--dark-bg);
     color: var(--text-light);
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
+    touch-action: manipulation;
 }
 
 .hidden {
@@ -143,11 +144,10 @@ body {
 
 .nav-links a:hover {
     color: #fff;
-    transform: translateY(-1px);
 }
 
 .nav-links a:active {
-    transform: scale(0.95);
+    color: #ccc;
 }
 
 .nav-links a.active {
@@ -296,14 +296,13 @@ body {
 
 .hero-title {
     animation: trailerFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 0.8s forwards;
-    font-family: 'Playfair Display', serif;
+    font-family: 'Playfair Display', Georgia, serif;
     /* clamp prevents overflow on Windows at 125%/150% DPI */
     font-size: clamp(2.2rem, 6vw, 5.6rem);
     font-weight: 700;
     line-height: 1.05;
     letter-spacing: -1px;
     margin-bottom: 20px;
-    text-shadow: 0 15px 45px rgba(0,0,0,0.6);
     background: linear-gradient(180deg, #fff 0%, #ececec 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -326,8 +325,7 @@ body {
 .hero-buttons {
     animation: trailerFadeIn 1s cubic-bezier(0.2, 1, 0.3, 1) 1.2s forwards;
     display: flex;
-    gap: 18px; /* Tighter Group */
-    perspective: 1000px;
+    gap: 18px;
 }
 
 @keyframes trailerFadeIn {
@@ -346,39 +344,37 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    /* Consistent fast transition for all buttons */
-    transition: transform 0.15s ease, filter 0.15s ease,
-                background-color 0.15s ease, box-shadow 0.15s ease,
-                opacity 0.15s ease, border-color 0.15s ease;
+    transition: transform 0.15s ease, background-color 0.15s ease,
+                box-shadow 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
     letter-spacing: 0.5px;
     text-transform: uppercase;
     white-space: nowrap;
     flex-shrink: 0;
 }
 
-/* Page Load Pulse (Once) */
+/* Page Load Pulse (Once) — opacity-only for GPU efficiency */
 @keyframes singlePulse {
-    0% { box-shadow: 0 0 0 rgba(255,255,255,0); }
-    50% { box-shadow: 0 0 35px rgba(255,255,255,0.5); }
-    100% { box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    0%   { opacity: 0.85; }
+    50%  { opacity: 1; }
+    100% { opacity: 1; }
 }
 
 .btn-play {
     background-color: #fff;
     color: #000;
     box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-    animation: singlePulse 2s ease-out 1s;
+    animation: singlePulse 1.5s ease-out 1s;
 }
 
 .btn-play:hover {
-    filter: brightness(1.06);
+    background-color: #e8e8e8;
     transform: scale(1.03) translateY(-2px);
     box-shadow: 0 8px 24px rgba(0,0,0,0.45);
 }
 
 .btn-play:active {
     transform: scale(0.97);
-    filter: brightness(0.95);
+    background-color: #d0d0d0;
 }
 
 .btn-info {
@@ -396,7 +392,7 @@ body {
 
 .btn-info:active {
     transform: scale(0.97);
-    filter: brightness(0.9);
+    background-color: rgba(109, 109, 110, 0.3);
 }
 
 /* Rows & Movie Cards */
@@ -565,7 +561,6 @@ body {
     background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
     background-size: 200% 100%;
     animation: loading 1.5s infinite;
-    will-change: background-position;
 }
 
 .skeleton-text {
@@ -575,7 +570,6 @@ body {
     color: transparent !important;
     text-shadow: none !important;
     border-radius: 4px;
-    will-change: background-position;
 }
 
 @keyframes loading {

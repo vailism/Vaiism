@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>VAILISM - Player</title>
+    <!-- Preconnect to video embed domain for faster iframe load -->
+    <link rel="dns-prefetch" href="https://vidlink.pro">
+    <link rel="preconnect" href="https://vidlink.pro" crossorigin>
     <style>
         html, body {
             margin: 0;
@@ -12,6 +15,8 @@
             overflow: hidden;
             width: 100%;
             height: 100%;
+            touch-action: manipulation;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
 
         body {
@@ -51,7 +56,7 @@
             padding: 8px 18px;
             border-radius: 6px;
             font-weight: 500;
-            font-family: 'Outfit', sans-serif;
+            font-family: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
             border: 1px solid rgba(255,255,255,0.1);
             display: flex;
             align-items: center;
@@ -81,7 +86,7 @@
             cursor: pointer;
             font-size: 14px;
             font-weight: 500;
-            font-family: 'Outfit', sans-serif;
+            font-family: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
             transition: background-color 0.2s ease, border-color 0.2s ease;
         }
 
@@ -107,13 +112,13 @@
             font-family: 'Outfit', sans-serif;
             transform: translateY(-8px);
             transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
-            will-change: opacity, transform;
         }
 
         .popover.show {
             opacity: 1;
             visibility: visible;
             transform: translateY(0);
+            will-change: opacity, transform;
         }
 
         .popover h4 {
@@ -176,7 +181,7 @@
             border-radius: 6px;
             text-align: left;
             cursor: pointer;
-            font-family: 'Outfit', sans-serif;
+            font-family: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
             transition: background-color 0.15s ease, border-color 0.15s ease;
             display: flex;
             flex-direction: column;
@@ -213,7 +218,6 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin-bottom: 20px;
-            will-change: transform;
         }
 
         @keyframes spin {
@@ -222,7 +226,7 @@
         }
         .loader-text {
             color: rgba(255,255,255,0.7);
-            font-family: 'Outfit', sans-serif;
+            font-family: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
             font-size: 14px;
             font-weight: 500;
             letter-spacing: 2px;
