@@ -821,6 +821,90 @@ body {
     color: black;
 }
 
+/* --- MODAL PLAYER (in-page video overlay) --- */
+.vailism-modal-player {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.vailism-modal-player.active {
+    opacity: 1;
+}
+.vailism-modal-player iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+}
+.vailism-modal-back {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 10001;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-family: 'Outfit', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    transition: opacity 0.3s ease, background-color 0.15s ease;
+}
+.vailism-modal-player.active .vailism-modal-back {
+    opacity: 1;
+}
+.vailism-modal-back:hover {
+    background: rgba(255,255,255,0.15);
+}
+.vailism-modal-loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    z-index: 10000;
+    transition: opacity 0.3s ease;
+}
+.vailism-modal-loader.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+.vailism-modal-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(229,9,20,0.15);
+    border-top-color: #e50914;
+    border-radius: 50%;
+    animation: vailism-spin 0.8s linear infinite;
+}
+@keyframes vailism-spin {
+    to { transform: rotate(360deg); }
+}
+.vailism-modal-loader span {
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 16px;
+    font-family: 'Outfit', system-ui, sans-serif;
+}
+
 /* --- MINIMALIST UI CLEANUP --- */
 .nav-links, .btn-list, .plus-icon {
     display: none !important;

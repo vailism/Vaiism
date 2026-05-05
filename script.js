@@ -195,17 +195,24 @@ async function fetchMovies(endpoint, page = 1) {
     }
 }
 
-// Fetch single TMDB entity (movie/tv details). Uses session cache.
+// Fetch single TMDB entity (movie/tv details). Uses both cache layers.
 async function fetchDetails(type, id) {
     const cacheKey = `detail_${type}_${id}`;
-    const cached = sessionCacheGet(cacheKey);
-    if (cached) return cached;
-
+    // Layer 1: in-memory (fastest, no JSON.parse)
+    if (apiCache.has(cacheKey)) return apiCache.get(cacheKey);
+    // Layer 2: sessionStorage (survives navigation)
+    const sessionCached = sessionCacheGet(cacheKey);
+    if (sessionCached) {
+        apiCache.set(cacheKey, sessionCached); // promote to L1
+        return sessionCached;
+    }
+    // Layer 3: network fetch
     try {
         const res = await fetch(`${BASE_URL}?path=${encodeURIComponent('/' + type + '/' + id)}`);
         if (!res.ok) return null;
         const data = await res.json();
         if (data && typeof data === 'object') {
+            apiCache.set(cacheKey, data);
             sessionCacheSet(cacheKey, data);
         }
         return data;
@@ -214,7 +221,161 @@ async function fetchDetails(type, id) {
     }
 }
 
-// ─── Global actions (called from inline HTML onclick attributes) ──────────────
+// ─── Connection Warmup ────────────────────────────────────────────────────────
+// Inject <link rel="preconnect"> for VidLink on first user interaction.
+// This warms up DNS + TLS handshake before they click Play (~200-400ms saved).
+let vidlinkWarmed = false;
+function warmVidLink() {
+    if (vidlinkWarmed) return;
+    vidlinkWarmed = true;
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = 'https://vidlink.pro';
+    link.crossOrigin = 'anonymous';
+    document.head.appendChild(link);
+}
+
+// ─── Predictive Prefetch ──────────────────────────────────────────────────────
+// On card hover, pre-fetch TMDB details into cache so details page loads instantly.
+let prefetchInFlight = null; // limit to 1 concurrent prefetch
+function prefetchMovieDetails(movieId, type) {
+    if (!movieId || !type) return;
+    const cacheKey = `detail_${type}_${movieId}`;
+    // Already cached — skip
+    if (apiCache.has(cacheKey) || sessionCacheGet(cacheKey)) return;
+    // Already prefetching — skip
+    if (prefetchInFlight) return;
+    prefetchInFlight = movieId;
+    fetchDetails(type, movieId).finally(() => {
+        prefetchInFlight = null;
+    });
+}
+
+// ─── Modal Player System ──────────────────────────────────────────────────────
+// Instead of navigating to player.html, we overlay a fullscreen modal with the
+// iframe. This eliminates the entire page navigation cost (~1-2s saved).
+// The user can close it and return to the exact scroll position.
+
+let activeModal = null; // track current modal DOM
+let savedScrollY = 0;   // restore scroll position on close
+
+function buildEmbedUrl(id, type, s, e, ts) {
+    var startTimeParam = ts > 0 ? ('&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts)) : '';
+    if (type === 'tv') {
+        return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+    }
+    return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+}
+
+function openModalPlayer(embedUrl, movieId, mediaType) {
+    // Prevent double-open
+    if (activeModal) return;
+
+    savedScrollY = window.scrollY;
+
+    // Warm connection if not already done
+    warmVidLink();
+
+    // Create modal DOM
+    const modal = document.createElement('div');
+    modal.className = 'vailism-modal-player';
+    modal.innerHTML = `
+        <button class="vailism-modal-back" id="modal-back">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            Back
+        </button>
+        <div class="vailism-modal-loader" id="modal-loader">
+            <div class="vailism-modal-spinner"></div>
+            <span>Loading...</span>
+        </div>`;
+
+    document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden'; // lock scroll
+    activeModal = modal;
+
+    // Force reflow then activate (triggers CSS transition)
+    requestAnimationFrame(() => {
+        modal.classList.add('active');
+    });
+
+    // Build iframe
+    const iframe = document.createElement('iframe');
+    iframe.src = embedUrl;
+    iframe.setAttribute('allowfullscreen', 'true');
+    iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+    iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+
+    const loader = modal.querySelector('#modal-loader');
+
+    function onIframeLoad() {
+        if (loader) loader.classList.add('hidden');
+    }
+    iframe.addEventListener('load', onIframeLoad);
+    setTimeout(onIframeLoad, 5000); // fallback
+
+    modal.appendChild(iframe);
+
+    // Back button handler
+    const backBtn = modal.querySelector('#modal-back');
+    if (backBtn) {
+        backBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            closeModalPlayer();
+        };
+    }
+
+    // ESC key to close
+    modal._escHandler = (ev) => {
+        if (ev.key === 'Escape') closeModalPlayer();
+    };
+    document.addEventListener('keydown', modal._escHandler);
+
+    // Progress tracking via postMessage (same as player.html)
+    modal._msgHandler = (event) => {
+        var payload = event.data;
+        if (!payload) return;
+        try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch (e) { return; }
+        if (!payload || typeof payload !== 'object') return;
+
+        var data = (payload.type === 'PLAYER_EVENT' && payload.data) ? payload.data : payload;
+        if (!data || typeof data !== 'object') return;
+
+        var currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
+        var duration    = parseFloat(data.duration !== undefined ? data.duration : data.length) || 0;
+
+        if (currentTime > 0 && duration > 0 && currentTime < duration) {
+            var storageKey = 'vailism_progress_' + movieId;
+            var toSave = {
+                id: parseInt(movieId, 10),
+                mediaType: mediaType,
+                timestamp: Math.max(0, Math.min(currentTime, duration)),
+                duration: duration,
+                updatedAt: Date.now()
+            };
+            try { localStorage.setItem(storageKey, JSON.stringify(toSave)); } catch (e) {}
+        }
+    };
+    window.addEventListener('message', modal._msgHandler);
+}
+
+function closeModalPlayer() {
+    if (!activeModal) return;
+    const modal = activeModal;
+    activeModal = null;
+
+    // Cleanup listeners
+    if (modal._escHandler) document.removeEventListener('keydown', modal._escHandler);
+    if (modal._msgHandler) window.removeEventListener('message', modal._msgHandler);
+
+    // Fade out then remove
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.remove();
+    }, 300);
+
+    document.body.style.overflow = '';
+    window.scrollTo(0, savedScrollY);
+}
 
 window.playMovie = function (id, type, s, e) {
     if (!id || id === 'undefined' || id === 'null') {
@@ -223,40 +384,31 @@ window.playMovie = function (id, type, s, e) {
     }
     type = type || 'movie';
 
-    // Pre-compute the embed URL and stash it so player.html can use it instantly
-    // instead of making another TMDB API call just to validate.
-    try {
-        var ts = 0;
-        var storageKey = 'vailism_progress_' + id;
-        var savedData = lsGet(storageKey);
-        if (savedData && savedData.timestamp && savedData.duration) {
-            var rawTs = parseFloat(savedData.timestamp);
-            var dur = parseFloat(savedData.duration);
-            if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
-                ts = Math.min(rawTs, dur - 5);
-            }
+    // Compute embed URL locally
+    var ts = 0;
+    var storageKey = 'vailism_progress_' + id;
+    var savedData = lsGet(storageKey);
+    if (savedData && savedData.timestamp && savedData.duration) {
+        var rawTs = parseFloat(savedData.timestamp);
+        var dur = parseFloat(savedData.duration);
+        if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+            ts = Math.min(rawTs, dur - 5);
         }
-        var season = s || (savedData && savedData.season) || 1;
-        var episode = e || (savedData && savedData.episode) || 1;
+    }
+    var season  = s || (savedData && savedData.season) || 1;
+    var episode = e || (savedData && savedData.episode) || 1;
+    var embedUrl = buildEmbedUrl(id, type, season, episode, ts);
 
-        var startTimeParam = ts > 0 ? ('&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts)) : '';
-        var embedUrl;
-        if (type === 'tv') {
-            embedUrl = 'https://vidlink.pro/tv/' + id + '/' + season + '/' + episode + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-        } else {
-            embedUrl = 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-        }
-        // Cache for player.html to pick up
+    // Also stash in sessionStorage for fallback (if user opens player.html directly)
+    try {
         sessionStorage.setItem('vailism_precomputed_embed', JSON.stringify({
             id: id, type: type, url: embedUrl,
             season: season, episode: episode, ts: Date.now()
         }));
     } catch (ex) {}
 
-    let url = `player.html?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`;
-    if (s) url += `&s=${encodeURIComponent(s)}`;
-    if (e) url += `&e=${encodeURIComponent(e)}`;
-    window.location.href = url;
+    // Open modal player (no page navigation!)
+    openModalPlayer(embedUrl, id, type);
 };
 
 window.toggleMyList = function (movie, btn) {
@@ -382,6 +534,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (heroPlay) {
             heroPlay.style.display = 'flex';
             heroPlay.onclick = () => window.playMovie(movie.id, type);
+            // Warm VidLink connection when user hovers over Play
+            heroPlay.addEventListener('mouseenter', warmVidLink, { passive: true });
         }
 
         // More Info button
@@ -455,6 +609,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>`;
 
             fragment.appendChild(card);
+
+            // Predictive prefetch: on hover, pre-fetch details into cache
+            card.addEventListener('mouseenter', () => {
+                warmVidLink(); // warm connection on first card interaction
+                prefetchMovieDetails(movie.id, type);
+            }, { passive: true });
         });
 
         container.appendChild(fragment);
@@ -617,6 +777,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>`;
 
                 rowPosters.appendChild(card);
+
+                // Warm VidLink connection on hover (details already cached)
+                card.addEventListener('mouseenter', warmVidLink, { passive: true });
             } catch (e) {
                 console.warn('[VAILISM] Continue Watching fetch failed for', item.key, e);
             }
