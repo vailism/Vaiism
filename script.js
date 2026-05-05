@@ -427,7 +427,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const progressEntries = keys
             .map(key => ({ key, data: lsGet(key) }))
             .filter(item => isValidProgress(item.data))
-            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
+            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0))
+            .slice(0, 10);
 
         if (progressEntries.length === 0) return;
 

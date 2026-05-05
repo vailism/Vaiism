@@ -196,11 +196,11 @@
                 if (paramS) s = paramS;
                 if (paramE) e = paramE;
 
-                embedUrl = 'https://www.vidking.net/embed/tv/' + movieId + '/' + s + '/' + e +
-                           '?color=e50914&autoPlay=true&nextEpisode=true&episodeSelector=true';
+                embedUrl = 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e +
+                           '?primaryColor=e50914&autoplay=true&nextEpisodeButton=true';
             } else {
-                embedUrl = 'https://www.vidking.net/embed/movie/' + movieId +
-                           '?color=e50914&autoPlay=true';
+                embedUrl = 'https://vidlink.pro/movie/' + movieId +
+                           '?primaryColor=e50914&autoplay=true';
             }
 
             console.log('[VAILISM] Player URL:', embedUrl);
@@ -278,18 +278,22 @@
 
             if (!payload || typeof payload !== 'object') return;
 
-            // Vidking event format: { type: "PLAYER_EVENT", data: { ... } }
+            // Generic Iframe Player Event parser
             var data = null;
             if (payload.type === 'PLAYER_EVENT' && payload.data) {
                 data = payload.data;
-            } else if (payload.event && payload.currentTime !== undefined) {
-                data = payload; // flattened variant
+            } else {
+                data = payload;
             }
-            if (!data) return;
+            if (!data || typeof data !== 'object') return;
 
-            var evtName     = data.event || data.type || '';
-            var currentTime = parseFloat(data.currentTime) || 0;
-            var duration    = parseFloat(data.duration)    || 0;
+            var rawEvent = (data.event || data.type || '').toLowerCase();
+            var evtName = rawEvent.includes('timeupdate') || rawEvent.includes('progress') ? 'timeupdate' : 
+                          rawEvent.includes('pause') ? 'pause' : 
+                          rawEvent.includes('ended') || rawEvent.includes('complete') ? 'ended' : rawEvent;
+
+            var currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
+            var duration    = parseFloat(data.duration !== undefined ? data.duration : data.length) || 0;
 
             // Throttle debug logging to once every 30s to keep console clean
             if (evtName === 'timeupdate') {
