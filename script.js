@@ -252,12 +252,29 @@ function prefetchMovieDetails(movieId, type) {
 }
 
 // ─── Modal Player System ──────────────────────────────────────────────────────
-// Instead of navigating to player.html, we overlay a fullscreen modal with the
-// iframe. This eliminates the entire page navigation cost (~1-2s saved).
-// The user can close it and return to the exact scroll position.
+// Fullscreen overlay with iframe. Buffer-stabilized to prevent early reveal.
 
-let activeModal = null; // track current modal DOM
-let savedScrollY = 0;   // restore scroll position on close
+let activeModal = null;
+let savedScrollY = 0;
+let modalSaveThrottle = null; // progress save throttle
+
+// ── Adaptive delay: detect network speed ─────────────────────────────────────
+// Returns grace period (ms) to hold the loader AFTER iframe 'load' fires.
+// This gives VidLink time to fill its internal buffer before revealing video.
+function getBufferGraceMs() {
+    try {
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (conn) {
+            const etype = conn.effectiveType; // '4g', '3g', '2g', 'slow-2g'
+            const downlink = conn.downlink;   // Mbps estimate
+            if (etype === '4g' && downlink >= 5) return 300;   // Fast: minimal grace
+            if (etype === '4g') return 500;                     // Normal 4G
+            if (etype === '3g') return 1000;                    // 3G: need more buffer
+            if (etype === '2g' || etype === 'slow-2g') return 1500; // Very slow
+        }
+    } catch (e) {}
+    return 600; // Safe default when API unavailable
+}
 
 function buildEmbedUrl(id, type, s, e, ts) {
     var startTimeParam = ts > 0 ? ('&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts)) : '';
@@ -267,13 +284,13 @@ function buildEmbedUrl(id, type, s, e, ts) {
     return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
 }
 
-function openModalPlayer(embedUrl, movieId, mediaType) {
-    // Prevent double-open
+function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     if (activeModal) return;
 
-    savedScrollY = window.scrollY;
+    // Cancel any in-flight prefetch to free network bandwidth for the stream
+    prefetchInFlight = null;
 
-    // Warm connection if not already done
+    savedScrollY = window.scrollY;
     warmVidLink();
 
     // Create modal DOM
@@ -290,47 +307,30 @@ function openModalPlayer(embedUrl, movieId, mediaType) {
         </div>`;
 
     document.body.appendChild(modal);
-    document.body.style.overflow = 'hidden'; // lock scroll
+    document.body.style.overflow = 'hidden';
     activeModal = modal;
+    modal._movieId = movieId;
+    modal._mediaType = mediaType;
+    modal._season = seasonNum;
+    modal._episode = episodeNum;
+    modal._retryCount = 0;
 
-    // Force reflow then activate (triggers CSS transition)
-    requestAnimationFrame(() => {
-        modal.classList.add('active');
-    });
+    requestAnimationFrame(() => { modal.classList.add('active'); });
 
-    // Build iframe
-    const iframe = document.createElement('iframe');
-    iframe.src = embedUrl;
-    iframe.setAttribute('allowfullscreen', 'true');
-    iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
-    iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+    // ── Build iframe (hidden behind loader) ───────────────────────────────
+    loadIframeInModal(modal, embedUrl);
 
-    const loader = modal.querySelector('#modal-loader');
-
-    function onIframeLoad() {
-        if (loader) loader.classList.add('hidden');
-    }
-    iframe.addEventListener('load', onIframeLoad);
-    setTimeout(onIframeLoad, 5000); // fallback
-
-    modal.appendChild(iframe);
-
-    // Back button handler
+    // ── Back button ───────────────────────────────────────────────────────
     const backBtn = modal.querySelector('#modal-back');
     if (backBtn) {
-        backBtn.onclick = (ev) => {
-            ev.stopPropagation();
-            closeModalPlayer();
-        };
+        backBtn.onclick = (ev) => { ev.stopPropagation(); closeModalPlayer(); };
     }
 
-    // ESC key to close
-    modal._escHandler = (ev) => {
-        if (ev.key === 'Escape') closeModalPlayer();
-    };
+    // ── ESC to close ──────────────────────────────────────────────────────
+    modal._escHandler = (ev) => { if (ev.key === 'Escape') closeModalPlayer(); };
     document.addEventListener('keydown', modal._escHandler);
 
-    // Progress tracking via postMessage (same as player.html)
+    // ── Progress tracking + auto-next-episode via postMessage ─────────────
     modal._msgHandler = (event) => {
         var payload = event.data;
         if (!payload) return;
@@ -340,22 +340,126 @@ function openModalPlayer(embedUrl, movieId, mediaType) {
         var data = (payload.type === 'PLAYER_EVENT' && payload.data) ? payload.data : payload;
         if (!data || typeof data !== 'object') return;
 
+        var rawEvent = (data.event || data.type || '').toLowerCase();
+        var evtName = rawEvent.includes('timeupdate') || rawEvent.includes('progress') ? 'timeupdate' :
+                      rawEvent.includes('pause') ? 'pause' :
+                      rawEvent.includes('ended') || rawEvent.includes('complete') ? 'ended' : rawEvent;
+
         var currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
         var duration    = parseFloat(data.duration !== undefined ? data.duration : data.length) || 0;
 
-        if (currentTime > 0 && duration > 0 && currentTime < duration) {
-            var storageKey = 'vailism_progress_' + movieId;
-            var toSave = {
-                id: parseInt(movieId, 10),
-                mediaType: mediaType,
-                timestamp: Math.max(0, Math.min(currentTime, duration)),
-                duration: duration,
-                updatedAt: Date.now()
-            };
-            try { localStorage.setItem(storageKey, JSON.stringify(toSave)); } catch (e) {}
+        // Save progress (throttled to every 5 seconds)
+        if ((evtName === 'timeupdate' || evtName === 'pause') && currentTime > 0 && duration > 0 && currentTime < duration) {
+            if (!modalSaveThrottle) {
+                modalSaveThrottle = setTimeout(() => { modalSaveThrottle = null; }, 5000);
+                var storageKey = 'vailism_progress_' + movieId;
+                var toSave = {
+                    id: parseInt(movieId, 10),
+                    mediaType: mediaType,
+                    timestamp: Math.max(0, Math.min(currentTime, duration)),
+                    duration: duration,
+                    updatedAt: Date.now()
+                };
+                if (mediaType === 'tv') {
+                    toSave.season  = parseInt(modal._season, 10) || 1;
+                    toSave.episode = parseInt(modal._episode, 10) || 1;
+                }
+                try { localStorage.setItem(storageKey, JSON.stringify(toSave)); } catch (e) {}
+            }
+        }
+
+        // Auto-play next episode on video end (TV only)
+        if (evtName === 'ended' && mediaType === 'tv') {
+            // Clear current progress
+            try { localStorage.removeItem('vailism_progress_' + movieId); } catch (e) {}
+            autoPlayNextEpisode(modal);
+        } else if (evtName === 'ended') {
+            // Movie ended — clear progress
+            try { localStorage.removeItem('vailism_progress_' + movieId); } catch (e) {}
         }
     };
     window.addEventListener('message', modal._msgHandler);
+}
+
+// ── Load iframe with buffer stabilization ────────────────────────────────────
+function loadIframeInModal(modal, embedUrl) {
+    const loader = modal.querySelector('#modal-loader');
+    // Remove any existing iframe (for retry/next-episode)
+    const oldIframe = modal.querySelector('iframe');
+    if (oldIframe) oldIframe.remove();
+
+    // Show loader
+    if (loader) { loader.classList.remove('hidden'); }
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('allowfullscreen', 'true');
+    iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+    iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+
+    let loaded = false;
+    const graceMs = getBufferGraceMs();
+
+    function revealPlayer() {
+        if (loaded) return;
+        loaded = true;
+        // Hold loader for grace period AFTER iframe load to let stream buffer
+        setTimeout(() => {
+            if (loader) loader.classList.add('hidden');
+        }, graceMs);
+        // Clear stall timer
+        if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
+    }
+
+    iframe.addEventListener('load', revealPlayer);
+
+    // ── Stall detection: if iframe doesn't load in 12s, retry ────────────
+    modal._stallTimer = setTimeout(() => {
+        if (!loaded && modal._retryCount < 2) {
+            modal._retryCount++;
+            console.warn('[VAILISM] Stall detected, retrying... (attempt ' + modal._retryCount + ')');
+            if (loader) {
+                var statusSpan = loader.querySelector('span');
+                if (statusSpan) statusSpan.textContent = 'Retrying...';
+            }
+            // Reload iframe with same URL
+            loadIframeInModal(modal, embedUrl);
+        } else if (!loaded) {
+            // Final fallback: reveal whatever we have
+            revealPlayer();
+        }
+    }, 12000);
+
+    // Set src LAST (starts loading after everything is wired up)
+    iframe.src = embedUrl;
+    modal.appendChild(iframe);
+}
+
+// ── Auto-play next episode ───────────────────────────────────────────────────
+function autoPlayNextEpisode(modal) {
+    if (!modal || modal !== activeModal) return;
+    var currentEp = parseInt(modal._episode, 10) || 1;
+    var nextEp = currentEp + 1;
+    var season = parseInt(modal._season, 10) || 1;
+    var movieId = modal._movieId;
+    var mediaType = modal._mediaType;
+
+    console.log('[VAILISM] Auto-playing next episode: S' + season + 'E' + nextEp);
+
+    // Update modal state
+    modal._episode = nextEp;
+    modal._retryCount = 0;
+
+    // Build new URL and reload iframe in-place
+    var nextUrl = buildEmbedUrl(movieId, mediaType, season, nextEp, 0);
+    loadIframeInModal(modal, nextUrl);
+
+    // Update sessionStorage embed cache
+    try {
+        sessionStorage.setItem('vailism_precomputed_embed', JSON.stringify({
+            id: movieId, type: mediaType, url: nextUrl,
+            season: season, episode: nextEp, ts: Date.now()
+        }));
+    } catch (e) {}
 }
 
 function closeModalPlayer() {
@@ -363,15 +467,14 @@ function closeModalPlayer() {
     const modal = activeModal;
     activeModal = null;
 
-    // Cleanup listeners
+    // Cleanup
     if (modal._escHandler) document.removeEventListener('keydown', modal._escHandler);
     if (modal._msgHandler) window.removeEventListener('message', modal._msgHandler);
+    if (modal._stallTimer) clearTimeout(modal._stallTimer);
+    modalSaveThrottle = null;
 
-    // Fade out then remove
     modal.classList.remove('active');
-    setTimeout(() => {
-        modal.remove();
-    }, 300);
+    setTimeout(() => { modal.remove(); }, 300);
 
     document.body.style.overflow = '';
     window.scrollTo(0, savedScrollY);
@@ -384,7 +487,6 @@ window.playMovie = function (id, type, s, e) {
     }
     type = type || 'movie';
 
-    // Compute embed URL locally
     var ts = 0;
     var storageKey = 'vailism_progress_' + id;
     var savedData = lsGet(storageKey);
@@ -399,7 +501,7 @@ window.playMovie = function (id, type, s, e) {
     var episode = e || (savedData && savedData.episode) || 1;
     var embedUrl = buildEmbedUrl(id, type, season, episode, ts);
 
-    // Also stash in sessionStorage for fallback (if user opens player.html directly)
+    // Stash for player.html fallback
     try {
         sessionStorage.setItem('vailism_precomputed_embed', JSON.stringify({
             id: id, type: type, url: embedUrl,
@@ -407,8 +509,7 @@ window.playMovie = function (id, type, s, e) {
         }));
     } catch (ex) {}
 
-    // Open modal player (no page navigation!)
-    openModalPlayer(embedUrl, id, type);
+    openModalPlayer(embedUrl, id, type, season, episode);
 };
 
 window.toggleMyList = function (movie, btn) {

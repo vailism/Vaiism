@@ -903,6 +903,12 @@ body {
     text-transform: uppercase;
     margin-top: 16px;
     font-family: 'Outfit', system-ui, sans-serif;
+    transition: opacity 0.2s ease;
+}
+/* Iframe starts hidden behind the loader — revealed only after buffer grace */
+.vailism-modal-player iframe {
+    position: absolute;
+    inset: 0;
 }
 
 /* --- MINIMALIST UI CLEANUP --- */
