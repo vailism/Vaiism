@@ -5,11 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="VAILISM — Movie & TV Show Details">
     <title>VAILISM - Details</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="style.css"></noscript>
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Bebas+Neue&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"></noscript>
+    <script src="https://unpkg.com/lucide@latest" defer></script>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: #141414; color: #fff; font-family: 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+        .navbar { position: fixed; top: 0; width: 100%; padding: 35px 4%; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%); z-index: 2000; }
+        .logo { font-family: 'Playfair Display', serif; font-size: 30px; font-weight: 700; letter-spacing: 5px; color: #fff; text-transform: uppercase; cursor: pointer; }
+        .skeleton-text { background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%); background-size: 200% 100%; animation: ld 1.5s infinite; color: transparent !important; border-radius: 4px; min-height: 1.2em; }
+        @keyframes ld { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    </style>
 </head>
 <body>
     <!-- Navbar -->
@@ -76,7 +86,7 @@
     </div>
 
     <!-- Core App Logic -->
-    <script src="script.js"></script>
-    <script src="details.js"></script>
+    <script src="script.js" defer></script>
+    <script src="details.js" defer></script>
 </body>
 </html>

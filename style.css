@@ -30,7 +30,6 @@ img {
 
 html {
     overflow-x: hidden;
-    scroll-behavior: smooth;
     /* Fixes Windows DPI scaling layout bugs */
     -ms-text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;
@@ -59,7 +58,7 @@ body {
     align-items: center;
     background: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%);
     z-index: 2000;
-    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: padding 0.3s ease, background 0.3s ease;
 }
 
 .navbar.scrolled {
@@ -124,7 +123,7 @@ body {
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 2px;
-    transition: all 0.4s ease;
+    transition: color 0.3s ease;
     display: inline-block;
 }
 
@@ -175,12 +174,11 @@ body {
 .search-icon {
     cursor: pointer;
     color: rgba(255, 255, 255, 0.65);
-    transition: all 0.3s ease;
+    transition: color 0.2s ease;
 }
 
 .search-icon:hover {
     color: #fff;
-    filter: drop-shadow(0 0 5px rgba(255,255,255,0.4));
 }
 
 #search-input {
@@ -190,7 +188,7 @@ body {
     color: #fff;
     font-size: 14px;
     opacity: 0;
-    transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+    transition: width 0.4s ease, opacity 0.4s ease, padding 0.4s ease;
     border-bottom: 1px solid rgba(255,255,255,0.15);
     outline: none;
     font-family: 'Outfit', sans-serif;
@@ -415,6 +413,8 @@ body {
     flex-direction: column;
     position: relative;
     z-index: 10;
+    content-visibility: auto;
+    contain-intrinsic-size: 0 320px;
 }
 
 .row-header {
@@ -458,8 +458,7 @@ body {
     width: calc(100% / 6 - 8px);
     border-radius: 6px;
     cursor: pointer;
-    /* Reduced to 200ms for snappier, less flashy feel */
-    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
     transform-origin: center center;
     aspect-ratio: 2/3;
     background-color: var(--dark-search);
@@ -467,7 +466,8 @@ body {
     scroll-snap-align: start;
     z-index: 5;
     pointer-events: auto;
-    overflow: hidden; /* Clip image within border-radius cleanly */
+    overflow: hidden;
+    contain: content;
 }
 
 .search-grid .card {
@@ -485,8 +485,7 @@ body {
 }
 
 .card:hover {
-    transform: translateY(-4px) scale(1.03); /* Subtle — not distracting */
-    filter: brightness(1.08);
+    transform: translateY(-4px) scale(1.03);
     z-index: 20;
     box-shadow: 0 10px 30px rgba(0,0,0,0.7);
 }

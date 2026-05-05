@@ -31,10 +31,7 @@ function refreshIcons() {
     });
 }
 
-// ─── Safe localStorage helpers ────────────────────────────────────────────────
-// All localStorage access goes through these — never throws, never crashes UI.
-
-// ─── Safe localStorage helpers ────────────────────────────────────────────────
+// ─── Safe localStorage helpers ────────────────────────────────────────────────────
 function lsGet(key) {
     try {
         const raw = localStorage.getItem(key);
@@ -187,8 +184,13 @@ window.toggleMyList = function (movie, btn) {
 // ─── DOM Ready ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ── Navbar scroll effect (throttled, null-safe) ───────────────────────────
-    autoCleanup();
+    // ── Navbar scroll effect (throttled, null-safe) ─────────────────────
+    // Defer autoCleanup to idle time — not critical for first paint
+    if (window.requestIdleCallback) {
+        requestIdleCallback(autoCleanup);
+    } else {
+        setTimeout(autoCleanup, 200);
+    }
     const navbar = document.getElementById('navbar');
     if (navbar) {
         let scrollTicking = false;
@@ -258,11 +260,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 .join('<span class="dot">•</span>');
         }
 
-        // Background image
+        // Preload hero background image before painting it
         const heroBg = movie.backdrop_path || movie.poster_path;
         if (heroBg && heroHeader) {
             const bgUrl = `${HERO_IMG_URL}${heroBg}`;
-            heroHeader.style.backgroundImage = `url(${bgUrl})`;
+            const preloadImg = new Image();
+            preloadImg.onload = () => {
+                heroHeader.style.backgroundImage = `url(${bgUrl})`;
+            };
+            preloadImg.src = bgUrl;
         }
 
         if (heroTitle) heroTitle.textContent = movie.title || movie.name || 'Featured Movie';
@@ -626,10 +632,19 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.addEventListener('input', debouncedSearch);
     }
 
-    // ── Boot ──────────────────────────────────────────────────────────────────
+    // ── Boot ────────────────────────────────────────────────────────────────────
     if (document.getElementById('hero') && document.getElementById('search-input')) {
+        // Priority 1: Hero banner (above the fold)
         loadHeroBanner();
-        loadContinueWatching();
-        loadMoreRows();
+        // Priority 2: Continue Watching & rows (deferred to idle)
+        const deferredBoot = function() {
+            loadContinueWatching();
+            loadMoreRows();
+        };
+        if (window.requestIdleCallback) {
+            requestIdleCallback(deferredBoot, { timeout: 1500 });
+        } else {
+            setTimeout(deferredBoot, 100);
+        }
     }
 });
