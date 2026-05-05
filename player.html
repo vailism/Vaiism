@@ -249,12 +249,12 @@
 
             if (mediaType === 'tv') {
                 if (server === 'vidlink') return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-                if (server === 'vidsrc')  return 'https://vidsrc.me/embed/tv?tmdb=' + movieId + '&season=' + s + '&episode=' + e + startTimeParam;
-                if (server === 'super')   return 'https://vidsrc.cc/v2/embed/tv/' + movieId + '/' + s + '/' + e + '?autoPlay=true' + startTimeParam;
+                if (server === 'vidsrc')  return 'https://embed.su/embed/tv/' + movieId + '/' + s + '/' + e;
+                if (server === 'super')   return 'https://vidsrc.vip/embed/tv/' + movieId + '/' + s + '/' + e;
             } else {
                 if (server === 'vidlink') return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-                if (server === 'vidsrc')  return 'https://vidsrc.me/embed/movie?tmdb=' + movieId + startTimeParam;
-                if (server === 'super')   return 'https://vidsrc.cc/v2/embed/movie/' + movieId + '?autoPlay=true' + startTimeParam;
+                if (server === 'vidsrc')  return 'https://embed.su/embed/movie/' + movieId;
+                if (server === 'super')   return 'https://vidsrc.vip/embed/movie/' + movieId;
             }
             return '';
         }
