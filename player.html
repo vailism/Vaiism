@@ -23,214 +23,291 @@
             height: 100dvh;
         }
 
+        /* ── Premium UI Styles (Netflix/Prime inspired) ── */
         .top-controls {
             position: fixed;
-            top: 20px;
-            left: 20px;
-            right: 20px;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 24px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             z-index: 100;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+            transition: opacity 0.3s ease;
+            pointer-events: none; /* Let clicks pass through empty space */
+        }
+
+        .top-controls > * {
+            pointer-events: auto; /* Re-enable clicks on buttons */
         }
 
         .back-button {
             color: white;
-            font-size: 16px;
+            font-size: 15px;
             text-decoration: none;
-            transition: transform 0.2s, background 0.2s;
-            background: rgba(0, 0, 0, 0.75);
-            padding: 10px 20px;
-            border-radius: 4px;
+            transition: all 0.2s ease;
+            background: rgba(20, 20, 20, 0.6);
+            padding: 8px 18px;
+            border-radius: 6px;
             font-weight: 500;
-            font-family: 'Outfit', 'Arial', sans-serif;
+            font-family: 'Outfit', sans-serif;
             border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        .back-button:hover {
-            transform: scale(1.05);
-            background: #e50914;
-            border-color: #e50914;
-        }
-
-        /* ── CC / Audio hint tooltip ───────────────────────────── */
-        .cc-hint-btn {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             display: flex;
             align-items: center;
             gap: 8px;
-            background: rgba(0,0,0,0.75);
-            border: 1px solid rgba(255,255,255,0.15);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            color: #fff;
-            padding: 9px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Outfit', 'Arial', sans-serif;
-            transition: all 0.3s;
-            white-space: nowrap;
+        }
+
+        .back-button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255,255,255,0.3);
+            transform: translateY(-1px);
+        }
+
+        .right-controls {
+            display: flex;
+            gap: 12px;
             position: relative;
         }
 
-        .cc-hint-btn:hover {
-            background: rgba(229,9,20,0.25);
-            border-color: #e50914;
+        .premium-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(20, 20, 20, 0.6);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.2s ease;
         }
 
-        .cc-hint-btn svg { flex-shrink: 0; }
+        .premium-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255,255,255,0.3);
+        }
 
-        .cc-tooltip {
-            display: none;
+        /* ── Popovers (Tooltips & Menus) ── */
+        .popover {
+            opacity: 0;
+            visibility: hidden;
             position: absolute;
-            top: calc(100% + 10px);
+            top: calc(100% + 12px);
             right: 0;
-            background: rgba(18,18,18,0.97);
-            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px;
-            padding: 16px 18px;
-            min-width: 260px;
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            padding: 20px;
+            min-width: 280px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             z-index: 200;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.6);
-            font-family: 'Outfit', 'Arial', sans-serif;
-            animation: dropIn 0.15s ease;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            font-family: 'Outfit', sans-serif;
+            transform: translateY(-10px);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        .cc-tooltip.show { display: block; }
-
-        @keyframes dropIn {
-            from { opacity:0; transform: translateY(-6px); }
-            to   { opacity:1; transform: translateY(0); }
+        .popover.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
         }
 
-        .cc-tooltip h4 {
-            margin: 0 0 8px;
-            font-size: 13px;
-            font-weight: 700;
-            color: #e50914;
-            letter-spacing: 0.5px;
-        }
-
-        .cc-tooltip p {
+        .popover h4 {
             margin: 0 0 12px;
-            font-size: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .popover p {
+            margin: 0 0 16px;
+            font-size: 13px;
             line-height: 1.5;
             color: rgba(255,255,255,0.7);
         }
 
-        .cc-tooltip .steps {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+        .fallback-msg {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+            font-style: italic;
+            line-height: 1.4;
         }
 
-        .cc-tooltip .step {
+        /* CC Steps */
+        .steps { display: flex; flex-direction: column; gap: 10px; }
+        .step {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 12px;
-            color: rgba(255,255,255,0.85);
+            gap: 12px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.9);
+            background: rgba(255,255,255,0.03);
+            padding: 8px 12px;
+            border-radius: 6px;
         }
-
-        .cc-tooltip .step-num {
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: #e50914;
-            color: #fff;
-            font-size: 11px;
-            font-weight: 700;
+        .step-icon {
+            color: #e50914;
             display: flex;
             align-items: center;
             justify-content: center;
-            flex-shrink: 0;
         }
 
-        .player-wrap {
-            position: fixed;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            background: #000;
+        /* Source Menu */
+        .source-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
-
-        .player-wrap iframe {
-            display: block;
-            width: 100%;
-            height: 100%;
-            border: none;
-            outline: none;
+        .source-option {
+            background: transparent;
+            border: 1px solid transparent;
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 6px;
+            text-align: left;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
+        .source-option:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .source-option.active {
+            background: rgba(229, 9, 20, 0.1);
+            border-color: rgba(229, 9, 20, 0.3);
+        }
+        .source-title { font-size: 13px; font-weight: 600; color: #fff; }
+        .source-option.active .source-title { color: #e50914; }
+        .source-desc { font-size: 11px; color: rgba(255,255,255,0.5); }
 
+        /* Premium Loader */
         .loader {
             position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            inset: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
-            color: #e50914;
+            justify-content: center;
+            background: #000;
             z-index: 50;
+            transition: opacity 0.5s ease;
         }
-
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(229, 9, 20, 0.3);
-            border-top: 4px solid #e50914;
+        .netflix-spinner {
+            width: 60px;
+            height: 60px;
+            border: 3px solid rgba(229, 9, 20, 0.1);
+            border-top: 3px solid #e50914;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 16px;
+            animation: spin 1s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
+            margin-bottom: 20px;
         }
-
-        @keyframes spin {
-            0%   { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
         .loader-text {
-            color: rgba(255,255,255,0.6);
-            font-family: 'Outfit', 'Arial', sans-serif;
+            color: rgba(255,255,255,0.7);
+            font-family: 'Outfit', sans-serif;
             font-size: 14px;
-            letter-spacing: 1px;
+            font-weight: 500;
+            letter-spacing: 2px;
+            text-transform: uppercase;
         }
     </style>
 </head>
 <body>
 
-    <div class="top-controls">
-        <a href="index.html" class="back-button">← Back to Browse</a>
+    <div class="top-controls" id="topControls">
+        <a href="index.html" class="back-button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            Back
+        </a>
 
-        <div style="position:relative" id="ccWrapper">
-            <button class="cc-hint-btn" id="ccHintBtn">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="2" y="4" width="20" height="16" rx="3"/>
-                    <path d="M7 12h2m6 0h2"/>
-                    <path d="M9 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
-                    <path d="M17 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
-                </svg>
-                CC / Audio
-            </button>
-            <div class="cc-tooltip" id="ccTooltip">
-                <h4>🌐 Change Language / Subtitles</h4>
-                <p>Audio and subtitle tracks are built into the player. Here’s how to switch:</p>
-                <div class="steps">
-                    <div class="step"><span class="step-num">1</span> Click the ⚙️ gear icon inside the video player</div>
-                    <div class="step"><span class="step-num">2</span> Select <strong>Audio</strong> to change dubbing language</div>
-                    <div class="step"><span class="step-num">3</span> Select <strong>Subtitles / CC</strong> to add captions</div>
+        <div class="right-controls" id="rightControls">
+            <!-- Source Selector -->
+            <div style="position:relative;">
+                <button class="premium-btn" id="sourceBtn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Source
+                </button>
+                <div class="popover" id="sourceTooltip">
+                    <h4>Streaming Sources</h4>
+                    <p>If the video is buffering or unavailable, try an alternative server.</p>
+                    <div class="source-list">
+                        <button class="source-option active" onclick="switchSource('vidlink', this)">
+                            <span class="source-title">Server 1 (Auto)</span>
+                            <span class="source-desc">Default fast server. Supports resume.</span>
+                        </button>
+                        <button class="source-option" onclick="switchSource('vidsrc', this)">
+                            <span class="source-title">Server 2 (Backup)</span>
+                            <span class="source-desc">Alternative reliable stream.</span>
+                        </button>
+                        <button class="source-option" onclick="switchSource('super', this)">
+                            <span class="source-title">Server 3 (Alt)</span>
+                            <span class="source-desc">Fallback provider.</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CC / Audio Guide -->
+            <div style="position:relative;">
+                <button class="premium-btn" id="ccBtn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="4" width="20" height="16" rx="3"/>
+                        <path d="M7 12h2m6 0h2"/>
+                        <path d="M9 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
+                        <path d="M17 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
+                    </svg>
+                    Audio & CC
+                </button>
+                <div class="popover" id="ccTooltip">
+                    <h4>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e50914" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        Player Controls
+                    </h4>
+                    <p>Change subtitles or dubbed audio directly within the player interface.</p>
+                    <div class="steps">
+                        <div class="step">
+                            <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"></path></svg></span>
+                            Click the gear icon inside the player
+                        </div>
+                        <div class="step">
+                            <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></span>
+                            Select <strong>Audio</strong> for dubbed languages
+                        </div>
+                        <div class="step">
+                            <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"></rect><path d="M7 12h2m6 0h2"></path></svg></span>
+                            Select <strong>Subtitles / CC</strong> for captions
+                        </div>
+                    </div>
+                    <div class="fallback-msg">
+                        * Note: Languages depend entirely on the source stream. Not all titles provide multiple audio tracks or dubs.
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="loader" id="loader">
-        <div class="spinner"></div>
+        <div class="netflix-spinner"></div>
+
         <span class="loader-text">Loading...</span>
     </div>
 
@@ -314,35 +391,115 @@
             }
         }
 
-        function buildIframe() {
-            var embedUrl = '';
+        // ── Controls UI Logic ────────────────────────────────────────────
+        var ccBtn = document.getElementById('ccBtn');
+        var ccTooltip = document.getElementById('ccTooltip');
+        var sourceBtn = document.getElementById('sourceBtn');
+        var sourceTooltip = document.getElementById('sourceTooltip');
+        var topControls = document.getElementById('topControls');
+        var hideControlsTimeout;
 
-            // Determine resume time
-            var startTimeParam = '';
-            if (savedData && savedData.timestamp && savedData.duration) {
-                var ts = parseFloat(savedData.timestamp);
-                var dur = parseFloat(savedData.duration);
-                if (ts > 0 && dur > 0 && ts < (dur - 10)) {
-                    var seekTo = Math.min(ts, dur - 5);
-                    startTimeParam = '&startTime=' + Math.floor(seekTo);
-                    console.log('[VAILISM] Native resume applied. Target:', Math.floor(seekTo) + 's');
+        function closeAllPopovers() {
+            ccTooltip.classList.remove('show');
+            sourceTooltip.classList.remove('show');
+        }
+
+        ccBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var isShowing = ccTooltip.classList.contains('show');
+            closeAllPopovers();
+            if (!isShowing) ccTooltip.classList.add('show');
+        });
+
+        sourceBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var isShowing = sourceTooltip.classList.contains('show');
+            closeAllPopovers();
+            if (!isShowing) sourceTooltip.classList.add('show');
+        });
+
+        document.addEventListener('click', function(e) {
+            var rightControls = document.getElementById('rightControls');
+            if (rightControls && !rightControls.contains(e.target)) {
+                closeAllPopovers();
+            }
+        });
+
+        // Hide controls after inactivity
+        function resetControlsTimer() {
+            topControls.style.opacity = '1';
+            clearTimeout(hideControlsTimeout);
+            hideControlsTimeout = setTimeout(function() {
+                if (!ccTooltip.classList.contains('show') && !sourceTooltip.classList.contains('show')) {
+                    topControls.style.opacity = '0';
                 }
+            }, 3000);
+        }
+
+        document.addEventListener('mousemove', resetControlsTimer);
+        document.addEventListener('touchstart', resetControlsTimer);
+        resetControlsTimer(); // Init
+
+        // ── Embed Provider URLs ───────────────────────────────────────────
+        function getEmbedUrl(server, movieId, s, e, ts) {
+            var startTimeParam = '';
+            if (ts > 0 && server === 'vidlink') {
+                startTimeParam = '&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts);
             }
 
             if (mediaType === 'tv') {
-                var s = params.get('s') || (savedData && savedData.season) || 1;
-                var e = params.get('e') || (savedData && savedData.episode) || 1;
-                embedUrl = 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e +
-                           '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                if (server === 'vidlink') return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                if (server === 'vidsrc')  return 'https://vidsrc.cc/v2/embed/tv/' + movieId + '/' + s + '/' + e;
+                if (server === 'super')   return 'https://vidsrc.xyz/embed/tv?tmdb=' + movieId + '&season=' + s + '&episode=' + e;
             } else {
-                embedUrl = 'https://vidlink.pro/movie/' + movieId +
-                           '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                if (server === 'vidlink') return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                if (server === 'vidsrc')  return 'https://vidsrc.cc/v2/embed/movie/' + movieId;
+                if (server === 'super')   return 'https://vidsrc.xyz/embed/movie?tmdb=' + movieId;
+            }
+            return '';
+        }
+
+        var currentServer = 'vidlink';
+
+        window.switchSource = function(serverName, btnElement) {
+            if (currentServer === serverName) return;
+            currentServer = serverName;
+            
+            document.querySelectorAll('.source-option').forEach(el => el.classList.remove('active'));
+            if (btnElement) btnElement.classList.add('active');
+            
+            closeAllPopovers();
+            buildIframe();
+        };
+
+        function buildIframe() {
+            // Refresh savedData to capture progress
+            try {
+                var freshData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                if (freshData) savedData = freshData;
+            } catch (e) {}
+
+            var ts = 0;
+            if (savedData && savedData.timestamp && savedData.duration) {
+                var rawTs = parseFloat(savedData.timestamp);
+                var dur = parseFloat(savedData.duration);
+                if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+                    ts = Math.min(rawTs, dur - 5);
+                }
             }
 
+            var s = 1, e = 1;
+            if (mediaType === 'tv') {
+                s = params.get('s') || (savedData && savedData.season) || 1;
+                e = params.get('e') || (savedData && savedData.episode) || 1;
+            }
+
+            var embedUrl = getEmbedUrl(currentServer, movieId, s, e, ts);
             console.log('[VAILISM] Player URL:', embedUrl);
 
             playerWrap.innerHTML = '';
-            loader.style.display = 'flex';
+            loader.style.opacity = '1';
+            loader.style.pointerEvents = 'auto';
             playerWrap.style.opacity = '0';
 
             var iframe = document.createElement('iframe');
@@ -354,7 +511,8 @@
             iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
 
             function onPlayerLoad() {
-                loader.style.display = 'none';
+                loader.style.opacity = '0';
+                loader.style.pointerEvents = 'none';
                 playerWrap.style.opacity = '1';
                 console.log('[VAILISM] Player loaded.');
             }
@@ -364,17 +522,6 @@
 
             playerWrap.appendChild(iframe);
         }
-
-        // ── CC / Audio hint tooltip ──────────────────────────────────
-        document.getElementById('ccHintBtn').addEventListener('click', function() {
-            document.getElementById('ccTooltip').classList.toggle('show');
-        });
-        document.addEventListener('click', function(e) {
-            var wrapper = document.getElementById('ccWrapper');
-            if (wrapper && !wrapper.contains(e.target)) {
-                document.getElementById('ccTooltip').classList.remove('show');
-            }
-        });
 
         initPlayer();
 
