@@ -240,28 +240,24 @@
         </a>
 
         <div class="right-controls" id="rightControls">
-            <!-- Source Selector -->
+            <!-- Language Selector (Hybrid System) -->
             <div style="position:relative;">
-                <button class="premium-btn" id="sourceBtn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    Source
+                <button class="premium-btn" id="langBtn" style="display:none;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                    Language
                 </button>
-                <div class="popover" id="sourceTooltip">
-                    <h4>Streaming Sources</h4>
-                    <p>If the video is buffering or unavailable, try an alternative server.</p>
-                    <div class="source-list">
-                        <button class="source-option active" onclick="switchSource('vidlink', this)">
-                            <span class="source-title">Server 1 (Auto)</span>
-                            <span class="source-desc">Default fast server. Supports resume.</span>
-                        </button>
-                        <button class="source-option" onclick="switchSource('vidsrc', this)">
-                            <span class="source-title">Server 2 (Backup)</span>
-                            <span class="source-desc">Alternative reliable stream.</span>
-                        </button>
-                        <button class="source-option" onclick="switchSource('super', this)">
-                            <span class="source-title">Server 3 (Alt)</span>
-                            <span class="source-desc">Fallback provider.</span>
-                        </button>
+                <div class="popover" id="langTooltip">
+                    <h4>Audio Language</h4>
+                    <p>Select an audio track. Alternative languages rely on backup servers.</p>
+                    <div class="source-list" id="langList">
+                        <!-- Injected via JS -->
+                    </div>
+                    <div class="fallback-msg" id="langFallback" style="display:none;">
+                        * Only English is available for this title.
                     </div>
                 </div>
             </div>
@@ -391,17 +387,93 @@
             }
         }
 
+        // ── Hybrid Multilanguage Database ────────────────────────────────
+        // Static map of TMDB IDs to alternative language iframe URLs
+        // Format for movies: "TMDB_ID": { "Language Name": "URL" }
+        // Format for TV: "TMDB_ID-S-E": { "Language Name": "URL" }
+        // Note: Realistically, you would fetch this from a backend API.
+        const LANGUAGE_DB = {
+            // Examples of alternative language sources (these are placeholders)
+            "550": { // Fight Club
+                "Hindi (Dub)": "https://vidsrc.cc/v2/embed/movie/550",
+                "Spanish": "https://vidsrc.xyz/embed/movie?tmdb=550"
+            },
+            "1399-1-1": { // Game of Thrones S1 E1
+                "Hindi (Dub)": "https://vidsrc.cc/v2/embed/tv/1399/1/1"
+            }
+        };
+
+        var currentLang = 'English (Default)';
+        var currentAltUrl = null;
+
+        function renderLanguageMenu(s, e) {
+            var dbKey = mediaType === 'tv' ? (movieId + '-' + s + '-' + e) : movieId;
+            var alts = LANGUAGE_DB[dbKey] || {};
+            
+            var langList = document.getElementById('langList');
+            var langFallback = document.getElementById('langFallback');
+            var langBtn = document.getElementById('langBtn');
+            
+            langList.innerHTML = '';
+            
+            var hasAlts = Object.keys(alts).length > 0;
+
+            if (hasAlts) {
+                // Show button if alternatives exist
+                langBtn.style.display = 'flex';
+                
+                // Add Default English
+                langList.innerHTML += 
+                    '<button class="source-option ' + (currentLang === 'English (Default)' ? 'active' : '') + '" onclick="switchLanguage(\'English (Default)\', null, this)">' +
+                        '<span class="source-title">English (Default)</span>' +
+                        '<span class="source-desc">Native fast server.</span>' +
+                    '</button>';
+                
+                // Add Alternatives
+                for (var lang in alts) {
+                    var url = alts[lang];
+                    langList.innerHTML += 
+                        '<button class="source-option ' + (currentLang === lang ? 'active' : '') + '" onclick="switchLanguage(\'' + lang + '\', \'' + url + '\', this)">' +
+                            '<span class="source-title">' + lang + '</span>' +
+                            '<span class="source-desc">Alternative source. May be slower.</span>' +
+                        '</button>';
+                }
+                langFallback.style.display = 'none';
+            } else {
+                // If no alternatives, show button but clarify it's only English
+                langBtn.style.display = 'flex';
+                langList.innerHTML = 
+                    '<button class="source-option active">' +
+                        '<span class="source-title">English (Default)</span>' +
+                        '<span class="source-desc">Native fast server.</span>' +
+                    '</button>';
+                langFallback.style.display = 'block';
+            }
+        }
+
+        window.switchLanguage = function(langName, altUrl, btnElement) {
+            if (currentLang === langName) return;
+            currentLang = langName;
+            currentAltUrl = altUrl;
+            
+            document.querySelectorAll('.source-option').forEach(el => el.classList.remove('active'));
+            if (btnElement) btnElement.classList.add('active');
+            
+            closeAllPopovers();
+            buildIframe();
+        };
+
         // ── Controls UI Logic ────────────────────────────────────────────
         var ccBtn = document.getElementById('ccBtn');
         var ccTooltip = document.getElementById('ccTooltip');
-        var sourceBtn = document.getElementById('sourceBtn');
-        var sourceTooltip = document.getElementById('sourceTooltip');
+        var langBtn = document.getElementById('langBtn');
+        var langTooltip = document.getElementById('langTooltip');
         var topControls = document.getElementById('topControls');
         var hideControlsTimeout;
 
         function closeAllPopovers() {
             ccTooltip.classList.remove('show');
-            sourceTooltip.classList.remove('show');
+            langTooltip.classList.remove('show');
         }
 
         ccBtn.addEventListener('click', function(e) {
@@ -411,11 +483,11 @@
             if (!isShowing) ccTooltip.classList.add('show');
         });
 
-        sourceBtn.addEventListener('click', function(e) {
+        langBtn.addEventListener('click', function(e) {
             e.stopPropagation();
-            var isShowing = sourceTooltip.classList.contains('show');
+            var isShowing = langTooltip.classList.contains('show');
             closeAllPopovers();
-            if (!isShowing) sourceTooltip.classList.add('show');
+            if (!isShowing) langTooltip.classList.add('show');
         });
 
         document.addEventListener('click', function(e) {
@@ -430,7 +502,7 @@
             topControls.style.opacity = '1';
             clearTimeout(hideControlsTimeout);
             hideControlsTimeout = setTimeout(function() {
-                if (!ccTooltip.classList.contains('show') && !sourceTooltip.classList.contains('show')) {
+                if (!ccTooltip.classList.contains('show') && !langTooltip.classList.contains('show')) {
                     topControls.style.opacity = '0';
                 }
             }, 3000);
@@ -441,36 +513,25 @@
         resetControlsTimer(); // Init
 
         // ── Embed Provider URLs ───────────────────────────────────────────
-        function getEmbedUrl(server, movieId, s, e, ts) {
+        function getEmbedUrl(s, e, ts) {
+            // If an alternative language URL is selected, use it directly.
+            // Alternative scrapers rarely support startTime natively.
+            if (currentAltUrl) {
+                return currentAltUrl;
+            }
+
+            // Default to VidLink
             var startTimeParam = '';
-            if (ts > 0 && server === 'vidlink') {
+            if (ts > 0) {
                 startTimeParam = '&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts);
             }
 
             if (mediaType === 'tv') {
-                if (server === 'vidlink') return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-                if (server === 'vidsrc')  return 'https://vidsrc.cc/v2/embed/tv/' + movieId + '/' + s + '/' + e;
-                if (server === 'super')   return 'https://vidsrc.xyz/embed/tv?tmdb=' + movieId + '&season=' + s + '&episode=' + e;
+                return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
             } else {
-                if (server === 'vidlink') return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-                if (server === 'vidsrc')  return 'https://vidsrc.cc/v2/embed/movie/' + movieId;
-                if (server === 'super')   return 'https://vidsrc.xyz/embed/movie?tmdb=' + movieId;
+                return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
             }
-            return '';
         }
-
-        var currentServer = 'vidlink';
-
-        window.switchSource = function(serverName, btnElement) {
-            if (currentServer === serverName) return;
-            currentServer = serverName;
-            
-            document.querySelectorAll('.source-option').forEach(el => el.classList.remove('active'));
-            if (btnElement) btnElement.classList.add('active');
-            
-            closeAllPopovers();
-            buildIframe();
-        };
 
         function buildIframe() {
             // Refresh savedData to capture progress
@@ -494,7 +555,10 @@
                 e = params.get('e') || (savedData && savedData.episode) || 1;
             }
 
-            var embedUrl = getEmbedUrl(currentServer, movieId, s, e, ts);
+            // Ensure language menu is updated for current Season/Episode
+            renderLanguageMenu(s, e);
+
+            var embedUrl = getEmbedUrl(s, e, ts);
             console.log('[VAILISM] Player URL:', embedUrl);
 
             playerWrap.innerHTML = '';
