@@ -15,6 +15,34 @@ window.requestIdleCallback = window.requestIdleCallback || function(cb) {
 };
 window.cancelIdleCallback = window.cancelIdleCallback || function(id) { clearTimeout(id); };
 
+// ─── Playback Freeze System ───────────────────────────────────────────────────
+// When the modal player is active, ALL background network activity must stop.
+// At 7 Mbps, the VidLink HLS stream needs the full pipe — any competing
+// fetches (image lazy-load, infinite scroll, prefetch) cause rebuffering.
+let playbackActive = false;
+
+function freezeBackground() {
+    playbackActive = true;
+    // Disconnect all IntersectionObservers to prevent scroll-triggered loads
+    if (window._vailismVerticalObs)   window._vailismVerticalObs.disconnect();
+    if (window._vailismHorizontalObs) window._vailismHorizontalObs.disconnect();
+    // Stop all pending/loading images behind the modal
+    document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+        if (!img.complete) img.dataset.frozenSrc = img.src;
+    });
+    console.log('[VAILISM] Background frozen — all bandwidth reserved for stream');
+}
+
+function thawBackground() {
+    playbackActive = false;
+    // Re-observe sentinels (they'll fire naturally when user scrolls)
+    if (window._vailismVerticalObs && window._vailismVerticalSentinel) {
+        window._vailismVerticalObs.observe(window._vailismVerticalSentinel);
+    }
+    // Horizontal observer will re-attach as user scrolls rows
+    console.log('[VAILISM] Background thawed — network released');
+}
+
 const ENDPOINTS = [
     { title: 'Trending Now',     path: '/trending/all/week' },
     { title: 'Popular Choices',  path: '/movie/popular' },
@@ -158,6 +186,9 @@ function autoCleanup() {
 const apiCache = new Map();
 
 async function fetchMovies(endpoint, page = 1) {
+    // Block all fetches during playback to reserve bandwidth
+    if (playbackActive) return apiCache.get(`${endpoint}-${page}`) || [];
+
     const cacheKey = `${endpoint}-${page}`;
     // Check in-memory first (fastest)
     if (apiCache.has(cacheKey)) return apiCache.get(cacheKey);
@@ -196,7 +227,7 @@ async function fetchMovies(endpoint, page = 1) {
 }
 
 // Fetch single TMDB entity (movie/tv details). Uses both cache layers.
-async function fetchDetails(type, id) {
+async function fetchDetails(type, id, signal) {
     const cacheKey = `detail_${type}_${id}`;
     // Layer 1: in-memory (fastest, no JSON.parse)
     if (apiCache.has(cacheKey)) return apiCache.get(cacheKey);
@@ -208,7 +239,9 @@ async function fetchDetails(type, id) {
     }
     // Layer 3: network fetch
     try {
-        const res = await fetch(`${BASE_URL}?path=${encodeURIComponent('/' + type + '/' + id)}`);
+        const fetchOptions = {};
+        if (signal) fetchOptions.signal = signal;
+        const res = await fetch(`${BASE_URL}?path=${encodeURIComponent('/' + type + '/' + id)}`, fetchOptions);
         if (!res.ok) return null;
         const data = await res.json();
         if (data && typeof data === 'object') {
@@ -236,19 +269,27 @@ function warmVidLink() {
 }
 
 // ─── Predictive Prefetch ──────────────────────────────────────────────────────
-// On card hover, pre-fetch TMDB details into cache so details page loads instantly.
-let prefetchInFlight = null; // limit to 1 concurrent prefetch
+let prefetchInFlight = null;
+let prefetchAbort = null; // AbortController for proper cancellation
 function prefetchMovieDetails(movieId, type) {
-    if (!movieId || !type) return;
+    if (!movieId || !type || playbackActive) return;
     const cacheKey = `detail_${type}_${movieId}`;
-    // Already cached — skip
     if (apiCache.has(cacheKey) || sessionCacheGet(cacheKey)) return;
-    // Already prefetching — skip
     if (prefetchInFlight) return;
     prefetchInFlight = movieId;
-    fetchDetails(type, movieId).finally(() => {
+    prefetchAbort = new AbortController();
+    fetchDetails(type, movieId, prefetchAbort.signal).finally(() => {
         prefetchInFlight = null;
+        prefetchAbort = null;
     });
+}
+
+function cancelPrefetch() {
+    prefetchInFlight = null;
+    if (prefetchAbort) {
+        try { prefetchAbort.abort(); } catch (e) {}
+        prefetchAbort = null;
+    }
 }
 
 // ─── Modal Player System ──────────────────────────────────────────────────────
@@ -265,15 +306,15 @@ function getBufferGraceMs() {
     try {
         const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         if (conn) {
-            const etype = conn.effectiveType; // '4g', '3g', '2g', 'slow-2g'
-            const downlink = conn.downlink;   // Mbps estimate
-            if (etype === '4g' && downlink >= 5) return 300;   // Fast: minimal grace
-            if (etype === '4g') return 500;                     // Normal 4G
-            if (etype === '3g') return 1000;                    // 3G: need more buffer
-            if (etype === '2g' || etype === 'slow-2g') return 1500; // Very slow
+            const etype = conn.effectiveType;
+            const downlink = conn.downlink; // Mbps estimate
+            if (etype === '4g' && downlink >= 10) return 600;   // Very fast: short grace
+            if (etype === '4g') return 1200;                     // Normal 4G / WiFi
+            if (etype === '3g') return 2000;                     // 3G: long buffer
+            if (etype === '2g' || etype === 'slow-2g') return 3000; // Very slow
         }
     } catch (e) {}
-    return 600; // Safe default when API unavailable
+    return 1500; // Default: ~7 Mbps range needs solid buffer time
 }
 
 function buildEmbedUrl(id, type, s, e, ts) {
@@ -287,8 +328,11 @@ function buildEmbedUrl(id, type, s, e, ts) {
 function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     if (activeModal) return;
 
-    // Cancel any in-flight prefetch to free network bandwidth for the stream
-    prefetchInFlight = null;
+    // Cancel any in-flight prefetch to free bandwidth for the stream
+    cancelPrefetch();
+
+    // FREEZE all background network activity
+    freezeBackground();
 
     savedScrollY = window.scrollY;
     warmVidLink();
@@ -472,6 +516,9 @@ function closeModalPlayer() {
     if (modal._msgHandler) window.removeEventListener('message', modal._msgHandler);
     if (modal._stallTimer) clearTimeout(modal._stallTimer);
     modalSaveThrottle = null;
+
+    // THAW background activity
+    thawBackground();
 
     modal.classList.remove('active');
     setTimeout(() => { modal.remove(); }, 300);
@@ -725,6 +772,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Horizontal Infinite Scroll ────────────────────────────────────────────
     const horizontalObserver = new IntersectionObserver((entries, observer) => {
         entries.forEach(entry => {
+            if (playbackActive) return; // Don't load during playback
             if (!entry.isIntersecting) return;
             const rowSection = entry.target.closest('section.row');
             if (!rowSection) return;
@@ -734,6 +782,9 @@ document.addEventListener('DOMContentLoaded', () => {
             loadNextHorizontalPage(rowPosters, rowSection, observer);
         });
     }, { rootMargin: '0px 300px 0px 0px' });
+    
+    // Expose for freeze/thaw system
+    window._vailismHorizontalObs = horizontalObserver;
 
     async function loadNextHorizontalPage(rowElement, rowSection, activeObserver) {
         if (rowElement.dataset.fetching === 'true') return;
@@ -921,10 +972,15 @@ document.addEventListener('DOMContentLoaded', () => {
         mainContent.after(sentinel);
 
         const verticalObserver = new IntersectionObserver(entries => {
+            if (playbackActive) return; // Don't load during playback
             if (entries[0].isIntersecting) loadMoreRows();
         }, { rootMargin: '0px 0px 500px 0px' });
 
         verticalObserver.observe(sentinel);
+
+        // Expose for freeze/thaw system
+        window._vailismVerticalObs = verticalObserver;
+        window._vailismVerticalSentinel = sentinel;
     }
 
     // ── Search ────────────────────────────────────────────────────────────────
