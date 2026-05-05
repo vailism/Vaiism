@@ -381,7 +381,8 @@
         }
 
         // ── Pre-flight check: Ensure ID exists for this mediaType ────────────────
-        async function initPlayer() {
+        // This is now a BACKGROUND validation — the iframe may already be loading.
+        async function validateContent() {
             try {
                 var checkPath = '/' + mediaType + '/' + movieId;
                 var res = await fetch('/api/tmdb?path=' + encodeURIComponent(checkPath));
@@ -390,21 +391,59 @@
                     if (res.status === 404) {
                         console.error('[VAILISM] API 404: Content not found. Cleaning up.');
                         try { localStorage.removeItem(storageKey); } catch (e) {}
-                        throw new Error('Content not found (404)');
+                        // Only show error if iframe hasn't loaded yet
+                        if (loader.style.opacity !== '0') {
+                            showFatalError('Content not found (404)');
+                        }
                     }
-                    // For other errors (rate limits, etc.), try loading anyway
                 }
-
-                buildIframe();
             } catch (err) {
-                console.error('[VAILISM] Init failed:', err);
-                document.body.innerHTML =
-                    '<div style="color:#fff;text-align:center;padding:60px 20px;">' +
-                    '<h1 style="margin-bottom:20px;">Media Unavailable</h1>' +
-                    '<p style="color:#999;margin-bottom:20px;">' + err.message + '</p>' +
-                    '<a href="index.html" style="color:#e50914;font-size:18px;">← Return Home</a>' +
-                    '</div>';
+                console.warn('[VAILISM] Background validation failed:', err.message);
+                // Don't crash — iframe may still work fine
             }
+        }
+
+        function showFatalError(msg) {
+            document.body.innerHTML =
+                '<div style="color:#fff;text-align:center;padding:60px 20px;">' +
+                '<h1 style="margin-bottom:20px;">Media Unavailable</h1>' +
+                '<p style="color:#999;margin-bottom:20px;">' + msg + '</p>' +
+                '<a href="index.html" style="color:#e50914;font-size:18px;">← Return Home</a>' +
+                '</div>';
+        }
+
+        // ── Fast-start: Check for precomputed embed URL ──────────────────────
+        // playMovie() in script.js computes the embed URL before navigation
+        // so we can start the iframe IMMEDIATELY without waiting for TMDB API.
+        function tryFastStart() {
+            try {
+                var raw = sessionStorage.getItem('vailism_precomputed_embed');
+                if (!raw) return false;
+                var precomputed = JSON.parse(raw);
+                sessionStorage.removeItem('vailism_precomputed_embed');
+
+                // Validate: must match current ID, must be recent (< 30s)
+                if (precomputed.id != movieId) return false;
+                if (Date.now() - precomputed.ts > 30000) return false;
+
+                console.log('[VAILISM] Fast-start: using precomputed URL');
+                // Build iframe directly with precomputed URL
+                buildIframeWithUrl(precomputed.url, precomputed.season || 1, precomputed.episode || 1);
+                // Run validation in background (non-blocking)
+                validateContent();
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function initPlayer() {
+            // Try fast-start first (skips TMDB API call entirely)
+            if (tryFastStart()) return;
+            // Fallback: validate via TMDB then build iframe
+            validateContent().then(function() {
+                buildIframe();
+            });
         }
 
         // ── Hybrid Multilanguage Database ────────────────────────────────
@@ -563,32 +602,9 @@
             }
         }
 
-        function buildIframe() {
-            // Refresh savedData to capture progress
-            try {
-                var freshData = JSON.parse(localStorage.getItem(storageKey) || 'null');
-                if (freshData) savedData = freshData;
-            } catch (e) {}
-
-            var ts = 0;
-            if (savedData && savedData.timestamp && savedData.duration) {
-                var rawTs = parseFloat(savedData.timestamp);
-                var dur = parseFloat(savedData.duration);
-                if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
-                    ts = Math.min(rawTs, dur - 5);
-                }
-            }
-
-            var s = 1, e = 1;
-            if (mediaType === 'tv') {
-                s = params.get('s') || (savedData && savedData.season) || 1;
-                e = params.get('e') || (savedData && savedData.episode) || 1;
-            }
-
-            // Ensure language menu is updated for current Season/Episode
+        function buildIframeWithUrl(embedUrl, s, e) {
+            // Ensure language menu is updated
             renderLanguageMenu(s, e);
-
-            var embedUrl = getEmbedUrl(s, e, ts);
             console.log('[VAILISM] Player URL:', embedUrl);
 
             playerWrap.innerHTML = '';
@@ -612,9 +628,35 @@
             }
 
             iframe.addEventListener('load', onPlayerLoad);
-            setTimeout(onPlayerLoad, 8000);
+            setTimeout(onPlayerLoad, 5000); // Reduced from 8s — faster error recovery
 
             playerWrap.appendChild(iframe);
+        }
+
+        function buildIframe() {
+            // Refresh savedData to capture progress
+            try {
+                var freshData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                if (freshData) savedData = freshData;
+            } catch (e) {}
+
+            var ts = 0;
+            if (savedData && savedData.timestamp && savedData.duration) {
+                var rawTs = parseFloat(savedData.timestamp);
+                var dur = parseFloat(savedData.duration);
+                if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+                    ts = Math.min(rawTs, dur - 5);
+                }
+            }
+
+            var s = 1, e = 1;
+            if (mediaType === 'tv') {
+                s = params.get('s') || (savedData && savedData.season) || 1;
+                e = params.get('e') || (savedData && savedData.episode) || 1;
+            }
+
+            var embedUrl = getEmbedUrl(s, e, ts);
+            buildIframeWithUrl(embedUrl, s, e);
         }
 
         initPlayer();

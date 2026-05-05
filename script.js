@@ -40,6 +40,39 @@ function refreshIcons() {
     });
 }
 
+// ─── Session Cache (survives page navigation) ─────────────────────────────────
+// Stores TMDB API responses in sessionStorage so index→details→player
+// never re-fetches the same data. Entries expire after 30 minutes.
+const SESSION_CACHE_TTL = 30 * 60 * 1000; // 30 min
+
+function sessionCacheGet(key) {
+    try {
+        const raw = sessionStorage.getItem('vc_' + key);
+        if (!raw) return null;
+        const entry = JSON.parse(raw);
+        if (Date.now() - entry.ts > SESSION_CACHE_TTL) {
+            sessionStorage.removeItem('vc_' + key);
+            return null;
+        }
+        return entry.data;
+    } catch (e) { return null; }
+}
+
+function sessionCacheSet(key, data) {
+    try {
+        sessionStorage.setItem('vc_' + key, JSON.stringify({ data: data, ts: Date.now() }));
+    } catch (e) {
+        // sessionStorage full — evict oldest entries
+        try {
+            const keys = Object.keys(sessionStorage).filter(k => k.startsWith('vc_'));
+            if (keys.length > 0) {
+                sessionStorage.removeItem(keys[0]);
+                sessionStorage.setItem('vc_' + key, JSON.stringify({ data: data, ts: Date.now() }));
+            }
+        } catch (e2) {}
+    }
+}
+
 // ─── Safe localStorage helpers ────────────────────────────────────────────────────
 function lsGet(key) {
     try {
@@ -126,7 +159,14 @@ const apiCache = new Map();
 
 async function fetchMovies(endpoint, page = 1) {
     const cacheKey = `${endpoint}-${page}`;
+    // Check in-memory first (fastest)
     if (apiCache.has(cacheKey)) return apiCache.get(cacheKey);
+    // Check sessionStorage (survives navigation)
+    const sessionCached = sessionCacheGet(cacheKey);
+    if (sessionCached) {
+        apiCache.set(cacheKey, sessionCached);
+        return sessionCached;
+    }
 
     try {
         const pathBlock   = encodeURIComponent(endpoint.split('?')[0]);
@@ -144,11 +184,33 @@ async function fetchMovies(endpoint, page = 1) {
 
         const data    = await res.json();
         const results = data.results || [];
-        if (results.length > 0) apiCache.set(cacheKey, results);
+        if (results.length > 0) {
+            apiCache.set(cacheKey, results);
+            sessionCacheSet(cacheKey, results);
+        }
         return results;
     } catch (e) {
         console.error('[VAILISM] fetchMovies failed:', e);
         return [];
+    }
+}
+
+// Fetch single TMDB entity (movie/tv details). Uses session cache.
+async function fetchDetails(type, id) {
+    const cacheKey = `detail_${type}_${id}`;
+    const cached = sessionCacheGet(cacheKey);
+    if (cached) return cached;
+
+    try {
+        const res = await fetch(`${BASE_URL}?path=${encodeURIComponent('/' + type + '/' + id)}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+            sessionCacheSet(cacheKey, data);
+        }
+        return data;
+    } catch (e) {
+        return null;
     }
 }
 
@@ -160,6 +222,37 @@ window.playMovie = function (id, type, s, e) {
         return;
     }
     type = type || 'movie';
+
+    // Pre-compute the embed URL and stash it so player.html can use it instantly
+    // instead of making another TMDB API call just to validate.
+    try {
+        var ts = 0;
+        var storageKey = 'vailism_progress_' + id;
+        var savedData = lsGet(storageKey);
+        if (savedData && savedData.timestamp && savedData.duration) {
+            var rawTs = parseFloat(savedData.timestamp);
+            var dur = parseFloat(savedData.duration);
+            if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+                ts = Math.min(rawTs, dur - 5);
+            }
+        }
+        var season = s || (savedData && savedData.season) || 1;
+        var episode = e || (savedData && savedData.episode) || 1;
+
+        var startTimeParam = ts > 0 ? ('&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts)) : '';
+        var embedUrl;
+        if (type === 'tv') {
+            embedUrl = 'https://vidlink.pro/tv/' + id + '/' + season + '/' + episode + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+        } else {
+            embedUrl = 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+        }
+        // Cache for player.html to pick up
+        sessionStorage.setItem('vailism_precomputed_embed', JSON.stringify({
+            id: id, type: type, url: embedUrl,
+            season: season, episode: episode, ts: Date.now()
+        }));
+    } catch (ex) {}
+
     let url = `player.html?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`;
     if (s) url += `&s=${encodeURIComponent(s)}`;
     if (e) url += `&e=${encodeURIComponent(e)}`;
@@ -221,13 +314,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const baseMovie = movies[Math.floor(Math.random() * Math.min(movies.length, 5))];
         const type      = baseMovie.media_type || (baseMovie.name ? 'tv' : 'movie');
 
+        // Only fetch full details if trending data lacks genres (common for /trending)
         let movie = baseMovie;
-        try {
-            const res = await fetch(`/api/tmdb?path=${encodeURIComponent('/' + type + '/' + baseMovie.id)}`);
-            if (res.ok) movie = await res.json();
-        } catch (e) {
-            // Fall back to baseMovie — no crash
+        if (!baseMovie.genres || baseMovie.genres.length === 0) {
+            const fullDetails = await fetchDetails(type, baseMovie.id);
+            if (fullDetails) movie = fullDetails;
         }
+        // Cache this movie's details for when user clicks "More Info"
+        sessionCacheSet('detail_' + type + '_' + movie.id, movie);
 
         // DOM refs — all guarded
         const heroTitle  = document.getElementById('hero-title');
@@ -480,12 +574,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const dur       = savedData.duration;
 
             try {
-                const res = await fetch(`/api/tmdb?path=${encodeURIComponent('/' + typePath + '/' + movieId)}`);
-                if (!res.ok) {
-                    if (res.status === 404) lsRemove(item.key); // Failsafe removal
-                    return;
-                }
-                const data = await res.json();
+                const data = await fetchDetails(typePath, movieId);
                 if (!data || (!data.poster_path && !data.backdrop_path)) return;
 
                 const imgPath        = data.poster_path || data.backdrop_path;

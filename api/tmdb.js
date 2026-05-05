@@ -21,8 +21,17 @@ export default async function handler(request, response) {
     const tmdbResponse = await fetch(url.toString());
     const data = await tmdbResponse.json();
     
-    // Advanced Performance Optimization: Edge Caching
-    response.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+    // ── Intelligent Edge Caching based on endpoint type ──────────────
+    // Search results: no cache (user-specific, changes per keystroke)
+    // Trending/popular: 1 hour cache (updates daily on TMDB)
+    // Movie/TV details: 24 hour cache (metadata rarely changes)
+    let cacheHeader = 's-maxage=3600, stale-while-revalidate=600';
+    if (path.includes('/search/')) {
+      cacheHeader = 's-maxage=300, stale-while-revalidate=60';
+    } else if (/^\/(movie|tv)\/\d+/.test(path) && !path.includes('/similar') && !path.includes('/season/')) {
+      cacheHeader = 's-maxage=86400, stale-while-revalidate=3600';
+    }
+    response.setHeader('Cache-Control', cacheHeader);
     
     // CORS headers for local/cross-origin safety during Vercel deployments
     response.setHeader('Access-Control-Allow-Origin', '*');

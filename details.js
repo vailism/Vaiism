@@ -21,11 +21,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const FALLBACK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-    // ── Safe TMDB fetch ───────────────────────────────────────────────────────
+    // ── Session cache helpers (shared with script.js) ──────────────────────────
+    const SESSION_CACHE_TTL = 30 * 60 * 1000;
+    function sessionCacheGet(key) {
+        try {
+            const raw = sessionStorage.getItem('vc_' + key);
+            if (!raw) return null;
+            const entry = JSON.parse(raw);
+            if (Date.now() - entry.ts > SESSION_CACHE_TTL) {
+                sessionStorage.removeItem('vc_' + key);
+                return null;
+            }
+            return entry.data;
+        } catch (e) { return null; }
+    }
+    function sessionCacheSet(key, data) {
+        try {
+            sessionStorage.setItem('vc_' + key, JSON.stringify({ data: data, ts: Date.now() }));
+        } catch (e) {}
+    }
+
+    // ── TMDB fetch with session cache ──────────────────────────────────────────
     async function fetchApi(path) {
+        // Check session cache first (data may already exist from index page)
+        const cacheKey = 'detail_' + path.replace(/^\//,'').replace(/\//g, '_');
+        const cached = sessionCacheGet(cacheKey);
+        if (cached) return cached;
+
         const res = await fetch(`/api/tmdb?path=${encodeURIComponent(path)}`);
         if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
-        return res.json();
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+            sessionCacheSet(cacheKey, data);
+        }
+        return data;
     }
 
     // ── Show error state without crashing ────────────────────────────────────
@@ -54,6 +83,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!details || typeof details !== 'object') {
             throw new Error('Empty response from API');
         }
+
+        // Cache this details object for player.html to pick up
+        sessionCacheSet('detail_' + type + '_' + id, details);
 
         // ── Background image ──────────────────────────────────────────────────
         if (heroHeader) {
