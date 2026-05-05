@@ -543,11 +543,11 @@
                 startTimeParam = '&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts);
             }
 
-            // Note: autoplay=false prevents the browser from forcing the player to start muted.
+            // Note: autoplay=true forces the player to start immediately, but modern browsers will mute the audio until the user interacts with the page.
             if (mediaType === 'tv') {
-                return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=false' + startTimeParam;
+                return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
             } else {
-                return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=false' + startTimeParam;
+                return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
             }
         }
 
