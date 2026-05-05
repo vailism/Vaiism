@@ -55,42 +55,113 @@
             border-color: #e50914;
         }
 
-        .server-selector {
+        /* ── Audio/Language dropdown ─────────────────────────────────── */
+        .audio-wrapper {
+            position: relative;
+        }
+
+        .audio-btn {
             display: flex;
             align-items: center;
-            background: rgba(0, 0, 0, 0.75);
-            padding: 6px 12px;
-            border-radius: 4px;
-            border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            font-family: 'Outfit', 'Arial', sans-serif;
-        }
-
-        .server-btn {
-            background: transparent;
-            color: rgba(255,255,255,0.7);
-            border: none;
-            padding: 6px 12px;
-            margin: 0 4px;
+            gap: 8px;
+            background: rgba(0,0,0,0.75);
+            border: 1px solid rgba(255,255,255,0.15);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            color: #fff;
+            padding: 9px 16px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 600;
-            transition: all 0.2s;
+            font-family: 'Outfit', 'Arial', sans-serif;
+            transition: background 0.2s, border-color 0.2s;
+            white-space: nowrap;
+        }
+
+        .audio-btn:hover {
+            background: rgba(229,9,20,0.25);
+            border-color: #e50914;
+        }
+
+        .audio-btn svg { flex-shrink: 0; }
+
+        .audio-btn .caret {
+            transition: transform 0.2s;
+            margin-left: 4px;
+        }
+
+        .audio-btn.open .caret { transform: rotate(180deg); }
+
+        .audio-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: rgba(18,18,18,0.97);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 6px;
+            overflow: hidden;
+            min-width: 190px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            z-index: 200;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+        }
+
+        .audio-dropdown.open { display: block; animation: dropIn 0.15s ease; }
+
+        @keyframes dropIn {
+            from { opacity:0; transform: translateY(-6px); }
+            to   { opacity:1; transform: translateY(0); }
+        }
+
+        .dropdown-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.35);
+            padding: 10px 14px 6px;
             font-family: 'Outfit', 'Arial', sans-serif;
         }
 
-        .server-btn:hover {
-            color: white;
-            background: rgba(255,255,255,0.1);
+        .audio-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: rgba(255,255,255,0.8);
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Outfit', 'Arial', sans-serif;
+            text-align: left;
+            transition: background 0.15s, color 0.15s;
         }
 
-        .server-btn.active {
-            background: #e50914;
-            color: white;
-            box-shadow: 0 0 10px rgba(229, 9, 20, 0.4);
+        .audio-option:hover {
+            background: rgba(255,255,255,0.07);
+            color: #fff;
         }
+
+        .audio-option.active {
+            color: #e50914;
+            font-weight: 700;
+        }
+
+        .audio-option .lang-flag {
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .audio-option .lang-info { display: flex; flex-direction: column; gap: 1px; }
+        .audio-option .lang-name { font-size: 13px; font-weight: 600; }
+        .audio-option .lang-sub  { font-size: 10px; color: rgba(255,255,255,0.4); font-weight: 400; }
+        .audio-option.active .lang-sub { color: rgba(229,9,20,0.7); }
 
         .player-wrap {
             position: fixed;
@@ -147,11 +218,41 @@
 
     <div class="top-controls">
         <a href="index.html" class="back-button">← Back to Browse</a>
-        <div class="server-selector">
-            <span style="color: rgba(255,255,255,0.6); font-size: 13px; margin-right: 10px;">Audio / Source:</span>
-            <button class="server-btn active" onclick="switchServer('vidlink', this)">Source 1</button>
-            <button class="server-btn" onclick="switchServer('vidsrc', this)">Source 2</button>
-            <button class="server-btn" onclick="switchServer('super', this)">Source 3</button>
+
+        <div class="audio-wrapper" id="audioWrapper">
+            <button class="audio-btn" id="audioBtn" onclick="toggleAudioMenu()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+                <span id="audioBtnLabel">English</span>
+                <svg class="caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="audio-dropdown" id="audioDropdown">
+                <div class="dropdown-label">Select Audio / Source</div>
+                <button class="audio-option active" id="opt-vidlink" onclick="selectServer('vidlink','English', this)">
+                    <span class="lang-flag">🇬🇧</span>
+                    <span class="lang-info">
+                        <span class="lang-name">English</span>
+                        <span class="lang-sub">Default · VidLink</span>
+                    </span>
+                </button>
+                <button class="audio-option" id="opt-vidsrc" onclick="selectServer('vidsrc','Hindi / Multi', this)">
+                    <span class="lang-flag">🇮🇳</span>
+                    <span class="lang-info">
+                        <span class="lang-name">Hindi / Multi</span>
+                        <span class="lang-sub">Dub · 2Embed</span>
+                    </span>
+                </button>
+                <button class="audio-option" id="opt-super" onclick="selectServer('super','Subtitles', this)">
+                    <span class="lang-flag">💬</span>
+                    <span class="lang-info">
+                        <span class="lang-name">Subtitles / Alt</span>
+                        <span class="lang-sub">Multi-lang · VidSrc XYZ</span>
+                    </span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -249,12 +350,12 @@
 
             if (mediaType === 'tv') {
                 if (server === 'vidlink') return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-                if (server === 'vidsrc')  return 'https://embed.su/embed/tv/' + movieId + '/' + s + '/' + e;
-                if (server === 'super')   return 'https://vidsrc.vip/embed/tv/' + movieId + '/' + s + '/' + e;
+                if (server === 'vidsrc')  return 'https://www.2embed.skin/embedtv/' + movieId + '&s=' + s + '&e=' + e;
+                if (server === 'super')   return 'https://vidsrc.xyz/embed/tv?tmdb=' + movieId + '&season=' + s + '&episode=' + e;
             } else {
                 if (server === 'vidlink') return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-                if (server === 'vidsrc')  return 'https://embed.su/embed/movie/' + movieId;
-                if (server === 'super')   return 'https://vidsrc.vip/embed/movie/' + movieId;
+                if (server === 'vidsrc')  return 'https://www.2embed.skin/embed/' + movieId;
+                if (server === 'super')   return 'https://vidsrc.xyz/embed/movie?tmdb=' + movieId;
             }
             return '';
         }
@@ -311,18 +412,46 @@
             playerWrap.appendChild(currentIframe);
         }
 
-        // Setup Server Selector UI
-        window.switchServer = function(serverName, btn) {
-            if (currentServer === serverName) return;
+        // ── Audio/Language dropdown ───────────────────────────────────────
+        window.toggleAudioMenu = function() {
+            var btn      = document.getElementById('audioBtn');
+            var dropdown = document.getElementById('audioDropdown');
+            btn.classList.toggle('open');
+            dropdown.classList.toggle('open');
+        };
+
+        window.selectServer = function(serverName, label, optEl) {
+            if (currentServer === serverName) {
+                // Still close the dropdown
+                document.getElementById('audioBtn').classList.remove('open');
+                document.getElementById('audioDropdown').classList.remove('open');
+                return;
+            }
             currentServer = serverName;
-            
-            // Update UI active state
-            document.querySelectorAll('.server-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            // Rebuild iframe
+
+            // Update button label
+            document.getElementById('audioBtnLabel').textContent = label;
+
+            // Update active state on options
+            document.querySelectorAll('.audio-option').forEach(b => b.classList.remove('active'));
+            optEl.classList.add('active');
+
+            // Close dropdown
+            document.getElementById('audioBtn').classList.remove('open');
+            document.getElementById('audioDropdown').classList.remove('open');
+
+            // Rebuild iframe with new server
             buildIframe();
         };
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            var wrapper = document.getElementById('audioWrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+                document.getElementById('audioBtn').classList.remove('open');
+                document.getElementById('audioDropdown').classList.remove('open');
+            }
+        });
 
         initPlayer();
 
