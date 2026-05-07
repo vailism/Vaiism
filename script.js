@@ -320,9 +320,9 @@ function getBufferGraceMs() {
 function buildEmbedUrl(id, type, s, e, ts) {
     var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
     if (type === 'tv') {
-        return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true&player=jw' + startTimeParam;
+        return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true&player=jw&volume=100&mute=false' + startTimeParam;
     }
-    return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true&player=jw' + startTimeParam;
+    return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true&player=jw&volume=100&mute=false' + startTimeParam;
 }
 
 function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
