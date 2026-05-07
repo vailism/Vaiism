@@ -592,7 +592,7 @@
         // ── Embed Provider URLs ───────────────────────────────────────────
         function getEmbedUrl(s, e, ts) {
             // If an alternative language URL is selected, use it directly.
-            // Alternative scrapers rarely support startTime natively.
+            // Alternative scrapers rarely support startAt natively.
             if (currentAltUrl) {
                 return currentAltUrl;
             }
@@ -600,14 +600,14 @@
             // Default to VidLink
             var startTimeParam = '';
             if (ts > 0) {
-                startTimeParam = '&startTime=' + Math.floor(ts);
+                startTimeParam = '&startAt=' + Math.floor(ts);
             }
 
             // Note: autoplay=true forces the player to start immediately, but modern browsers will mute the audio until the user interacts with the page.
             if (mediaType === 'tv') {
-                return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true&player=jw' + startTimeParam;
             } else {
-                return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true&player=jw' + startTimeParam;
             }
         }
 

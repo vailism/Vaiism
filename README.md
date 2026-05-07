@@ -1,4 +1,4 @@
-# VAILISM — Netflix-style Streaming UI
+**# VAILISM — Netflix-style Streaming UI
 
 ## Description
 
@@ -85,3 +85,4 @@ VAILISM implements a rigid client-server decoupling mechanism regarding API requ
 | Application Dashboard | Infinite Carousel | Embedded Player |
 | :---: | :---: | :---: |
 | *(image placeholder)* | *(image placeholder)* | *(image placeholder)* |
+**
