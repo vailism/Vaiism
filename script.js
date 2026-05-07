@@ -318,7 +318,7 @@ function getBufferGraceMs() {
 }
 
 function buildEmbedUrl(id, type, s, e, ts) {
-    var startTimeParam = ts > 0 ? ('&startTime=' + Math.floor(ts) + '&t=' + Math.floor(ts)) : '';
+    var startTimeParam = ts > 0 ? ('&startTime=' + Math.floor(ts)) : '';
     if (type === 'tv') {
         return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
     }
