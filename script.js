@@ -308,13 +308,13 @@ function getBufferGraceMs() {
         if (conn) {
             const etype = conn.effectiveType;
             const downlink = conn.downlink; // Mbps estimate
-            if (etype === '4g' && downlink >= 10) return 600;   // Very fast: short grace
-            if (etype === '4g') return 1200;                     // Normal 4G / WiFi
-            if (etype === '3g') return 2000;                     // 3G: long buffer
-            if (etype === '2g' || etype === 'slow-2g') return 3000; // Very slow
+            if (etype === '4g' && downlink >= 10) return 800;   // Very fast: short grace
+            if (etype === '4g') return 1500;                     // Normal 4G / WiFi
+            if (etype === '3g') return 3000;                     // 3G: long buffer
+            if (etype === '2g' || etype === 'slow-2g') return 5000; // Very slow
         }
     } catch (e) {}
-    return 1500; // Default: ~7 Mbps range needs solid buffer time
+    return 2000; // Default: ~7 Mbps range needs solid buffer time
 }
 
 function buildEmbedUrl(id, type, s, e, ts) {
@@ -471,7 +471,7 @@ function loadIframeInModal(modal, embedUrl) {
             // Final fallback: reveal whatever we have
             revealPlayer();
         }
-    }, 12000);
+    }, 15000);
 
     // Set src LAST (starts loading after everything is wired up)
     iframe.src = embedUrl;
