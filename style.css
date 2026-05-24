@@ -911,6 +911,119 @@ body {
     inset: 0;
 }
 
+/* --- MODAL PLAYER SERVER SWITCHER --- */
+.vailism-modal-controls {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10001;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+.vailism-modal-controls > * {
+    pointer-events: auto;
+}
+.vailism-modal-controls .vailism-modal-back {
+    position: static;
+    opacity: 1;
+}
+.vailism-modal-right {
+    display: flex;
+    gap: 12px;
+    position: relative;
+}
+.vailism-server-container {
+    position: relative;
+}
+.vailism-server-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(10, 10, 10, 0.85);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.vailism-server-btn:hover {
+    background: rgba(40, 40, 40, 0.9);
+    border-color: rgba(255,255,255,0.3);
+}
+.vailism-server-dropdown {
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    background: rgba(14, 14, 14, 0.98);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 280px;
+    z-index: 10002;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+    font-family: 'Outfit', sans-serif;
+    transform: translateY(-8px);
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+}
+.vailism-server-dropdown.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+.vailism-server-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.vailism-server-option {
+    background: transparent;
+    border: 1px solid transparent;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 6px;
+    text-align: left;
+    cursor: pointer;
+    font-family: 'Outfit', system-ui, sans-serif;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+}
+.vailism-server-option:hover {
+    background: rgba(255,255,255,0.05);
+}
+.vailism-server-option.active {
+    background: rgba(229, 9, 20, 0.1);
+    border-color: rgba(229, 9, 20, 0.3);
+}
+.vailism-server-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+}
+.vailism-server-option.active .vailism-server-title {
+    color: #e50914;
+}
+.vailism-server-desc {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    white-space: normal;
+}
+
+
 /* --- MINIMALIST UI CLEANUP --- */
 .nav-links, .btn-list, .plus-icon {
     display: none !important;

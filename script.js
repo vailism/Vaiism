@@ -317,12 +317,54 @@ function getBufferGraceMs() {
     return 2000; // Default: ~7 Mbps range needs solid buffer time
 }
 
-function buildEmbedUrl(id, type, s, e, ts) {
-    var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
-    if (type === 'tv') {
-        return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+const SERVERS = [
+    {
+        name: 'VidLink (Default)',
+        description: 'Fastest server, supports Auto-Resume & Auto-Play.',
+        buildUrl: function(id, type, s, e, ts) {
+            var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
+            if (type === 'tv') {
+                return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+            }
+            return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+        }
+    },
+    {
+        name: 'VidSrc TO',
+        description: 'Extremely reliable, fast streaming & high quality.',
+        buildUrl: function(id, type, s, e, ts) {
+            if (type === 'tv') {
+                return 'https://vidsrc.to/embed/tv/' + id + '/' + s + '/' + e;
+            }
+            return 'https://vidsrc.to/embed/movie/' + id;
+        }
+    },
+    {
+        name: 'VidSrc XYZ',
+        description: 'Popular backup server with multiple language tracks.',
+        buildUrl: function(id, type, s, e, ts) {
+            if (type === 'tv') {
+                return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
+            }
+            return 'https://vidsrc.xyz/embed/movie?tmdb=' + id;
+        }
+    },
+    {
+        name: 'VidSrc CC',
+        description: 'High-speed alternative streaming server.',
+        buildUrl: function(id, type, s, e, ts) {
+            if (type === 'tv') {
+                return 'https://vidsrc.cc/v2/embed/tv/' + id + '/' + s + '/' + e;
+            }
+            return 'https://vidsrc.cc/v2/embed/movie/' + id;
+        }
     }
-    return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+];
+
+function buildEmbedUrl(id, type, s, e, ts) {
+    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'VidLink (Default)';
+    var server = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
+    return server.buildUrl(id, type, s, e, ts);
 }
 
 function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
@@ -337,14 +379,39 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     savedScrollY = window.scrollY;
     warmVidLink();
 
+    // Determine current preferred server
+    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'VidLink (Default)';
+    var currentServer = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
+
     // Create modal DOM
     const modal = document.createElement('div');
     modal.className = 'vailism-modal-player';
     modal.innerHTML = `
-        <button class="vailism-modal-back" id="modal-back">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Back
-        </button>
+        <div class="vailism-modal-controls" id="modal-controls">
+            <button class="vailism-modal-back" id="modal-back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                Back
+            </button>
+            <div class="vailism-modal-right">
+                <button class="vailism-server-btn" id="modal-next-ep-btn" style="display:none; margin-right: 12px; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
+                    Next Ep
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px;">
+                        <polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line>
+                    </svg>
+                </button>
+                <div class="vailism-server-container">
+                    <button class="vailism-server-btn" id="modal-server-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line>
+                        </svg>
+                        Server: <span id="current-server-name">${currentServer.name}</span>
+                    </button>
+                    <div class="vailism-server-dropdown" id="modal-server-dropdown">
+                        <div class="vailism-server-list" id="modal-server-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="vailism-modal-loader" id="modal-loader">
             <div class="vailism-modal-spinner"></div>
             <span>Loading...</span>
@@ -358,6 +425,118 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     modal._season = seasonNum;
     modal._episode = episodeNum;
     modal._retryCount = 0;
+    modal._serverSwitchCount = 0;
+    modal._currentServerName = currentServer.name;
+    modal._hasReceivedPlaybackEvent = false;
+    modal._playbackCheckTimer = null;
+    modal._nextSeason = null;
+    modal._nextEpisode = null;
+
+    var modalNextEpBtn = modal.querySelector('#modal-next-ep-btn');
+
+    modal._checkNextEpisode = async function() {
+        if (mediaType !== 'tv') return;
+        try {
+            var currentS = parseInt(modal._season, 10) || 1;
+            var currentE = parseInt(modal._episode, 10) || 1;
+            
+            var seasonData = await fetchDetails('tv', movieId + '/season/' + currentS);
+            var episodesInSeason = (seasonData && seasonData.episodes) ? seasonData.episodes.length : 0;
+            
+            if (currentE < episodesInSeason) {
+                modal._nextSeason = currentS;
+                modal._nextEpisode = currentE + 1;
+                if (modalNextEpBtn) modalNextEpBtn.style.display = 'flex';
+            } else {
+                var tvData = await fetchDetails('tv', movieId);
+                var totalSeasons = tvData ? tvData.number_of_seasons : 0;
+                if (currentS < totalSeasons) {
+                    modal._nextSeason = currentS + 1;
+                    modal._nextEpisode = 1;
+                    if (modalNextEpBtn) modalNextEpBtn.style.display = 'flex';
+                } else {
+                    if (modalNextEpBtn) modalNextEpBtn.style.display = 'none';
+                    modal._nextSeason = null;
+                    modal._nextEpisode = null;
+                }
+            }
+        } catch(e) {
+            console.error('[VAILISM] Error checking next episode', e);
+        }
+    };
+
+    if (modalNextEpBtn) {
+        modalNextEpBtn.onclick = function(e) {
+            e.stopPropagation();
+            if (modal._nextSeason && modal._nextEpisode) {
+                try { localStorage.removeItem('vailism_progress_' + movieId); } catch (err) {}
+                modal._season = modal._nextSeason;
+                modal._episode = modal._nextEpisode;
+                modal._retryCount = 0;
+                var nextUrl = buildEmbedUrl(movieId, mediaType, modal._season, modal._episode, 0);
+                loadIframeInModal(modal, nextUrl);
+                modalNextEpBtn.style.display = 'none';
+                modal._checkNextEpisode();
+            }
+        };
+    }
+    
+    modal._checkNextEpisode();
+
+    modal._tryNextServer = function() {
+        if (modal._serverSwitchCount >= SERVERS.length) {
+            console.error('[VAILISM] Tried all servers, none loaded.');
+            const loader = modal.querySelector('#modal-loader');
+            if (loader) {
+                var statusSpan = loader.querySelector('span');
+                if (statusSpan) statusSpan.textContent = 'All streams failed. Please check connection.';
+            }
+            if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
+            if (modal._playbackCheckTimer) { clearTimeout(modal._playbackCheckTimer); modal._playbackCheckTimer = null; }
+            return;
+        }
+
+        modal._serverSwitchCount++;
+        
+        var currentIndex = SERVERS.findIndex(function(sv) { return sv.name === currentServer.name; });
+        var nextIndex = (currentIndex + 1) % SERVERS.length;
+        currentServer = SERVERS[nextIndex];
+
+        console.warn('[VAILISM] Auto-switching to next server:', currentServer.name);
+        
+        localStorage.setItem('vailism_preferred_server', currentServer.name);
+        
+        var labelEl = modal.querySelector('#current-server-name');
+        if (labelEl) labelEl.textContent = currentServer.name + ' (Auto)';
+        
+        modal._currentServerName = currentServer.name;
+        modal._hasReceivedPlaybackEvent = false;
+        if (modal._playbackCheckTimer) {
+            clearTimeout(modal._playbackCheckTimer);
+            modal._playbackCheckTimer = null;
+        }
+        resetModalControlsTimer();
+
+        if (typeof renderModalServerList === 'function') {
+            renderModalServerList();
+        }
+        
+        var ts = 0;
+        var storageKey = 'vailism_progress_' + movieId;
+        try {
+            var savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            if (savedData && savedData.timestamp && savedData.duration) {
+                var rawTs = parseFloat(savedData.timestamp);
+                var dur = parseFloat(savedData.duration);
+                if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+                    ts = Math.min(rawTs, dur - 5);
+                }
+            }
+        } catch (err) {}
+        
+        var newUrl = currentServer.buildUrl(movieId, mediaType, modal._season || 1, modal._episode || 1, ts);
+        loadIframeInModal(modal, newUrl);
+    };
 
     requestAnimationFrame(() => { modal.classList.add('active'); });
 
@@ -374,12 +553,137 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     modal._escHandler = (ev) => { if (ev.key === 'Escape') closeModalPlayer(); };
     document.addEventListener('keydown', modal._escHandler);
 
+    // ── Server Selector Dropdown Rendering and Logic ──────────────────────
+    var modalServerBtn = modal.querySelector('#modal-server-btn');
+    var modalServerDropdown = modal.querySelector('#modal-server-dropdown');
+    
+    function renderModalServerList() {
+        var listEl = modal.querySelector('#modal-server-list');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        SERVERS.forEach(function(server) {
+            var btn = document.createElement('button');
+            btn.className = 'vailism-server-option' + (server.name === currentServer.name ? ' active' : '');
+            btn.innerHTML = `
+                <span class="vailism-server-title">${server.name}</span>
+                <span class="vailism-server-desc">${server.description}</span>
+            `;
+            btn.onclick = function(e) {
+                e.stopPropagation();
+                if (server.name === currentServer.name) return;
+                currentServer = server;
+                localStorage.setItem('vailism_preferred_server', server.name);
+                modal.querySelector('#current-server-name').textContent = server.name;
+                modalServerDropdown.classList.remove('show');
+                
+                // Reset retry count for the new server
+                modal._retryCount = 0;
+                modal._serverSwitchCount = 0;
+                
+                modal._currentServerName = server.name;
+                modal._hasReceivedPlaybackEvent = false;
+                if (modal._playbackCheckTimer) {
+                    clearTimeout(modal._playbackCheckTimer);
+                    modal._playbackCheckTimer = null;
+                }
+                resetModalControlsTimer();
+                
+                var ts = 0;
+                var storageKey = 'vailism_progress_' + movieId;
+                try {
+                    var savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                    if (savedData && savedData.timestamp && savedData.duration) {
+                        var rawTs = parseFloat(savedData.timestamp);
+                        var dur = parseFloat(savedData.duration);
+                        if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) {
+                            ts = Math.min(rawTs, dur - 5);
+                        }
+                    }
+                } catch (err) {}
+                
+                var newUrl = server.buildUrl(movieId, mediaType, modal._season || 1, modal._episode || 1, ts);
+                loadIframeInModal(modal, newUrl);
+                renderModalServerList();
+            };
+            listEl.appendChild(btn);
+        });
+    }
+
+    if (modalServerBtn && modalServerDropdown) {
+        renderModalServerList();
+        
+        modalServerBtn.onclick = function(e) {
+            e.stopPropagation();
+            modalServerDropdown.classList.toggle('show');
+        };
+        
+        // Close dropdown when clicking outside
+        modal._clickOutsideHandler = function(e) {
+            if (!modalServerBtn.contains(e.target)) {
+                modalServerDropdown.classList.remove('show');
+                resetModalControlsTimer();
+            }
+        };
+        document.addEventListener('click', modal._clickOutsideHandler);
+    }
+
+    // ── Controls Inactivity Hiding Logic ──────────────────────────────────
+    var modalControls = modal.querySelector('#modal-controls');
+    modal._hideControlsTimeout = null;
+
+    function resetModalControlsTimer() {
+        if (!modalControls) return;
+        modalControls.style.opacity = '1';
+        clearTimeout(modal._hideControlsTimeout);
+        
+        var shouldHide = (modal._currentServerName !== 'VidLink (Default)') || modal._hasReceivedPlaybackEvent;
+        
+        if (shouldHide) {
+            modal._hideControlsTimeout = setTimeout(function() {
+                if (modalServerDropdown && !modalServerDropdown.classList.contains('show')) {
+                    modalControls.style.opacity = '0';
+                }
+            }, 3000);
+        }
+    }
+    
+    // Store helper to let cleanUp access and clear the timeout
+    modal._resetControlsTimer = resetModalControlsTimer;
+
+    var modalMouseMoveRaf = false;
+    modal._mouseMoveHandler = function() {
+        if (modalMouseMoveRaf) return;
+        modalMouseMoveRaf = true;
+        requestAnimationFrame(function() {
+            resetModalControlsTimer();
+            modalMouseMoveRaf = false;
+        });
+    };
+    modal.addEventListener('mousemove', modal._mouseMoveHandler, { passive: true });
+    
+    modal._touchStartHandler = function() {
+        resetModalControlsTimer();
+    };
+    modal.addEventListener('touchstart', modal._touchStartHandler, { passive: true });
+    
+    // Initial start of timer
+    resetModalControlsTimer();
+
     // ── Progress tracking + auto-next-episode via postMessage ─────────────
     modal._msgHandler = (event) => {
         var payload = event.data;
         if (!payload) return;
         try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch (e) { return; }
         if (!payload || typeof payload !== 'object') return;
+
+        if (payload.type === 'PLAYER_EVENT') {
+            modal._hasReceivedPlaybackEvent = true;
+            if (modal._playbackCheckTimer) {
+                clearTimeout(modal._playbackCheckTimer);
+                modal._playbackCheckTimer = null;
+            }
+            resetModalControlsTimer();
+        }
 
         var data = (payload.type === 'PLAYER_EVENT' && payload.data) ? payload.data : payload;
         if (!data || typeof data !== 'object') return;
@@ -435,6 +739,12 @@ function loadIframeInModal(modal, embedUrl) {
     // Show loader
     if (loader) { loader.classList.remove('hidden'); }
 
+    if (modal._playbackCheckTimer) {
+        clearTimeout(modal._playbackCheckTimer);
+        modal._playbackCheckTimer = null;
+    }
+    modal._hasReceivedPlaybackEvent = false;
+
     const iframe = document.createElement('iframe');
     iframe.setAttribute('allowfullscreen', 'true');
     iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
@@ -452,26 +762,38 @@ function loadIframeInModal(modal, embedUrl) {
         }, graceMs);
         // Clear stall timer
         if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
+
+        // Start playback verification timer ONLY for VidLink
+        if (modal._currentServerName === 'VidLink (Default)') {
+            modal._playbackCheckTimer = setTimeout(() => {
+                if (!modal._hasReceivedPlaybackEvent) {
+                    console.warn('[VAILISM] VidLink loaded but no playback events received within 8s. Content may be unavailable. Auto-switching...');
+                    if (typeof modal._tryNextServer === 'function') {
+                        modal._tryNextServer();
+                    }
+                }
+            }, 8000); // 8 seconds post-load check
+        }
     }
 
     iframe.addEventListener('load', revealPlayer);
 
-    // ── Stall detection: if iframe doesn't load in 12s, retry ────────────
+    // ── Stall detection: if iframe doesn't load in 8s, auto-switch to next server ──
     modal._stallTimer = setTimeout(() => {
-        if (!loaded && modal._retryCount < 2) {
-            modal._retryCount++;
-            console.warn('[VAILISM] Stall detected, retrying... (attempt ' + modal._retryCount + ')');
-            if (loader) {
-                var statusSpan = loader.querySelector('span');
-                if (statusSpan) statusSpan.textContent = 'Retrying...';
+        if (!loaded) {
+            console.warn('[VAILISM] Stall detected on current server. Triggering auto-fallback...');
+            if (typeof modal._tryNextServer === 'function') {
+                if (loader) {
+                    var statusSpan = loader.querySelector('span');
+                    if (statusSpan) statusSpan.textContent = 'Server stalled. Switching server...';
+                }
+                modal._tryNextServer();
+            } else {
+                // Final fallback: reveal whatever we have
+                revealPlayer();
             }
-            // Reload iframe with same URL
-            loadIframeInModal(modal, embedUrl);
-        } else if (!loaded) {
-            // Final fallback: reveal whatever we have
-            revealPlayer();
         }
-    }, 15000);
+    }, 8000);
 
     // Set src LAST (starts loading after everything is wired up)
     iframe.src = embedUrl;
@@ -481,29 +803,37 @@ function loadIframeInModal(modal, embedUrl) {
 // ── Auto-play next episode ───────────────────────────────────────────────────
 function autoPlayNextEpisode(modal) {
     if (!modal || modal !== activeModal) return;
-    var currentEp = parseInt(modal._episode, 10) || 1;
-    var nextEp = currentEp + 1;
-    var season = parseInt(modal._season, 10) || 1;
+    if (!modal._nextSeason || !modal._nextEpisode) return;
+    
+    var nextS = modal._nextSeason;
+    var nextE = modal._nextEpisode;
     var movieId = modal._movieId;
     var mediaType = modal._mediaType;
 
-    console.log('[VAILISM] Auto-playing next episode: S' + season + 'E' + nextEp);
+    console.log('[VAILISM] Auto-playing next episode: S' + nextS + 'E' + nextE);
 
     // Update modal state
-    modal._episode = nextEp;
+    modal._season = nextS;
+    modal._episode = nextE;
     modal._retryCount = 0;
+    
+    var btn = modal.querySelector('#modal-next-ep-btn');
+    if (btn) btn.style.display = 'none';
 
     // Build new URL and reload iframe in-place
-    var nextUrl = buildEmbedUrl(movieId, mediaType, season, nextEp, 0);
+    var nextUrl = buildEmbedUrl(movieId, mediaType, nextS, nextE, 0);
     loadIframeInModal(modal, nextUrl);
 
     // Update sessionStorage embed cache
     try {
         sessionStorage.setItem('vailism_precomputed_embed', JSON.stringify({
             id: movieId, type: mediaType, url: nextUrl,
-            season: season, episode: nextEp, ts: Date.now()
+            season: nextS, episode: nextE, ts: Date.now()
         }));
     } catch (e) {}
+    
+    // Check next episode availability again
+    if (modal._checkNextEpisode) modal._checkNextEpisode();
 }
 
 function closeModalPlayer() {
@@ -514,7 +844,12 @@ function closeModalPlayer() {
     // Cleanup
     if (modal._escHandler) document.removeEventListener('keydown', modal._escHandler);
     if (modal._msgHandler) window.removeEventListener('message', modal._msgHandler);
+    if (modal._clickOutsideHandler) document.removeEventListener('click', modal._clickOutsideHandler);
+    if (modal._mouseMoveHandler) modal.removeEventListener('mousemove', modal._mouseMoveHandler);
+    if (modal._touchStartHandler) modal.removeEventListener('touchstart', modal._touchStartHandler);
     if (modal._stallTimer) clearTimeout(modal._stallTimer);
+    if (modal._playbackCheckTimer) clearTimeout(modal._playbackCheckTimer);
+    if (modal._hideControlsTimeout) clearTimeout(modal._hideControlsTimeout);
     modalSaveThrottle = null;
 
     // THAW background activity

@@ -269,6 +269,31 @@
         </a>
 
         <div class="right-controls" id="rightControls">
+            <!-- Next Episode Button -->
+            <button class="premium-btn" id="nextEpBtn" style="display:none; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
+                Next Ep
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 2px;">
+                    <polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line>
+                </svg>
+            </button>
+
+            <!-- Server Selector -->
+            <div style="position:relative;">
+                <button class="premium-btn" id="serverBtn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line>
+                    </svg>
+                    Server: <span id="currentServerLabel">VidLink (Default)</span>
+                </button>
+                <div class="popover" id="serverTooltip">
+                    <h4>Select Stream Server</h4>
+                    <p>Select a server if the video fails to load or buffer.</p>
+                    <div class="source-list" id="serverList">
+                        <!-- Injected via JS -->
+                    </div>
+                </div>
+            </div>
+
             <!-- Language Selector (Hybrid System) -->
             <div style="position:relative;">
                 <button class="premium-btn" id="langBtn" style="display:none;">
@@ -421,6 +446,135 @@
                 '</div>';
         }
 
+        // ── Alternative Streaming Servers Definition ──────────────────────
+        const SERVERS = [
+            {
+                name: 'VidLink (Default)',
+                description: 'Fastest server, supports Auto-Resume & Auto-Play.',
+                buildUrl: function(id, type, s, e, ts) {
+                    var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
+                    if (type === 'tv') {
+                        return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                    }
+                    return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                }
+            },
+            {
+                name: 'VidSrc TO',
+                description: 'Extremely reliable, fast streaming & high quality.',
+                buildUrl: function(id, type, s, e, ts) {
+                    if (type === 'tv') {
+                        return 'https://vidsrc.to/embed/tv/' + id + '/' + s + '/' + e;
+                    }
+                    return 'https://vidsrc.to/embed/movie/' + id;
+                }
+            },
+            {
+                name: 'VidSrc XYZ',
+                description: 'Popular backup server with multiple language tracks.',
+                buildUrl: function(id, type, s, e, ts) {
+                    if (type === 'tv') {
+                        return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
+                    }
+                    return 'https://vidsrc.xyz/embed/movie?tmdb=' + id;
+                }
+            },
+            {
+                name: 'VidSrc CC',
+                description: 'High-speed alternative streaming server.',
+                buildUrl: function(id, type, s, e, ts) {
+                    if (type === 'tv') {
+                        return 'https://vidsrc.cc/v2/embed/tv/' + id + '/' + s + '/' + e;
+                    }
+                    return 'https://vidsrc.cc/v2/embed/movie/' + id;
+                }
+            }
+        ];
+
+        var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'VidLink (Default)';
+        var currentServer = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
+
+        var serverSwitchCount = 0;
+        var stallTimer = null;
+        var playbackCheckTimer = null;
+        var hasReceivedPlaybackEvent = false;
+
+        function tryNextServer() {
+            if (serverSwitchCount >= SERVERS.length) {
+                console.error('[VAILISM] Tried all servers, none loaded.');
+                var loaderText = document.getElementById('loader');
+                if (loaderText) {
+                    var textSpan = loaderText.querySelector('.loader-text');
+                    if (textSpan) textSpan.textContent = 'All streams failed. Please check connection.';
+                    var spinner = loaderText.querySelector('.netflix-spinner');
+                    if (spinner) spinner.style.display = 'none';
+                }
+                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+                if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
+                return;
+            }
+
+            serverSwitchCount++;
+
+            var currentIndex = SERVERS.findIndex(function(sv) { return sv.name === currentServer.name; });
+            var nextIndex = (currentIndex + 1) % SERVERS.length;
+            currentServer = SERVERS[nextIndex];
+
+            console.warn('[VAILISM] Auto-switching to next server:', currentServer.name);
+
+            localStorage.setItem('vailism_preferred_server', currentServer.name);
+
+            var serverLabel = document.getElementById('currentServerLabel');
+            if (serverLabel) serverLabel.textContent = currentServer.name;
+
+            hasReceivedPlaybackEvent = false;
+            if (playbackCheckTimer) {
+                clearTimeout(playbackCheckTimer);
+                playbackCheckTimer = null;
+            }
+            resetControlsTimer();
+
+            renderServerMenu();
+            buildIframe();
+        }
+
+        function renderServerMenu() {
+            var serverList = document.getElementById('serverList');
+            var serverLabel = document.getElementById('currentServerLabel');
+            if (!serverList || !serverLabel) return;
+            
+            serverLabel.textContent = currentServer.name;
+            serverList.innerHTML = '';
+            
+            SERVERS.forEach(function(server) {
+                var activeClass = server.name === currentServer.name ? 'active' : '';
+                var btn = document.createElement('button');
+                btn.className = 'source-option ' + activeClass;
+                btn.innerHTML = `
+                    <span class="source-title">${server.name}</span>
+                    <span class="source-desc">${server.description}</span>
+                `;
+                btn.onclick = function() {
+                    if (server.name === currentServer.name) return;
+                    currentServer = server;
+                    localStorage.setItem('vailism_preferred_server', server.name);
+                    serverSwitchCount = 0; // Reset auto-switch count on manual selection!
+                    closeAllPopovers();
+                    
+                    hasReceivedPlaybackEvent = false;
+                    if (playbackCheckTimer) {
+                        clearTimeout(playbackCheckTimer);
+                        playbackCheckTimer = null;
+                    }
+                    resetControlsTimer();
+                    
+                    buildIframe();
+                    renderServerMenu();
+                };
+                serverList.appendChild(btn);
+            });
+        }
+
         // ── Fast-start: Check for precomputed embed URL ──────────────────────
         // playMovie() in script.js computes the embed URL before navigation
         // so we can start the iframe IMMEDIATELY without waiting for TMDB API.
@@ -447,11 +601,80 @@
         }
 
         function initPlayer() {
+            // Render server menu options
+            renderServerMenu();
+            // Fetch next episode state
+            checkNextEpisodeAvailability();
             // Try fast-start first (skips TMDB API call entirely)
             if (tryFastStart()) return;
             // Fallback: validate via TMDB then build iframe
             validateContent().then(function() {
                 buildIframe();
+            });
+        }
+        
+        var nextEpBtn = document.getElementById('nextEpBtn');
+        var nextSeasonNum = null;
+        var nextEpisodeNum = null;
+
+        async function checkNextEpisodeAvailability() {
+            if (mediaType !== 'tv') return;
+            try {
+                var currentS = parseInt(params.get('s') || (savedData && savedData.season) || 1, 10);
+                var currentE = parseInt(params.get('e') || (savedData && savedData.episode) || 1, 10);
+
+                var seasonRes = await fetch('/api/tmdb?path=' + encodeURIComponent('/tv/' + movieId + '/season/' + currentS));
+                if (!seasonRes.ok) return;
+                var seasonData = await seasonRes.json();
+                
+                var episodesInSeason = seasonData.episodes ? seasonData.episodes.length : 0;
+                
+                if (currentE < episodesInSeason) {
+                    nextSeasonNum = currentS;
+                    nextEpisodeNum = currentE + 1;
+                    if (nextEpBtn) nextEpBtn.style.display = 'flex';
+                } else {
+                    var tvRes = await fetch('/api/tmdb?path=' + encodeURIComponent('/tv/' + movieId));
+                    if (!tvRes.ok) return;
+                    var tvData = await tvRes.json();
+                    var totalSeasons = tvData.number_of_seasons || 0;
+                    
+                    if (currentS < totalSeasons) {
+                        nextSeasonNum = currentS + 1;
+                        nextEpisodeNum = 1;
+                        if (nextEpBtn) nextEpBtn.style.display = 'flex';
+                    } else {
+                        if (nextEpBtn) nextEpBtn.style.display = 'none';
+                        nextSeasonNum = null;
+                        nextEpisodeNum = null;
+                    }
+                }
+            } catch (e) {
+                console.error('[VAILISM] Error checking next episode:', e);
+            }
+        }
+
+        if (nextEpBtn) {
+            nextEpBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (nextSeasonNum && nextEpisodeNum) {
+                    try { localStorage.removeItem(storageKey); } catch (err) {}
+                    
+                    var newUrl = new URL(window.location.href);
+                    newUrl.searchParams.set('s', nextSeasonNum);
+                    newUrl.searchParams.set('e', nextEpisodeNum);
+                    
+                    // Update URL and reload iframe
+                    window.history.replaceState({}, '', newUrl.href);
+                    
+                    params = newUrl.searchParams;
+                    savedData = null; // Clear local saved data state
+                    
+                    nextEpBtn.style.display = 'none';
+                    checkNextEpisodeAvailability();
+                    
+                    buildIframe();
+                }
             });
         }
 
@@ -536,12 +759,15 @@
         var ccTooltip = document.getElementById('ccTooltip');
         var langBtn = document.getElementById('langBtn');
         var langTooltip = document.getElementById('langTooltip');
+        var serverBtn = document.getElementById('serverBtn');
+        var serverTooltip = document.getElementById('serverTooltip');
         var topControls = document.getElementById('topControls');
         var hideControlsTimeout;
 
         function closeAllPopovers() {
             ccTooltip.classList.remove('show');
             langTooltip.classList.remove('show');
+            if (serverTooltip) serverTooltip.classList.remove('show');
         }
 
         ccBtn.addEventListener('click', function(e) {
@@ -558,6 +784,15 @@
             if (!isShowing) langTooltip.classList.add('show');
         });
 
+        if (serverBtn) {
+            serverBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var isShowing = serverTooltip.classList.contains('show');
+                closeAllPopovers();
+                if (!isShowing) serverTooltip.classList.add('show');
+            });
+        }
+
         document.addEventListener('click', function(e) {
             var rightControls = document.getElementById('rightControls');
             if (rightControls && !rightControls.contains(e.target)) {
@@ -569,11 +804,19 @@
         function resetControlsTimer() {
             topControls.style.opacity = '1';
             clearTimeout(hideControlsTimeout);
-            hideControlsTimeout = setTimeout(function() {
-                if (!ccTooltip.classList.contains('show') && !langTooltip.classList.contains('show')) {
-                    topControls.style.opacity = '0';
-                }
-            }, 3000);
+            
+            var shouldHide = (currentServer.name !== 'VidLink (Default)' || currentAltUrl) || hasReceivedPlaybackEvent;
+            
+            if (shouldHide) {
+                hideControlsTimeout = setTimeout(function() {
+                    var isPopoverShowing = ccTooltip.classList.contains('show') || 
+                                           langTooltip.classList.contains('show') || 
+                                           (serverTooltip && serverTooltip.classList.contains('show'));
+                    if (!isPopoverShowing) {
+                        topControls.style.opacity = '0';
+                    }
+                }, 3000);
+            }
         }
 
         // Throttled mousemove via rAF to prevent 60+ calls/sec
@@ -596,19 +839,7 @@
             if (currentAltUrl) {
                 return currentAltUrl;
             }
-
-            // Default to VidLink
-            var startTimeParam = '';
-            if (ts > 0) {
-                startTimeParam = '&startAt=' + Math.floor(ts);
-            }
-
-            // Note: autoplay=true forces the player to start immediately, but modern browsers will mute the audio until the user interacts with the page.
-            if (mediaType === 'tv') {
-                return 'https://vidlink.pro/tv/' + movieId + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-            } else {
-                return 'https://vidlink.pro/movie/' + movieId + '?primaryColor=e50914&autoplay=true' + startTimeParam;
-            }
+            return currentServer.buildUrl(movieId, mediaType, s, e, ts);
         }
 
         function buildIframeWithUrl(embedUrl, s, e) {
@@ -629,15 +860,42 @@
             iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
             iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
 
+            var loaded = false;
+            if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+            if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
+            hasReceivedPlaybackEvent = false;
+
             function onPlayerLoad() {
+                if (loaded) return;
+                loaded = true;
                 loader.style.opacity = '0';
                 loader.style.pointerEvents = 'none';
                 playerWrap.style.opacity = '1';
                 console.log('[VAILISM] Player loaded.');
+                if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+
+                // Start playback verification timer ONLY for VidLink
+                if (currentServer.name === 'VidLink (Default)' && !currentAltUrl) {
+                    playbackCheckTimer = setTimeout(function() {
+                        if (!hasReceivedPlaybackEvent) {
+                            console.warn('[VAILISM] VidLink loaded but no playback events received within 8s. Auto-switching...');
+                            tryNextServer();
+                        }
+                    }, 8000);
+                }
             }
 
             iframe.addEventListener('load', onPlayerLoad);
-            setTimeout(onPlayerLoad, 5000); // Reduced from 8s — faster error recovery
+
+            // ── Stall detection: if iframe doesn't load in 8s, auto-switch to next server ──
+            stallTimer = setTimeout(function() {
+                if (!loaded) {
+                    console.warn('[VAILISM] Stall detected on current server in player.html. Triggering auto-fallback...');
+                    var textSpan = loader.querySelector('.loader-text');
+                    if (textSpan) textSpan.textContent = 'Server stalled. Switching server...';
+                    tryNextServer();
+                }
+            }, 8000);
 
             playerWrap.appendChild(iframe);
         }
@@ -687,6 +945,15 @@
 
             if (!payload || typeof payload !== 'object') return;
 
+            if (payload.type === 'PLAYER_EVENT') {
+                hasReceivedPlaybackEvent = true;
+                if (playbackCheckTimer) {
+                    clearTimeout(playbackCheckTimer);
+                    playbackCheckTimer = null;
+                }
+                resetControlsTimer();
+            }
+
             // Generic Iframe Player Event parser
             var data = null;
             if (payload.type === 'PLAYER_EVENT' && payload.data) {
@@ -729,9 +996,9 @@
                     };
 
                     if (mediaType === 'tv') {
-                        // Use existing season/ep from current playback or fallback to saved/default
-                        toSave.season  = parseInt(data.season  || (savedData ? savedData.season : 1), 10);
-                        toSave.episode = parseInt(data.episode || (savedData ? savedData.episode : 1), 10);
+                        // Use existing season/ep from current playback or fallback to params/saved/default
+                        toSave.season  = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
+                        toSave.episode = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
                     }
 
                     try {
@@ -758,6 +1025,14 @@
             if (saveThrottle) {
                 clearTimeout(saveThrottle);
                 saveThrottle = null;
+            }
+            if (stallTimer) {
+                clearTimeout(stallTimer);
+                stallTimer = null;
+            }
+            if (playbackCheckTimer) {
+                clearTimeout(playbackCheckTimer);
+                playbackCheckTimer = null;
             }
         }
         window.addEventListener('pagehide',    cleanup);
