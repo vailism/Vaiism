@@ -124,5 +124,12 @@
     <!-- Core App Logic -->
     <script src="script.js" defer></script>
     <script src="details.js" defer></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => console.error('[SW] Registration failed:', err));
+            });
+        }
+    </script>
 </body>
 </html>

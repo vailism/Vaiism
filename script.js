@@ -17,7 +17,7 @@ window.cancelIdleCallback = window.cancelIdleCallback || function(id) { clearTim
 
 // ─── Playback Freeze System ───────────────────────────────────────────────────
 // When the modal player is active, ALL background network activity must stop.
-// At 7 Mbps, the VidLink HLS stream needs the full pipe — any competing
+// At 7 Mbps, the SERVER 1 HLS stream needs the full pipe — any competing
 // fetches (image lazy-load, infinite scroll, prefetch) cause rebuffering.
 let playbackActive = false;
 
@@ -111,89 +111,140 @@ function getProgressKey(movieId, mediaType, season, episode) {
     return 'vailism_progress_' + movieId;
 }
 
-function getLatestProgressForShow(showId) {
-    const keys = lsKeys();
-    const progressKeys = keys
-        .filter(k => k.startsWith('vailism_progress_' + showId))
-        .map(k => ({ key: k, data: lsGet(k) }))
-        .filter(item => item.data && item.data.updatedAt)
-        .sort((a, b) => b.data.updatedAt - a.data.updatedAt); // Most recent first
-    return progressKeys.length > 0 ? progressKeys[0].data : null;
+// ─── IndexedDB Storage ─────────────────────────────────────────────────────────
+const DB_NAME = 'vailism_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'vailism_store';
+
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+    });
 }
 
-function evictOldestProgress() {
-    console.warn('[VAILISM] LocalStorage limit reached. Running LRU eviction on watch progress...');
-    const keys = lsKeys();
-    const progressKeys = keys
-        .filter(k => k.startsWith('vailism_progress_'))
-        .map(k => ({ key: k, data: lsGet(k) }))
-        .filter(item => item.data && item.data.updatedAt)
-        .sort((a, b) => a.data.updatedAt - b.data.updatedAt); // Oldest first
-        
-    if (progressKeys.length > 0) {
-        // Evict oldest 3 items to free up block quota
-        progressKeys.slice(0, 3).forEach(item => {
-            lsRemove(item.key);
-            console.log(`[VAILISM] Evicted expired progress key: ${item.key}`);
-        });
-    }
-}
-
-function lsGet(key) {
+async function lsGet(key) {
     try {
-        const raw = localStorage.getItem(key);
-        if (raw === null) return null;
-        return JSON.parse(raw);
-    } catch (e) {
-        console.warn('[VAILISM] localStorage parse failed for key:', key);
-        localStorage.removeItem(key); // Clear corrupted data
-        return null;
-    }
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result !== undefined ? request.result : null);
+            request.onerror = () => reject(request.error);
+        });
+    } catch(e) { return null; }
 }
 
-function lsSet(key, value) {
+async function lsSet(key, value, skipBroadcast = false) {
     if (!key || value === undefined) return;
     
-    // Standardize and validate progress entries
     if (key.startsWith('vailism_progress_')) {
-        if (!isValidProgress(value)) {
-            console.warn('[VAILISM] Attempted to save invalid progress:', value);
-            return;
-        }
-        // Force number types and clamp
-        value.id        = parseInt(value.id, 10);
+        if (!isValidProgress(value)) return;
+        value.id = parseInt(value.id, 10);
         value.timestamp = Math.max(0, Math.min(parseFloat(value.timestamp), parseFloat(value.duration)));
-        value.duration  = parseFloat(value.duration);
+        value.duration = parseFloat(value.duration);
         value.updatedAt = Date.now();
-        
-        // TV specific sanity
         if (value.mediaType === 'tv') {
-            value.season  = parseInt(value.season, 10) || 1;
+            value.season = parseInt(value.season, 10) || 1;
             value.episode = parseInt(value.episode, 10) || 1;
         }
     }
-
     try {
-        localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-        console.warn('[VAILISM] localStorage write failed:', e);
-        if (e.name === 'QuotaExceededError' || e.code === 22) {
-            evictOldestProgress();
-            try {
-                localStorage.setItem(key, JSON.stringify(value));
-            } catch (retryError) {
-                console.error('[VAILISM] Retry write failed after eviction:', retryError);
-            }
-        }
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.put(value, key);
+            request.onsuccess = () => {
+                if (!skipBroadcast && key.startsWith('vailism_')) {
+                    try {
+                        const bc = new BroadcastChannel('vailism_sync');
+                        bc.postMessage({ type: 'UPDATE', key: key });
+                        bc.close();
+                    } catch(e) {}
+                }
+                resolve();
+            };
+            request.onerror = () => reject(request.error);
+        });
+    } catch(e) {
+        console.warn('[VAILISM] IDB Set failed:', e);
     }
 }
 
-function lsRemove(key) {
-    try { localStorage.removeItem(key); } catch (e) {}
+async function lsRemove(key, skipBroadcast = false) {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.delete(key);
+            request.onsuccess = () => {
+                if (!skipBroadcast && key.startsWith('vailism_')) {
+                    try {
+                        const bc = new BroadcastChannel('vailism_sync');
+                        bc.postMessage({ type: 'UPDATE', key: key });
+                        bc.close();
+                    } catch(e) {}
+                }
+                resolve();
+            };
+            request.onerror = () => reject(request.error);
+        });
+    } catch(e) {}
 }
 
-function lsKeys() {
-    try { return Object.keys(localStorage); } catch (e) { return []; }
+async function lsKeys() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.getAllKeys();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    } catch(e) { return []; }
+}
+
+async function migrateFromLocalStorage() {
+    try {
+        const migrated = localStorage.getItem('vailism_idb_migrated');
+        if (migrated) return;
+        const keys = Object.keys(localStorage);
+        for (const key of keys) {
+            if (key.startsWith('vailism_')) {
+                try {
+                    let value = localStorage.getItem(key);
+                    try { value = JSON.parse(value); } catch(e) {}
+                    await lsSet(key, value, true);
+                } catch(e) {}
+            }
+        }
+        localStorage.setItem('vailism_idb_migrated', 'true');
+        console.log('[VAILISM] Storage migrated to IndexedDB.');
+    } catch(e) {}
+}
+
+async function getLatestProgressForShow(showId) {
+    const keys = await lsKeys();
+    const progressKeys = [];
+    for (const k of keys) {
+        if (k.startsWith('vailism_progress_' + showId)) {
+            const data = await lsGet(k);
+            if (data && data.updatedAt) progressKeys.push({ key: k, data: data });
+        }
+    }
+    progressKeys.sort((a, b) => b.data.updatedAt - a.data.updatedAt);
+    return progressKeys.length > 0 ? progressKeys[0].data : null;
 }
 
 function isValidProgress(data) {
@@ -208,23 +259,24 @@ function isValidProgress(data) {
     return true;
 }
 
-function autoCleanup() {
-    const keys = lsKeys().filter(k => k.startsWith('vailism_progress_'));
+async function autoCleanup() {
+    const keys = await lsKeys();
+    const progressKeys = keys.filter(k => k.startsWith('vailism_progress_'));
     const now = Date.now();
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
 
-    keys.forEach(key => {
-        const data = lsGet(key);
+    for (const key of progressKeys) {
+        const data = await lsGet(key);
         if (!data || !isValidProgress(data)) {
-            lsRemove(key);
-            return;
+            await lsRemove(key, true);
+            continue;
         }
 
         const age = now - (data.updatedAt || 0);
         if (age > thirtyDaysMs || data.timestamp <= 0 || data.timestamp >= data.duration) {
-            lsRemove(key);
+            await lsRemove(key, true);
         }
-    });
+    }
 }
 
 // ─── API Cache & Fetch ────────────────────────────────────────────────────────
@@ -300,12 +352,12 @@ async function fetchDetails(type, id, signal) {
 }
 
 // ─── Connection Warmup ────────────────────────────────────────────────────────
-// Inject <link rel="preconnect"> for VidLink on first user interaction.
+// Inject <link rel="preconnect"> for SERVER 1 on first user interaction.
 // This warms up DNS + TLS handshake before they click Play (~200-400ms saved).
-let vidlinkWarmed = false;
-function warmVidLink() {
-    if (vidlinkWarmed) return;
-    vidlinkWarmed = true;
+let server1Warmed = false;
+function warmPrimaryServer() {
+    if (server1Warmed) return;
+    server1Warmed = true;
     const link = document.createElement('link');
     link.rel = 'preconnect';
     link.href = 'https://vidlink.pro';
@@ -346,7 +398,7 @@ let modalSaveThrottle = null; // progress save throttle
 
 // ── Adaptive delay: detect network speed ─────────────────────────────────────
 // Returns grace period (ms) to hold the loader AFTER iframe 'load' fires.
-// This gives VidLink time to fill its internal buffer before revealing video.
+// This gives SERVER 1 time to fill its internal buffer before revealing video.
 function getBufferGraceMs() {
     try {
         const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -364,7 +416,7 @@ function getBufferGraceMs() {
 
 const SERVERS = [
     {
-        name: 'VidLink (Default)',
+        name: 'SERVER 1',
         description: 'Fastest server, supports Auto-Resume & Auto-Play.',
         buildUrl: function(id, type, s, e, ts) {
             var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
@@ -375,7 +427,7 @@ const SERVERS = [
         }
     },
     {
-        name: 'VidSrc TO',
+        name: 'SERVER 2',
         description: 'Extremely reliable, fast streaming & high quality.',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
@@ -385,7 +437,7 @@ const SERVERS = [
         }
     },
     {
-        name: 'VidSrc XYZ',
+        name: 'SERVER 3',
         description: 'Popular backup server with multiple language tracks.',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
@@ -395,7 +447,7 @@ const SERVERS = [
         }
     },
     {
-        name: 'VidSrc CC',
+        name: 'SERVER 4',
         description: 'High-speed alternative streaming server.',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
@@ -407,7 +459,7 @@ const SERVERS = [
 ];
 
 function buildEmbedUrl(id, type, s, e, ts) {
-    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'VidLink (Default)';
+    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
     var server = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
     return server.buildUrl(id, type, s, e, ts);
 }
@@ -422,10 +474,10 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     freezeBackground();
 
     savedScrollY = window.scrollY;
-    warmVidLink();
+    warmPrimaryServer();
 
     // Determine current preferred server
-    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'VidLink (Default)';
+    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
     var currentServer = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
 
     // Create modal DOM
@@ -511,10 +563,10 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     };
 
     if (modalNextEpBtn) {
-        modalNextEpBtn.onclick = function(e) {
+        modalNextEpBtn.onclick = async function(e) {
             e.stopPropagation();
             if (modal._nextSeason && modal._nextEpisode) {
-                try { localStorage.removeItem('vailism_progress_' + movieId); } catch (err) {}
+                try { await lsRemove(getProgressKey(movieId, mediaType, modal._season, modal._episode)); } catch (err) {}
                 modal._season = modal._nextSeason;
                 modal._episode = modal._nextEpisode;
                 modal._retryCount = 0;
@@ -613,7 +665,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 <span class="vailism-server-title">${server.name}</span>
                 <span class="vailism-server-desc">${server.description}</span>
             `;
-            btn.onclick = function(e) {
+            btn.onclick = async function(e) {
                 e.stopPropagation();
                 if (server.name === currentServer.name) return;
                 currentServer = server;
@@ -636,7 +688,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 var ts = 0;
                 var storageKey = getProgressKey(movieId, mediaType, modal._season, modal._episode);
                 try {
-                    var savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                    var savedData = await lsGet(storageKey);
                     if (savedData && savedData.timestamp && savedData.duration) {
                         var rawTs = parseFloat(savedData.timestamp);
                         var dur = parseFloat(savedData.duration);
@@ -681,7 +733,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         modalControls.style.opacity = '1';
         clearTimeout(modal._hideControlsTimeout);
         
-        var shouldHide = (modal._currentServerName !== 'VidLink (Default)') || modal._hasReceivedPlaybackEvent;
+        var shouldHide = (modal._currentServerName !== 'SERVER 1') || modal._hasReceivedPlaybackEvent;
         
         if (shouldHide) {
             modal._hideControlsTimeout = setTimeout(function() {
@@ -764,11 +816,12 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         // Auto-play next episode on video end (TV only)
         if (evtName === 'ended' && mediaType === 'tv') {
             // Clear current progress
-            try { lsRemove(getProgressKey(movieId, mediaType, modal._season, modal._episode)); } catch (e) {}
-            autoPlayNextEpisode(modal);
+            lsRemove(getProgressKey(movieId, mediaType, modal._season, modal._episode)).finally(() => {
+                autoPlayNextEpisode(modal);
+            });
         } else if (evtName === 'ended') {
             // Movie ended — clear progress
-            try { lsRemove(getProgressKey(movieId, mediaType)); } catch (e) {}
+            lsRemove(getProgressKey(movieId, mediaType));
         }
     };
     window.addEventListener('message', modal._msgHandler);
@@ -808,11 +861,11 @@ function loadIframeInModal(modal, embedUrl) {
         // Clear stall timer
         if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
 
-        // Start playback verification timer ONLY for VidLink
-        if (modal._currentServerName === 'VidLink (Default)') {
+        // Start playback verification timer ONLY for SERVER 1
+        if (modal._currentServerName === 'SERVER 1') {
             modal._playbackCheckTimer = setTimeout(() => {
                 if (!modal._hasReceivedPlaybackEvent) {
-                    console.warn('[VAILISM] VidLink loaded but no playback events received within 8s. Content may be unavailable. Auto-switching...');
+                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 8s. Content may be unavailable. Auto-switching...');
                     if (typeof modal._tryNextServer === 'function') {
                         modal._tryNextServer();
                     }
@@ -907,7 +960,7 @@ function closeModalPlayer() {
     window.scrollTo(0, savedScrollY);
 }
 
-window.playMovie = function (id, type, s, e) {
+window.playMovie = async function (id, type, s, e) {
     if (!id || id === 'undefined' || id === 'null') {
         console.warn('[VAILISM] Invalid ID provided to playMovie:', id);
         return;
@@ -918,12 +971,12 @@ window.playMovie = function (id, type, s, e) {
     var savedData = null;
     if (type === 'tv') {
         if (s && e) {
-            savedData = lsGet('vailism_progress_' + id + '_s' + s + '_e' + e);
+            savedData = await lsGet('vailism_progress_' + id + '_s' + s + '_e' + e);
         } else {
-            savedData = getLatestProgressForShow(id);
+            savedData = await getLatestProgressForShow(id);
         }
     } else {
-        savedData = lsGet('vailism_progress_' + id);
+        savedData = await lsGet('vailism_progress_' + id);
     }
 
     if (savedData && savedData.timestamp && savedData.duration) {
@@ -948,24 +1001,24 @@ window.playMovie = function (id, type, s, e) {
     openModalPlayer(embedUrl, id, type, season, episode);
 };
 
-window.toggleMyList = function (movie, btn) {
+window.toggleMyList = async function (movie, btn) {
     if (!movie || !movie.id) return;
     try {
-        let myList = lsGet('vailism_mylist') || [];
-        if (!Array.isArray(myList)) myList = [];
+        let myListData = await lsGet('vailism_watchlist');
+        let myList = (myListData && Array.isArray(myListData.items)) ? myListData.items : [];
 
         const id    = String(movie.id);
         const index = myList.findIndex(m => String(m.id) === id);
 
         if (index === -1) {
-            myList.push(movie);
+            myList.push({ id: parseInt(id, 10), mediaType: movie.media_type || (movie.name ? 'tv' : 'movie'), addedAt: Date.now() });
             if (btn) btn.classList.add('added');
         } else {
             myList.splice(index, 1);
             if (btn) btn.classList.remove('added');
         }
 
-        lsSet('vailism_mylist', myList);
+        await lsSet('vailism_watchlist', { version: 1, items: myList });
         if (window.lucide) window.lucide.createIcons();
     } catch (e) {
         console.warn('[VAILISM] toggleMyList error:', e);
@@ -1071,8 +1124,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (heroPlay) {
             heroPlay.style.display = 'flex';
             heroPlay.onclick = () => window.playMovie(movie.id, type);
-            // Warm VidLink connection when user hovers over Play
-            heroPlay.addEventListener('mouseenter', warmVidLink, { passive: true });
+            // Warm SERVER 1 connection when user hovers over Play
+            heroPlay.addEventListener('mouseenter', warmPrimaryServer, { passive: true });
         }
 
         // More Info button
@@ -1085,8 +1138,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnList = document.querySelector('.btn-list');
         if (btnList) {
             btnList.style.display = 'flex';
-            const myList = lsGet('vailism_mylist') || [];
-            if (Array.isArray(myList) && myList.some(m => String(m.id) === String(movie.id))) {
+            const watchlistData = await lsGet('vailism_watchlist');
+            const myList = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items : [];
+            if (myList.some(m => String(m.id) === String(movie.id))) {
                 btnList.classList.add('added');
             }
             btnList.onclick = () => window.toggleMyList(movie, btnList);
@@ -1149,7 +1203,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Predictive prefetch: on hover, pre-fetch details into cache
             card.addEventListener('mouseenter', () => {
-                warmVidLink(); // warm connection on first card interaction
+                warmPrimaryServer(); // warm connection on first card interaction
                 prefetchMovieDetails(movie.id, type);
             }, { passive: true });
         });
@@ -1240,15 +1294,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Continue Watching ─────────────────────────────────────────────────────
     async function loadContinueWatching() {
-        const keys = lsKeys().filter(k => k.startsWith('vailism_progress_'));
+        const rawKeys = await lsKeys();
+        const keys = rawKeys.filter(k => k.startsWith('vailism_progress_'));
         if (keys.length === 0) return;
 
         const mainContent = document.getElementById('main-content');
         if (!mainContent) return;
 
         // Fetch and validate entries
-        const validatedEntries = keys
-            .map(key => ({ key, data: lsGet(key) }))
+        const items = [];
+        for (const key of keys) {
+            const data = await lsGet(key);
+            items.push({ key, data });
+        }
+        
+        const validatedEntries = items
             .filter(item => isValidProgress(item.data))
             .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
 
@@ -1328,8 +1388,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 rowPosters.appendChild(card);
 
-                // Warm VidLink connection on hover (details already cached)
-                card.addEventListener('mouseenter', warmVidLink, { passive: true });
+                // Warm SERVER 1 connection on hover (details already cached)
+                card.addEventListener('mouseenter', warmPrimaryServer, { passive: true });
             } catch (e) {
                 console.warn('[VAILISM] Continue Watching fetch failed for', item.key, e);
             }
@@ -1347,7 +1407,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Watchlist / My List ──────────────────────────────────────────────────
     async function loadWatchlist() {
-        const watchlistData = lsGet('vailism_watchlist');
+        const watchlistData = await lsGet('vailism_watchlist');
         const items = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items : [];
         if (items.length === 0) return;
 
@@ -1420,8 +1480,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 rowPosters.appendChild(card);
 
-                // Warm VidLink connection on hover
-                card.addEventListener('mouseenter', warmVidLink, { passive: true });
+                // Warm SERVER 1 connection on hover
+                card.addEventListener('mouseenter', warmPrimaryServer, { passive: true });
             } catch (e) {
                 console.warn('[VAILISM] Watchlist fetch failed for', movieId, e);
             }
@@ -1552,18 +1612,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Boot ────────────────────────────────────────────────────────────────────
     if (document.getElementById('hero') && document.getElementById('search-input')) {
-        // Priority 1: Hero banner (above the fold)
-        loadHeroBanner();
-        // Priority 2: Continue Watching & rows (deferred to idle)
-        const deferredBoot = function() {
-            loadContinueWatching();
-            loadWatchlist();
-            loadMoreRows();
-        };
-        if (window.requestIdleCallback) {
-            requestIdleCallback(deferredBoot, { timeout: 1500 });
-        } else {
-            setTimeout(deferredBoot, 100);
-        }
+        // Run migration first
+        migrateFromLocalStorage().then(() => {
+            // Priority 1: Hero banner (above the fold)
+            loadHeroBanner();
+            // Priority 2: Continue Watching & rows (deferred to idle)
+            const deferredBoot = function() {
+                loadContinueWatching();
+                loadWatchlist();
+                loadMoreRows();
+            };
+            if (window.requestIdleCallback) {
+                requestIdleCallback(deferredBoot, { timeout: 1500 });
+            } else {
+                setTimeout(deferredBoot, 100);
+            }
+            
+            // Sync UI across tabs
+            try {
+                const bc = new BroadcastChannel('vailism_sync');
+                bc.onmessage = (event) => {
+                    if (event.data && event.data.type === 'UPDATE') {
+                        // Refresh Watchlist and Continue Watching rows
+                        const rows = document.querySelectorAll('section.row');
+                        rows.forEach(r => {
+                            const header = r.querySelector('.row-header');
+                            if (header && (header.textContent === 'My List' || header.textContent === 'Continue Watching')) {
+                                r.remove();
+                            }
+                        });
+                        loadContinueWatching();
+                        loadWatchlist();
+                    }
+                };
+            } catch(e) {}
+            
+            // BFCache recovery
+            window.addEventListener('pageshow', (event) => {
+                if (event.persisted) {
+                    const rows = document.querySelectorAll('section.row');
+                    rows.forEach(r => {
+                        const header = r.querySelector('.row-header');
+                        if (header && (header.textContent === 'My List' || header.textContent === 'Continue Watching')) {
+                            r.remove();
+                        }
+                    });
+                    loadContinueWatching();
+                    loadWatchlist();
+                }
+            });
+        });
     }
 });

@@ -141,6 +141,9 @@
       // Initialize Lucide icons once both DOM and script are ready
       window.addEventListener('load', function() {
           if (window.lucide) lucide.createIcons();
+          if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.register('/sw.js').catch(err => console.error('[SW] Registration failed:', err));
+          }
       });
     </script>
 </body>

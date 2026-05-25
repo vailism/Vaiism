@@ -283,7 +283,7 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line>
                     </svg>
-                    Server: <span id="currentServerLabel">VidLink (Default)</span>
+                    Server: <span id="currentServerLabel">SERVER 1</span>
                 </button>
                 <div class="popover" id="serverTooltip">
                     <h4>Select Stream Server</h4>
@@ -451,7 +451,7 @@
         // ── Alternative Streaming Servers Definition ──────────────────────
         const SERVERS = [
             {
-                name: 'VidLink (Default)',
+                name: 'SERVER 1',
                 description: 'Fastest server, supports Auto-Resume & Auto-Play.',
                 buildUrl: function(id, type, s, e, ts) {
                     var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
@@ -462,7 +462,7 @@
                 }
             },
             {
-                name: 'VidSrc TO',
+                name: 'SERVER 2',
                 description: 'Extremely reliable, fast streaming & high quality.',
                 buildUrl: function(id, type, s, e, ts) {
                     if (type === 'tv') {
@@ -472,7 +472,7 @@
                 }
             },
             {
-                name: 'VidSrc XYZ',
+                name: 'SERVER 3',
                 description: 'Popular backup server with multiple language tracks.',
                 buildUrl: function(id, type, s, e, ts) {
                     if (type === 'tv') {
@@ -482,7 +482,7 @@
                 }
             },
             {
-                name: 'VidSrc CC',
+                name: 'SERVER 4',
                 description: 'High-speed alternative streaming server.',
                 buildUrl: function(id, type, s, e, ts) {
                     if (type === 'tv') {
@@ -493,7 +493,7 @@
             }
         ];
 
-        var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'VidLink (Default)';
+        var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
         var currentServer = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
 
         var serverSwitchCount = 0;
@@ -807,7 +807,7 @@
             topControls.style.opacity = '1';
             clearTimeout(hideControlsTimeout);
             
-            var shouldHide = (currentServer.name !== 'VidLink (Default)' || currentAltUrl) || hasReceivedPlaybackEvent;
+            var shouldHide = (currentServer.name !== 'SERVER 1' || currentAltUrl) || hasReceivedPlaybackEvent;
             
             if (shouldHide) {
                 hideControlsTimeout = setTimeout(function() {
@@ -876,11 +876,11 @@
                 console.log('[VAILISM] Player loaded.');
                 if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
 
-                // Start playback verification timer ONLY for VidLink
-                if (currentServer.name === 'VidLink (Default)' && !currentAltUrl) {
+                // Start playback verification timer ONLY for SERVER 1
+                if (currentServer.name === 'SERVER 1' && !currentAltUrl) {
                     playbackCheckTimer = setTimeout(function() {
                         if (!hasReceivedPlaybackEvent) {
-                            console.warn('[VAILISM] VidLink loaded but no playback events received within 8s. Auto-switching...');
+                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 8s. Auto-switching...');
                             tryNextServer();
                         }
                     }, 8000);

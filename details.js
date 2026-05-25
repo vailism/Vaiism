@@ -154,14 +154,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             watchlistBtn.style.display = 'flex';
             
             // Helper to get watchlist array
-            const getWatchlist = () => {
-                const list = lsGet('vailism_watchlist');
+            const getWatchlist = async () => {
+                const list = await lsGet('vailism_watchlist');
                 return (list && Array.isArray(list.items)) ? list.items : [];
             };
             
             // Update button UI state
-            const updateWatchlistBtnUI = () => {
-                const list = getWatchlist();
+            const updateWatchlistBtnUI = async () => {
+                const list = await getWatchlist();
                 const inList = list.some(item => String(item.id) === String(id) && item.mediaType === type);
                 
                 if (inList) {
@@ -175,14 +175,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
             
             updateWatchlistBtnUI();
+
+            // Sync UI across tabs
+            try {
+                const bc = new BroadcastChannel('vailism_sync');
+                bc.onmessage = (event) => {
+                    if (event.data && event.data.type === 'UPDATE' && event.data.key === 'vailism_watchlist') {
+                        updateWatchlistBtnUI();
+                    }
+                };
+            } catch(e) {}
             
-            watchlistBtn.onclick = (e) => {
+            // BFCache recovery
+            window.addEventListener('pageshow', (event) => {
+                if (event.persisted) {
+                    updateWatchlistBtnUI();
+                }
+            });
+            
+            watchlistBtn.onclick = async (e) => {
                 e.stopPropagation();
                 // Throttle clicks to avoid storage spam
                 watchlistBtn.style.pointerEvents = 'none';
                 setTimeout(() => { watchlistBtn.style.pointerEvents = 'auto'; }, 600);
                 
-                let list = getWatchlist();
+                let list = await getWatchlist();
                 const index = list.findIndex(item => String(item.id) === String(id) && item.mediaType === type);
                 
                 if (index > -1) {
@@ -191,7 +208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     list.push({ id: parseInt(id, 10), mediaType: type, addedAt: Date.now() });
                 }
                 
-                lsSet('vailism_watchlist', { version: 1, items: list });
+                await lsSet('vailism_watchlist', { version: 1, items: list });
                 updateWatchlistBtnUI();
             };
         }
@@ -306,7 +323,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             
                             let avatarHTML = '';
                             if (member.profile_path) {
-                                avatarHTML = `<img class="cast-avatar" src="https://image.tmdb.org/t/p/w185${member.profile_path}" alt="${name}" loading="lazy" decoding="async">`;
+                                avatarHTML = `<img class="cast-avatar" src="https://image.tmdb.org/t/p/w185${member.profile_path}" alt="${name}" loading="lazy" decoding="async" width="185" height="278">`;
                             } else {
                                 // Initials placeholder
                                 const initials = member.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
