@@ -3,6 +3,7 @@
  * @description Controls playback synchronization, PID drift adjustments, host lease heartbeats, and causal ordering.
  */
 import { PARTY_CONFIG } from './config.js';
+import { OfflineQueue } from './OfflineQueue.js';
 
 export class SyncManager {
     /**
@@ -34,6 +35,9 @@ export class SyncManager {
         this.lastHostHeartbeatTime = Date.now();
         this.connectionTimestamp = Date.now(); // Used as vote weight in elections
 
+        // Offline actions backup
+        this.offlineQueue = new OfflineQueue();
+
         this.unsubscribes = [];
         this._setupSyncPlane();
     }
@@ -48,6 +52,16 @@ export class SyncManager {
         const handlePlayerMsg = (e) => this._handleLocalPlayerMessage(e);
         window.addEventListener("message", handlePlayerMsg);
         this.unsubscribes.push(() => window.removeEventListener("message", handlePlayerMsg));
+
+        // Bind visibility API state changes for background suspension
+        const handleVisibility = () => this._onVisibilityChange();
+        document.addEventListener("visibilitychange", handleVisibility);
+        this.unsubscribes.push(() => document.removeEventListener("visibilitychange", handleVisibility));
+
+        // Bind network status tracking
+        const handleOnline = () => this._onNetworkRestore();
+        window.addEventListener("online", handleOnline);
+        this.unsubscribes.push(() => window.removeEventListener("online", handleOnline));
 
         // Start lease timers
         this._startLeaseMonitoring();
@@ -146,6 +160,16 @@ export class SyncManager {
                 case "SEEK":
                     this._correctDrift(latencyAdjustedTime, true);
                     break;
+                case "REQUEST_STATE":
+                    if (this.room.isHost) {
+                        this.getPlayerTime().then(currentTime => {
+                            this.room.broadcastCommand("playback", "HEARTBEAT", {
+                                currentTime,
+                                playing: this.hasReceivedPlaybackEvent
+                            });
+                        });
+                    }
+                    break;
                 case "HEARTBEAT":
                     if (!playing) {
                         this.sendToPlayer({ command: "pause" });
@@ -205,6 +229,29 @@ export class SyncManager {
 
         // Lock Guest changes from broadcasting if locked to Host Controls only
         if (this.syncOnlyHost && !this.room.isHost) return;
+
+        // If offline, queue changes instead of broadcasting
+        if (!navigator.onLine) {
+            console.log(`[SyncManager] Network offline. Staging action: ${rawEvent}`);
+            let actionType = "";
+            let actionPayload = { currentTime: eventData.currentTime };
+            
+            if (rawEvent.includes("play")) {
+                actionType = "PLAY";
+                actionPayload.playing = true;
+            } else if (rawEvent.includes("pause")) {
+                actionType = "PAUSE";
+                actionPayload.playing = false;
+            } else if (rawEvent.includes("seek") || rawEvent.includes("seeked")) {
+                actionType = "SEEK";
+                actionPayload.playing = this.hasReceivedPlaybackEvent;
+            }
+
+            if (actionType) {
+                this.offlineQueue.enqueue("playback", actionType, actionPayload);
+            }
+            return;
+        }
 
         if (rawEvent.includes("play")) {
             this.room.broadcastCommand("playback", "PLAY", {
@@ -308,6 +355,78 @@ export class SyncManager {
             );
             setTimeout(() => resolve(0), 120);
         });
+    }
+
+    getPlayerDuration() {
+        const iframe = this.wrapper.querySelector("iframe");
+        return new Promise((resolve) => {
+            if (!iframe?.contentWindow) return resolve(0);
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (event) => {
+                let data = event.data;
+                if (typeof data === "string") {
+                    try { data = JSON.parse(data); } catch(ex) {}
+                }
+                if (data?.data) data = data.data;
+                resolve(data?.duration || data?.length || 0);
+            };
+            iframe.contentWindow.postMessage(
+                JSON.stringify({ command: "getDuration" }),
+                "*",
+                [channel.port2]
+            );
+            setTimeout(() => resolve(0), 120);
+        });
+    }
+
+    _onVisibilityChange() {
+        const isHidden = document.visibilityState === "hidden";
+        console.log(`[SyncManager] Visibility changed: ${document.visibilityState}`);
+
+        if (isHidden) {
+            // Background Tab Suspension: Stop outgoing heartbeats
+            if (this.heartbeatTimer) {
+                clearInterval(this.heartbeatTimer);
+                this.heartbeatTimer = null;
+            }
+            
+            // Constrain JaaS receiver parameters to halt video packets
+            if (this.room.api) {
+                try {
+                    this.room.api.executeCommand("setReceiverConstraints", {
+                        lastN: 0,
+                        defaultConstraints: { maxHeight: 0 }
+                    });
+                } catch (e) {
+                    console.warn("[SyncManager] Failed to apply background receiver constraints:", e);
+                }
+            }
+        } else {
+            // Foreground Tab Activation: Restart heartbeats (if Host)
+            if (this.room.isHost) {
+                this._startHeartbeatBroadcasting();
+            } else {
+                // Guests request immediate sync catch-up response
+                this.room.broadcastCommand("playback", "REQUEST_STATE", {});
+            }
+
+            // Restore normal receiver constraints
+            if (this.room.api) {
+                try {
+                    this.room.api.executeCommand("setReceiverConstraints", {
+                        lastN: 20,
+                        defaultConstraints: { maxHeight: 720 }
+                    });
+                } catch (e) {
+                    console.warn("[SyncManager] Failed to restore receiver constraints:", e);
+                }
+            }
+        }
+    }
+
+    _onNetworkRestore() {
+        console.log("[SyncManager] Connection restored. Replaying queued offline actions...");
+        this.offlineQueue.flush(this.room);
     }
 
     destroy() {
