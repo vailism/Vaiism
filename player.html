@@ -499,7 +499,7 @@
                                 'chat', 'raisehand', 'tileview'
                             ],
                             filmStripOnly: false,
-                            disableDOMOperations: true
+                            desktopSharingEnabled: true
                         },
                         interfaceConfigOverwrite: {
                             SHOW_JITSI_WATERMARK: false,
@@ -512,12 +512,24 @@
                     };
 
                     self.api = new JitsiMeetExternalAPI("8x8.vc", options);
+                    
+                    // Force-set full permissions on the Jitsi iframe for screen sharing
+                    var REQUIRED_ALLOW = 'camera; microphone; display-capture; fullscreen; autoplay; clipboard-write; screen-wake-lock';
                     var jitsiIframe = self.api.getIFrame();
                     if (jitsiIframe) {
-                        var currentAllow = jitsiIframe.getAttribute('allow') || '';
-                        if (currentAllow.indexOf('display-capture') === -1) {
-                            jitsiIframe.setAttribute('allow', currentAllow ? currentAllow + '; display-capture' : 'display-capture');
-                        }
+                        jitsiIframe.setAttribute('allow', REQUIRED_ALLOW);
+                        // MutationObserver: if the Jitsi SDK ever rewrites the allow attribute, restore ours
+                        var observer = new MutationObserver(function(mutations) {
+                            mutations.forEach(function(m) {
+                                if (m.type === 'attributes' && m.attributeName === 'allow') {
+                                    var current = jitsiIframe.getAttribute('allow') || '';
+                                    if (current.indexOf('display-capture') === -1) {
+                                        jitsiIframe.setAttribute('allow', REQUIRED_ALLOW);
+                                    }
+                                }
+                            });
+                        });
+                        observer.observe(jitsiIframe, { attributes: true, attributeFilter: ['allow'] });
                     }
                     self.api.addListener("videoConferenceJoined", (event) => {
                         console.log("[VAILISM] Conference Joined", event);

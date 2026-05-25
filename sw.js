@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vailism-shell-v3';
+const CACHE_NAME = 'vailism-shell-v4';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
