@@ -1246,6 +1246,45 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cards.length > 0) activeObserver.observe(cards[cards.length - 1]);
     }
 
+    // ── Row Virtualization (Windowing) ────────────────────────────────────────
+    const rowVisibilityObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            const row = entry.target;
+            const postersContainer = row.querySelector('.row-posters');
+            if (!postersContainer) return;
+
+            if (entry.isIntersecting) {
+                if (postersContainer.dataset.pruned === 'true') {
+                    postersContainer.dataset.pruned = 'false';
+                    postersContainer.innerHTML = postersContainer.dataset.cachedHtml || '';
+                    postersContainer.style.height = ''; 
+                    
+                    const cards = postersContainer.querySelectorAll('.card');
+                    if (cards.length > 0 && window._vailismHorizontalObs) {
+                        window._vailismHorizontalObs.observe(cards[cards.length - 1]);
+                    }
+                    cards.forEach(card => {
+                        card.addEventListener('mouseenter', () => {
+                            if (typeof warmPrimaryServer === 'function') warmPrimaryServer();
+                            const id = card.dataset.id;
+                            const type = card.dataset.type;
+                            if (id && type && typeof prefetchMovieDetails === 'function') prefetchMovieDetails(id, type);
+                        }, { passive: true });
+                    });
+                    if (typeof refreshIcons === 'function') refreshIcons();
+                }
+            } else {
+                if (postersContainer.dataset.pruned !== 'true' && postersContainer.children.length > 0) {
+                    const rect = postersContainer.getBoundingClientRect();
+                    postersContainer.style.height = rect.height + 'px';
+                    postersContainer.dataset.cachedHtml = postersContainer.innerHTML;
+                    postersContainer.innerHTML = '';
+                    postersContainer.dataset.pruned = 'true';
+                }
+            }
+        });
+    }, { rootMargin: '1200px 0px 1200px 0px' });
+
     // ── Row Rendering ─────────────────────────────────────────────────────────
     async function renderRow(categoryDef) {
         const mainContent = document.getElementById('main-content');
@@ -1266,13 +1305,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Skeleton placeholders
         for (let i = 0; i < 6; i++) {
             const sk = document.createElement('div');
-            sk.classList.add('card', 'skeleton');
+            sk.classList.add('card', 'skeleton-card');
             rowPosters.appendChild(sk);
         }
 
         rowSection.appendChild(rowHeader);
         rowSection.appendChild(rowPosters);
         mainContent.appendChild(rowSection);
+        rowVisibilityObserver.observe(rowSection);
 
         const movies = await fetchMovies(categoryDef.path, 1);
         rowPosters.innerHTML = '';
@@ -1335,6 +1375,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mainContent.insertBefore(rowSection, mainContent.firstChild);
         rowSection.appendChild(rowHeader);
         rowSection.appendChild(rowPosters);
+        rowVisibilityObserver.observe(rowSection);
 
         const fetchPromises = progressEntries.map(async item => {
             const savedData = item.data;
@@ -1438,6 +1479,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         rowSection.appendChild(rowHeader);
         rowSection.appendChild(rowPosters);
+        rowVisibilityObserver.observe(rowSection);
 
         const fetchPromises = sortedItems.map(async item => {
             const movieId   = item.id;
@@ -1581,7 +1623,7 @@ document.addEventListener('DOMContentLoaded', () => {
             searchResults.innerHTML = '';
             for (let i = 0; i < 10; i++) {
                 const sk = document.createElement('div');
-                sk.classList.add('card', 'skeleton');
+                sk.classList.add('card', 'skeleton-card');
                 searchResults.appendChild(sk);
             }
         }
@@ -1663,4 +1705,120 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    // ── PWA Install Logic ───────────────────────────────────────────────────────
+    let deferredPrompt;
+    const installAppBtn = document.getElementById('installAppBtn');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (installAppBtn) {
+            installAppBtn.style.display = 'block';
+            installAppBtn.onclick = async () => {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                deferredPrompt = null;
+                installAppBtn.style.display = 'none';
+            };
+        }
+    });
+});
+
+// ── Smart TV Keyboard Navigation (Spatial Navigation) ──────────────────────
+let focusableSelector = '.card, #search-input, #installAppBtn, .hero-buttons button';
+let focusedElement = null;
+
+function getFocusableElements() {
+    return Array.from(document.querySelectorAll(focusableSelector)).filter(el => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).visibility !== 'hidden';
+    });
+}
+
+function setSpatialFocus(el) {
+    if (!el) return;
+    if (focusedElement) focusedElement.classList.remove('spatial-focus');
+    focusedElement = el;
+    focusedElement.classList.add('spatial-focus');
+    
+    // Scroll into view
+    const rect = el.getBoundingClientRect();
+    if (rect.top < 100 || rect.bottom > window.innerHeight - 50) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    
+    // If it's a card in a row, scroll the row horizontally
+    const rowPosters = el.closest('.row-posters');
+    if (rowPosters) {
+        const parentRect = rowPosters.getBoundingClientRect();
+        if (rect.left < parentRect.left + 50 || rect.right > parentRect.right - 50) {
+            rowPosters.scrollBy({ left: rect.left - parentRect.left - parentRect.width / 2 + rect.width / 2, behavior: 'smooth' });
+        }
+        // Trigger hover logic (prefetch/warm)
+        el.dispatchEvent(new MouseEvent('mouseenter'));
+    }
+}
+
+document.addEventListener('keydown', (e) => {
+    // Only process if modal is not active
+    if (document.querySelector('.vailism-modal-player')) return;
+    // Don't intercept if user is typing in search
+    if (document.activeElement === document.getElementById('search-input') && e.key !== 'ArrowDown' && e.key !== 'Escape' && e.key !== 'Enter') return;
+
+    const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
+    if (!keys.includes(e.key)) return;
+
+    if (e.key === 'Enter') {
+        if (focusedElement) {
+            if (focusedElement.id === 'search-input') {
+                focusedElement.focus();
+            } else {
+                focusedElement.click();
+            }
+        }
+        return;
+    }
+
+    e.preventDefault();
+    
+    const els = getFocusableElements();
+    if (els.length === 0) return;
+
+    if (!focusedElement || !els.includes(focusedElement)) {
+        setSpatialFocus(els[0]);
+        return;
+    }
+
+    const currentRect = focusedElement.getBoundingClientRect();
+    let bestMatch = null;
+    let minDistance = Infinity;
+
+    els.forEach(el => {
+        if (el === focusedElement) return;
+        const rect = el.getBoundingClientRect();
+        
+        let isCandidate = false;
+        let dist = 0;
+
+        const dx = (rect.left + rect.width/2) - (currentRect.left + currentRect.width/2);
+        const dy = (rect.top + rect.height/2) - (currentRect.top + currentRect.height/2);
+
+        // Allow loose Y matching for horizontal moves to catch adjacent rows slightly off alignment
+        if (e.key === 'ArrowRight' && dx > 0 && Math.abs(dy) < 150) isCandidate = true;
+        if (e.key === 'ArrowLeft'  && dx < 0 && Math.abs(dy) < 150) isCandidate = true;
+        // Allow loose X matching for vertical moves
+        if (e.key === 'ArrowDown'  && dy > 0 && Math.abs(dx) < 300) isCandidate = true;
+        if (e.key === 'ArrowUp'    && dy < 0 && Math.abs(dx) < 300) isCandidate = true;
+
+        if (isCandidate) {
+            const distance = Math.sqrt(dx*dx + dy*dy);
+            if (distance < minDistance) {
+                minDistance = distance;
+                bestMatch = el;
+            }
+        }
+    });
+
+    if (bestMatch) setSpatialFocus(bestMatch);
 });

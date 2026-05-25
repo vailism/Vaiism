@@ -365,6 +365,15 @@
         <!-- Iframe injected via JS -->
     </div>
 
+    <!-- Binge Watch Next Episode Overlay -->
+    <div class="binge-overlay" id="bingeOverlay">
+        <div class="binge-info">
+            <h4>Next Episode</h4>
+            <p>Starting in <span id="bingeCountdown">10</span>s</p>
+        </div>
+        <button class="binge-btn" id="bingeNextBtn">Play Now</button>
+    </div>
+
     <script>
     (function () {
         'use strict';
@@ -981,6 +990,44 @@
                 }
             } else {
                 console.log('[VAILISM][' + evtName + '] time=' + currentTime.toFixed(1));
+            }
+
+            // Binge-Watch Auto-Skip Logic
+            if (evtName === 'timeupdate' && mediaType === 'tv') {
+                var timeLeft = duration - currentTime;
+                if (timeLeft > 0 && timeLeft <= 30 && duration > 60) {
+                    var bingeOverlay = document.getElementById('bingeOverlay');
+                    var bingeCountdown = document.getElementById('bingeCountdown');
+                    var bingeNextBtn = document.getElementById('bingeNextBtn');
+                    
+                    if (bingeOverlay && !bingeOverlay.classList.contains('show')) {
+                        bingeOverlay.classList.add('show');
+                        if (!window._bingeInterval) {
+                            window._bingeTime = 10;
+                            if (bingeCountdown) bingeCountdown.textContent = window._bingeTime;
+                            
+                            if (bingeNextBtn) {
+                                bingeNextBtn.onclick = function() {
+                                    clearInterval(window._bingeInterval);
+                                    window._bingeInterval = null;
+                                    var nextEpBtn = document.getElementById('nextEpBtn');
+                                    if (nextEpBtn) nextEpBtn.click();
+                                };
+                            }
+
+                            window._bingeInterval = setInterval(function() {
+                                window._bingeTime--;
+                                if (window._bingeTime <= 0) {
+                                    clearInterval(window._bingeInterval);
+                                    window._bingeInterval = null;
+                                    if (bingeNextBtn) bingeNextBtn.click();
+                                } else {
+                                    if (bingeCountdown) bingeCountdown.textContent = window._bingeTime;
+                                }
+                            }, 1000);
+                        }
+                    }
+                }
             }
 
             // Save on timeupdate and pause
