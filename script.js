@@ -1170,8 +1170,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.classList.add('card');
             card.dataset.id = String(movie.id);
-            // Single onclick — never stacks
-            card.onclick = () => window.location.href = `details.html?id=${movie.id}&type=${type}`;
+            card.dataset.type = type;
+            // Set onclick as HTML attribute to survive PWA / DOM virtualization serialization
+            card.setAttribute('onclick', `window.location.href='details.html?id=${movie.id}&type=${type}'`);
 
             const imgPath = movie.poster_path || movie.backdrop_path;
             const imgSrc  = imgPath ? `${IMG_BASE_URL}${imgPath}` : FALLBACK_IMG;
@@ -1200,12 +1201,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>`;
 
             fragment.appendChild(card);
-
-            // Predictive prefetch: on hover, pre-fetch details into cache
-            card.addEventListener('mouseenter', () => {
-                warmPrimaryServer(); // warm connection on first card interaction
-                prefetchMovieDetails(movie.id, type);
-            }, { passive: true });
         });
 
         container.appendChild(fragment);
@@ -1263,14 +1258,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (cards.length > 0 && window._vailismHorizontalObs) {
                         window._vailismHorizontalObs.observe(cards[cards.length - 1]);
                     }
-                    cards.forEach(card => {
-                        card.addEventListener('mouseenter', () => {
-                            if (typeof warmPrimaryServer === 'function') warmPrimaryServer();
-                            const id = card.dataset.id;
-                            const type = card.dataset.type;
-                            if (id && type && typeof prefetchMovieDetails === 'function') prefetchMovieDetails(id, type);
-                        }, { passive: true });
-                    });
                     if (typeof refreshIcons === 'function') refreshIcons();
                 }
             } else {
@@ -1395,9 +1382,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const card = document.createElement('div');
                 card.classList.add('card');
                 card.dataset.id = movieId;
-                // Single assignment — never stacks
-                card.onclick = () => window.location.href =
-                    `details.html?id=${movieId}&type=${typePath}`;
+                card.dataset.type = typePath;
+                // Set onclick as HTML attribute to survive virtualization serialization
+                card.setAttribute('onclick', `window.location.href='details.html?id=${movieId}&type=${typePath}'`);
 
                 card.innerHTML = `
                     <img src="${IMG_BASE_URL}${imgPath}"
@@ -1495,7 +1482,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const card = document.createElement('div');
                 card.classList.add('card');
                 card.dataset.id = movieId;
-                card.onclick = () => window.location.href = `details.html?id=${movieId}&type=${typePath}`;
+                card.dataset.type = typePath;
+                // Set onclick as HTML attribute to survive virtualization serialization
+                card.setAttribute('onclick', `window.location.href='details.html?id=${movieId}&type=${typePath}'`);
 
                 card.innerHTML = `
                     <img src="${IMG_BASE_URL}${imgPath}"
@@ -1723,10 +1712,24 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         }
     });
+
+    // Global predictive hover delegation (handles virtualized/windowed cards automatically)
+    document.addEventListener('mouseover', (e) => {
+        const card = e.target.closest('.card');
+        if (!card) return;
+        
+        if (typeof warmPrimaryServer === 'function') warmPrimaryServer();
+        
+        const id = card.dataset.id;
+        const type = card.dataset.type;
+        if (id && type && typeof prefetchMovieDetails === 'function') {
+            prefetchMovieDetails(id, type);
+        }
+    }, { passive: true });
 });
 
 // ── Smart TV Keyboard Navigation (Spatial Navigation) ──────────────────────
-let focusableSelector = '.card, #search-input, #installAppBtn, .hero-buttons button';
+let focusableSelector = '.card, #search-input, #installAppBtn, .hero-buttons button, .logo';
 let focusedElement = null;
 
 function getFocusableElements() {
