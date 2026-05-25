@@ -471,6 +471,7 @@
                 this.participants = new Map();
                 this.eventListeners = {};
                 this.isHost = false;
+                this.localSessionId = Math.random().toString(36).substr(2, 9);
             }
 
             initSession(roomId, parentNode, user, isHost = false) {
@@ -523,19 +524,31 @@
                         self.participants.delete(p.id);
                         self.trigger("participantLeft", p);
                     });
-                    self.api.addCommandListener("vailism_sync", (payload) => {
-                        self.trigger("syncCommand", payload);
+                    self.api.addListener("endpointTextMessageReceived", (event) => {
+                        if (event && event.eventData && event.eventData.text) {
+                            try {
+                                const payload = JSON.parse(event.eventData.text);
+                                if (payload._vailism_sync) {
+                                    self.trigger("syncCommand", payload);
+                                }
+                            } catch (e) {}
+                        }
                     });
                 });
             }
 
             broadcastCommand(action, data) {
                 if (!this.api) return;
-                this.api.sendCommand("vailism_sync", Object.assign({
+                const payloadStr = JSON.stringify(Object.assign({
                     action: action,
-                    senderId: this.api._myParticipantId,
-                    timestamp: Date.now()
+                    senderId: this.localSessionId,
+                    timestamp: Date.now(),
+                    _vailism_sync: true
                 }, data));
+                
+                this.participants.forEach(p => {
+                    this.api.executeCommand("sendEndpointTextMessage", p.id, payloadStr);
+                });
             }
 
             on(event, handler) {
@@ -579,7 +592,7 @@
             _handleRemoteSync(payload) {
                 const self = this;
                 const { action, senderId, currentTime, playing, isHost } = payload;
-                if (senderId === self.room.api._myParticipantId) return;
+                if (senderId === self.room.localSessionId) return;
 
                 // Host Authorization check
                 const hostControlCheckbox = document.getElementById("hostControlToggle");
