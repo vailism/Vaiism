@@ -34,9 +34,14 @@
             z-index: 2000;
         }
         .logo {
-            font-family: 'Playfair Display', serif;
-            font-size: 30px; font-weight: 700; letter-spacing: 5px;
-            color: #fff; text-transform: uppercase; cursor: pointer;
+            height: 40px;
+            width: auto;
+            object-fit: contain;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        .logo:hover {
+            transform: scale(1.08);
         }
         .hero {
             position: relative; height: 98vh;
@@ -81,7 +86,7 @@
     <!-- Navbar -->
     <nav class="navbar" id="navbar">
         <div class="nav-left">
-            <h1 class="logo" onclick="window.location.reload()">VAILISM</h1>
+            <img class="logo" src="logo.png" alt="VAILISM" onclick="window.location.reload()">
         </div>
         <div class="nav-right">
             <div class="search-container">

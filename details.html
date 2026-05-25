@@ -25,7 +25,8 @@
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
         body { background-color: #141414; color: #fff; font-family: 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
         .navbar { position: fixed; top: 0; width: 100%; padding: 35px 4%; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%); z-index: 2000; }
-        .logo { font-family: 'Playfair Display', serif; font-size: 30px; font-weight: 700; letter-spacing: 5px; color: #fff; text-transform: uppercase; cursor: pointer; }
+        .logo { height: 40px; width: auto; object-fit: contain; cursor: pointer; transition: transform 0.2s ease; }
+        .logo:hover { transform: scale(1.08); }
         .skeleton-text { background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%); background-size: 200% 100%; animation: ld 1.5s infinite; color: transparent !important; border-radius: 4px; min-height: 1.2em; }
         @keyframes ld { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
     </style>
@@ -34,7 +35,7 @@
     <!-- Navbar -->
     <nav class="navbar" id="navbar">
         <div class="nav-left">
-            <h1 class="logo" onclick="window.location.href='index.html'">VAILISM</h1>
+            <img class="logo" src="logo.png" alt="VAILISM" onclick="window.location.href='index.html'">
         </div>
     </nav>
 
