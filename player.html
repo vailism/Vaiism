@@ -507,18 +507,74 @@
                         },
                         userInfo: {
                             displayName: user.name
-                        },
-                        jwt: "eyJraWQiOiJ2cGFhcy1tYWdpYy1jb29raWUtMWU0MDZhZWY0N2Y1NDRhZjkwNGNiOTdmZjM3MzAwOTEvM2JhYjU5LVNBTVBMRV9BUFAiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJqaXRzaSIsImlzcyI6ImNoYXQiLCJpYXQiOjE3Nzk3NDI4MDYsImV4cCI6MTc3OTc1MDAwNiwibmJmIjoxNzc5NzQyODAxLCJzdWIiOiJ2cGFhcy1tYWdpYy1jb29raWUtMWU0MDZhZWY0N2Y1NDRhZjkwNGNiOTdmZjM3MzAwOTEiLCJjb250ZXh0Ijp7ImZlYXR1cmVzIjp7ImxpdmVzdHJlYW1pbmciOmZhbHNlLCJmaWxlLXVwbG9hZCI6ZmFsc2UsIm91dGJvdW5kLWNhbGwiOmZhbHNlLCJzaXAtb3V0Ym91bmQtY2FsbCI6ZmFsc2UsInRyYW5zY3JpcHRpb24iOmZhbHNlLCJsaXN0LXZpc2l0b3JzIjpmYWxzZSwicmVjb3JkaW5nIjpmYWxzZSwiZmxpcCI6ZmFsc2V9LCJ1c2VyIjp7ImhpZGRlbi1mcm9tLXJlY29yZGVyIjpmYWxzZSwibW9kZXJhdG9yIjp0cnVlLCJuYW1lIjoiVGVzdCBVc2VyIiwiaWQiOiJnb29nbGUtb2F1dGgyfDEwMDI1ODYzNTIzNjQ1NjMzOTY4NyIsImF2YXRhciI6IiIsImVtYWlsIjoidGVzdC51c2VyQGNvbXBhbnkuY29tIn19LCJyb29tIjoiKiJ9.t95as_EkwNyMlvHvYB5rtWsdjUL0c_2EGO-EHnJ4vGU-Dlbogzo9of1x-Qst0AmUfAqo5iwYyTmEfPPcPgoe7Z0KTTKXIR8MD8ZDYHOYmHaXEj6q7sH959wrwM7y5U1TXnyTF2CfJQ3nrSEFD8ijb9mQ21LQP9lNGU29W9X6z8bnp-a4NW-zWLtsial6SsR0o7mXxwexE-2sO9j_4S-M5yjYJNjl6CGPRnpr5qK6BRsUokkOgGYteF3oW1688U0M_x1N-isCICt6c4OCGxxBaeHVPbz6l3T7l-mLPMSYm_c9GUWYZtJjLTNpU4sFcL0z-d_cNoEHQcsL77Z85IG26A"
+                        }
                     };
 
-                    self.api = new JitsiMeetExternalAPI("8x8.vc", options);
+                    const hardcodedJwt = "eyJraWQiOiJ2cGFhcy1tYWdpYy1jb29raWUtMWU0MDZhZWY0N2Y1NDRhZjkwNGNiOTdmZjM3MzAwOTEvM2JhYjU5LVNBTVBMRV9BUFAiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJqaXRzaSIsImlzcyI6ImNoYXQiLCJpYXQiOjE3Nzk3NDI4MDYsImV4cCI6MTc3OTc1MDAwNiwibmJmIjoxNzc5NzQyODAxLCJzdWIiOiJ2cGFhcy1tYWdpYy1jb29raWUtMWU0MDZhZWY0N2Y1NDRhZjkwNGNiOTdmZjM3MzAwOTEiLCJjb250ZXh0Ijp7ImZlYXR1cmVzIjp7ImxpdmVzdHJlYW1pbmciOmZhbHNlLCJmaWxlLXVwbG9hZCI6ZmFsc2UsIm91dGJvdW5kLWNhbGwiOmZhbHNlLCJzaXAtb3V0Ym91bmQtY2FsbCI6ZmFsc2UsInRyYW5zY3JpcHRpb24iOmZhbHNlLCJsaXN0LXZpc2l0b3JzIjpmYWxzZSwicmVjb3JkaW5nIjpmYWxzZSwiZmxpcCI6ZmFsc2V9LCJ1c2VyIjp7ImhpZGRlbi1mcm9tLXJlY29yZGVyIjpmYWxzZSwibW9kZXJhdG9yIjp0cnVlLCJuYW1lIjoiVGVzdCBVc2VyIiwiaWQiOiJnb29nbGUtb2F1dGgyfDEwMDI1ODYzNTIzNjQ1NjMzOTY4NyIsImF2YXRhciI6IiIsImVtYWlsIjoidGVzdC51c2VyQGNvbXBhbnkuY29tIn19LCJyb29tIjoiKiJ9.t95as_EkwNyMlvHvYB5rtWsdjUL0c_2EGO-EHnJ4vGU-Dlbogzo9of1x-Qst0AmUfAqo5iwYyTmEfPPcPgoe7Z0KTTKXIR8MD8ZDYHOYmHaXEj6q7sH959wrwM7y5U1TXnyTF2CfJQ3nrSEFD8ijb9mQ21LQP9lNGU29W9X6z8bnp-a4NW-zWLtsial6SsR0o7mXxwexE-2sO9j_4S-M5yjYJNjl6CGPRnpr5qK6BRsUokkOgGYteF3oW1688U0M_x1N-isCICt6c4OCGxxBaeHVPbz6l3T7l-mLPMSYm_c9GUWYZtJjLTNpU4sFcL0z-d_cNoEHQcsL77Z85IG26A";
                     
-                    // Force-set full permissions on the Jitsi iframe for screen sharing
+                    // Decode JWT exp to check if it's still valid
+                    let isJwtValid = false;
+                    try {
+                        const parts = hardcodedJwt.split('.');
+                        if (parts.length === 3) {
+                            const payload = JSON.parse(atob(parts[1]));
+                            if (payload && payload.exp) {
+                                const currentEpoch = Math.floor(Date.now() / 1000);
+                                if (payload.exp > currentEpoch + 60) { // Valid for at least 1 more minute
+                                    isJwtValid = true;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("[VAILISM] Error checking JWT validity:", e);
+                    }
+
+                    if (isJwtValid) {
+                        options.jwt = hardcodedJwt;
+                    } else {
+                        console.log("[VAILISM] Hardcoded JaaS JWT is expired. Connecting anonymously under JaaS Magic Cookie sandbox.");
+                    }
+
+                    // Force-set full permissions on the Jitsi iframe during creation
                     var REQUIRED_ALLOW = 'camera; microphone; display-capture; fullscreen; autoplay; clipboard-write; screen-wake-lock';
+                    
+                    const originalCreateElement = document.createElement;
+                    document.createElement = function (tagName, opts) {
+                        const element = originalCreateElement.call(document, tagName, opts);
+                        if (tagName && tagName.toLowerCase() === 'iframe') {
+                            element.setAttribute('allow', REQUIRED_ALLOW);
+                            
+                            // Override setAttribute to prevent Jitsi from overwriting 'allow' without display-capture
+                            const originalSetAttribute = element.setAttribute;
+                            element.setAttribute = function (name, value) {
+                                if (name === 'allow') {
+                                    let val = value || '';
+                                    if (val.indexOf('display-capture') === -1) {
+                                        val = val ? val + '; display-capture' : 'display-capture';
+                                    }
+                                    if (val.indexOf('camera') === -1) { val += '; camera'; }
+                                    if (val.indexOf('microphone') === -1) { val += '; microphone'; }
+                                    if (val.indexOf('fullscreen') === -1) { val += '; fullscreen'; }
+                                    if (val.indexOf('clipboard-write') === -1) { val += '; clipboard-write'; }
+                                    if (val.indexOf('screen-wake-lock') === -1) { val += '; screen-wake-lock'; }
+                                    return originalSetAttribute.call(element, name, val);
+                                }
+                                return originalSetAttribute.call(element, name, value);
+                            };
+                        }
+                        return element;
+                    };
+
+                    try {
+                        self.api = new JitsiMeetExternalAPI("8x8.vc", options);
+                    } finally {
+                        document.createElement = originalCreateElement;
+                    }
+                    
                     var jitsiIframe = self.api.getIFrame();
                     if (jitsiIframe) {
                         jitsiIframe.setAttribute('allow', REQUIRED_ALLOW);
-                        // MutationObserver: if the Jitsi SDK ever rewrites the allow attribute, restore ours
+                        // MutationObserver as a secondary guard for any direct attribute mutations later
                         var observer = new MutationObserver(function(mutations) {
                             mutations.forEach(function(m) {
                                 if (m.type === 'attributes' && m.attributeName === 'allow') {
