@@ -524,14 +524,20 @@ async function findFastestServer() {
 
     try {
         const results = await Promise.all(promises);
-        results.sort((a, b) => a.latency - b.latency);
         
-        // Filter out completely dead servers
-        const validResults = results.filter(r => r.latency < 5000);
+        // Mark offline servers
+        results.forEach(r => {
+            if (r.latency >= 5000) {
+                r.server.isOffline = true;
+            } else {
+                r.server.isOffline = false;
+            }
+        });
+
+        const validResults = results.filter(r => !r.server.isOffline);
+        validResults.sort((a, b) => a.latency - b.latency);
         
         if (validResults.length > 0) {
-            // Pick fastest server, but strongly prioritize SERVER 1 (vidlink) if it is reasonably fast (<800ms)
-            // because SERVER 1 has native progress tracking and Auto-Play features.
             let fastest = validResults[0].server;
             
             const server1Res = validResults.find(r => r.server.name === 'SERVER 1');
@@ -539,10 +545,13 @@ async function findFastestServer() {
                 fastest = SERVERS[0];
             }
             
-            // Only override if the user hasn't explicitly saved a server
-            if (!localStorage.getItem('vailism_preferred_server')) {
+            var preferredServerName = localStorage.getItem('vailism_preferred_server');
+            var preferredServerObj = SERVERS.find(s => s.name === preferredServerName);
+
+            // Override if user never picked a server, OR if their picked server is currently offline
+            if (!preferredServerName || (preferredServerObj && preferredServerObj.isOffline)) {
                 localStorage.setItem('vailism_preferred_server', fastest.name);
-                console.log(`[VAILISM] Auto-selected fastest server: ${fastest.name}`);
+                console.log(`[VAILISM] Auto-selected fastest server (or previous was offline): ${fastest.name}`);
             }
         }
         sessionStorage.setItem('vailism_server_tested', 'true');
@@ -689,7 +698,16 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         modal._serverSwitchCount++;
         
         var currentIndex = SERVERS.findIndex(function(sv) { return sv.name === currentServer.name; });
-        var nextIndex = (currentIndex + 1) % SERVERS.length;
+        var nextIndex = currentIndex;
+        
+        // Find the next server that is NOT offline
+        for (var i = 0; i < SERVERS.length; i++) {
+            nextIndex = (nextIndex + 1) % SERVERS.length;
+            if (!SERVERS[nextIndex].isOffline) {
+                break;
+            }
+        }
+        
         currentServer = SERVERS[nextIndex];
 
         console.warn('[VAILISM] Auto-switching to next server:', currentServer.name);
@@ -753,13 +771,19 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         listEl.innerHTML = '';
         SERVERS.forEach(function(server) {
             var btn = document.createElement('button');
-            btn.className = 'vailism-server-option' + (server.name === currentServer.name ? ' active' : '');
+            btn.className = 'vailism-server-option' + (server.name === currentServer.name ? ' active' : '') + (server.isOffline ? ' offline' : '');
+            if (server.isOffline) {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            }
             btn.innerHTML = `
-                <span class="vailism-server-title">${server.name}</span>
+                <span class="vailism-server-title">${server.name} ${server.isOffline ? '<span style="color:#ff4444;font-size:10px;margin-left:6px">(OFFLINE)</span>' : ''}</span>
                 <span class="vailism-server-desc">${server.description}</span>
             `;
             btn.onclick = async function(e) {
                 e.stopPropagation();
+                if (server.isOffline) return;
                 if (server.name === currentServer.name) return;
                 currentServer = server;
                 localStorage.setItem('vailism_preferred_server', server.name);
