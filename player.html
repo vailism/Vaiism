@@ -261,130 +261,439 @@
     </style>
 </head>
 <body>
+    <div class="vailism-party-wrapper" id="partyWrapper">
+        <div class="vailism-player-container" id="vailismPlayerContainer">
+            <div class="top-controls" id="topControls">
+                <a href="index.html" class="back-button">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                    Back
+                </a>
 
-    <div class="top-controls" id="topControls">
-        <a href="index.html" class="back-button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Back
-        </a>
+                <div class="right-controls" id="rightControls">
+                    <!-- Watch Together (Party Mode) Button -->
+                    <button class="premium-btn" id="partyBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                        Watch Together
+                    </button>
 
-        <div class="right-controls" id="rightControls">
-            <!-- Next Episode Button -->
-            <button class="premium-btn" id="nextEpBtn" style="display:none; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
-                Next Ep
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 2px;">
-                    <polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line>
-                </svg>
-            </button>
+                    <!-- Next Episode Button -->
+                    <button class="premium-btn" id="nextEpBtn" style="display:none; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
+                        Next Ep
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 2px;">
+                            <polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line>
+                        </svg>
+                    </button>
 
-            <!-- Server Selector -->
-            <div style="position:relative;">
-                <button class="premium-btn" id="serverBtn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line>
-                    </svg>
-                    Server: <span id="currentServerLabel">SERVER 1</span>
-                </button>
-                <div class="popover" id="serverTooltip">
-                    <h4>Select Stream Server</h4>
-                    <p>Select a server if the video fails to load or buffer.</p>
-                    <div class="source-list" id="serverList">
-                        <!-- Injected via JS -->
+                    <!-- Server Selector -->
+                    <div style="position:relative;">
+                        <button class="premium-btn" id="serverBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line>
+                            </svg>
+                            Server: <span id="currentServerLabel">SERVER 1</span>
+                        </button>
+                        <div class="popover" id="serverTooltip">
+                            <h4>Select Stream Server</h4>
+                            <p>Select a server if the video fails to load or buffer.</p>
+                            <div class="source-list" id="serverList">
+                                <!-- Injected via JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Language Selector (Hybrid System) -->
+                    <div style="position:relative;">
+                        <button class="premium-btn" id="langBtn" style="display:none;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="2" y1="12" x2="22" y2="12"></line>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                            </svg>
+                            Language
+                        </button>
+                        <div class="popover" id="langTooltip">
+                            <h4>Audio Language</h4>
+                            <p>Select an audio track. Alternative languages rely on backup servers.</p>
+                            <div class="source-list" id="langList">
+                                <!-- Injected via JS -->
+                            </div>
+                            <div class="fallback-msg" id="langFallback" style="display:none;">
+                                * Only English is available for this title.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CC / Audio Guide -->
+                    <div style="position:relative;">
+                        <button class="premium-btn" id="ccBtn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="4" width="20" height="16" rx="3"/>
+                                <path d="M7 12h2m6 0h2"/>
+                                <path d="M9 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
+                                <path d="M17 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
+                            </svg>
+                            Audio & CC
+                        </button>
+                        <div class="popover" id="ccTooltip">
+                            <h4>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e50914" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                Player Controls
+                            </h4>
+                            <p>Change subtitles or dubbed audio directly within the player interface.</p>
+                            <div class="steps">
+                                <div class="step">
+                                    <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"></path></svg></span>
+                                    Click the gear icon inside the player
+                                </div>
+                                <div class="step">
+                                    <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></span>
+                                    Select <strong>Audio</strong> for dubbed languages
+                                </div>
+                                <div class="step">
+                                    <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"></rect><path d="M7 12h2m6 0h2"></path></svg></span>
+                                    Select <strong>Subtitles / CC</strong> for captions
+                                </div>
+                            </div>
+                            <div class="fallback-msg">
+                                * Note: Languages depend entirely on the source stream. Not all titles provide multiple audio tracks or dubs.
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Language Selector (Hybrid System) -->
-            <div style="position:relative;">
-                <button class="premium-btn" id="langBtn" style="display:none;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="2" y1="12" x2="22" y2="12"></line>
-                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                    </svg>
-                    Language
-                </button>
-                <div class="popover" id="langTooltip">
-                    <h4>Audio Language</h4>
-                    <p>Select an audio track. Alternative languages rely on backup servers.</p>
-                    <div class="source-list" id="langList">
-                        <!-- Injected via JS -->
-                    </div>
-                    <div class="fallback-msg" id="langFallback" style="display:none;">
-                        * Only English is available for this title.
-                    </div>
-                </div>
+            <div class="loader" id="loader">
+                <div class="netflix-spinner"></div>
+                <span class="loader-text">Loading...</span>
             </div>
 
-            <!-- CC / Audio Guide -->
-            <div style="position:relative;">
-                <button class="premium-btn" id="ccBtn">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="4" width="20" height="16" rx="3"/>
-                        <path d="M7 12h2m6 0h2"/>
-                        <path d="M9 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
-                        <path d="M17 9.5a2.5 2.5 0 0 0-2 2.5 2.5 2.5 0 0 0 2 2.5"/>
-                    </svg>
-                    Audio & CC
-                </button>
-                <div class="popover" id="ccTooltip">
-                    <h4>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e50914" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                        Player Controls
-                    </h4>
-                    <p>Change subtitles or dubbed audio directly within the player interface.</p>
-                    <div class="steps">
-                        <div class="step">
-                            <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"></path></svg></span>
-                            Click the gear icon inside the player
-                        </div>
-                        <div class="step">
-                            <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></span>
-                            Select <strong>Audio</strong> for dubbed languages
-                        </div>
-                        <div class="step">
-                            <span class="step-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"></rect><path d="M7 12h2m6 0h2"></path></svg></span>
-                            Select <strong>Subtitles / CC</strong> for captions
-                        </div>
+            <div class="player-wrap" id="player-wrap" style="opacity:0; transition: opacity 0.4s ease;">
+                <!-- Iframe injected via JS -->
+            </div>
+
+            <!-- Binge Watch Next Episode Overlay -->
+            <div class="binge-overlay" id="bingeOverlay">
+                <div class="binge-info">
+                    <h4>Next Episode</h4>
+                    <p>Starting in <span id="bingeCountdown">10</span>s</p>
+                </div>
+                <button class="binge-btn" id="bingeNextBtn">Play Now</button>
+            </div>
+        </div>
+
+        <!-- Collapsible Watch Together Sidebar -->
+        <div class="vailism-party-sidebar collapsed" id="partySidebar">
+            <div class="party-sidebar-header">
+                <h3>Party Mode</h3>
+                <button class="close-sidebar-btn" id="closeSidebarBtn">&times;</button>
+            </div>
+            <div class="party-sidebar-content">
+                <!-- Host Control Panels -->
+                <div class="party-settings-badge" id="partyHostControls" style="display: none;">
+                    <div class="party-settings-title">Host Controls</div>
+                    <div class="party-toggle-row">
+                        <label for="hostControlToggle">Sync Controls Only</label>
+                        <span class="party-switch">
+                            <input type="checkbox" id="hostControlToggle" checked>
+                            <span class="party-slider"></span>
+                        </span>
                     </div>
-                    <div class="fallback-msg">
-                        * Note: Languages depend entirely on the source stream. Not all titles provide multiple audio tracks or dubs.
+                </div>
+
+                <!-- Invite Link Area -->
+                <div class="party-invite-badge">
+                    <p>Share this link with friends to watch together:</p>
+                    <button class="party-copy-btn" id="copyPartyLinkBtn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle; margin-right:4px;">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Copy Share Link
+                    </button>
+                </div>
+
+                <!-- Active Participants -->
+                <div class="party-settings-title" style="margin-left: 20px; margin-bottom: 8px;">Participants</div>
+                <div class="party-members-list" id="partyParticipantsList">
+                    <!-- Injected dynamically -->
+                </div>
+
+                <!-- Embedded Jitsi Meeting / Chat Frame -->
+                <div class="party-chat-container">
+                    <div class="party-settings-title" style="margin-bottom: 8px;">Jitsi Voice & Chat</div>
+                    <div id="jaas-chat-iframe-container">
+                        <!-- Jitsi Meet iframe loads here -->
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <div class="loader" id="loader">
-        <div class="netflix-spinner"></div>
-
-        <span class="loader-text">Loading...</span>
-    </div>
-
-    <div class="player-wrap" id="player-wrap" style="opacity:0; transition: opacity 0.4s ease;">
-        <!-- Iframe injected via JS -->
-    </div>
-
-    <!-- Binge Watch Next Episode Overlay -->
-    <div class="binge-overlay" id="bingeOverlay">
-        <div class="binge-info">
-            <h4>Next Episode</h4>
-            <p>Starting in <span id="bingeCountdown">10</span>s</p>
-        </div>
-        <button class="binge-btn" id="bingeNextBtn">Play Now</button>
+        <!-- Floating Sidebar Toggle Bubble -->
+        <button class="party-panel-toggle hidden" id="partyPanelToggle">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+        </button>
     </div>
 
     <script>
     (function () {
         'use strict';
 
+        // ── Watch Together Helpers & Classes ────────────────────────────────
+        function loadJitsiScript() {
+            return new Promise(function (resolve, reject) {
+                if (window.JitsiMeetExternalAPI) return resolve();
+                var script = document.createElement("script");
+                script.src = "https://8x8.vc/vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091/external_api.js";
+                script.async = true;
+                script.onload = function () {
+                    if (window.JitsiMeetExternalAPI) resolve();
+                    else reject(new Error("Jitsi Meet SDK failed to load."));
+                };
+                script.onerror = function () { reject(new Error("Failed to download Jitsi Meet script.")); };
+                document.head.appendChild(script);
+            });
+        }
+
+        class RoomManager {
+            constructor(appId) {
+                this.appId = appId;
+                this.api = null;
+                this.participants = new Map();
+                this.eventListeners = {};
+                this.isHost = false;
+            }
+
+            initSession(roomId, parentNode, user, isHost = false) {
+                const self = this;
+                self.isHost = isHost;
+                return new Promise((resolve, reject) => {
+                    const options = {
+                        roomName: self.appId + "/" + roomId,
+                        parentNode: parentNode,
+                        width: "100%",
+                        height: "100%",
+                        configOverwrite: {
+                            startWithAudioMuted: !isHost,
+                            startWithVideoMuted: true,
+                            prejoinPageEnabled: false,
+                            enableWelcomePage: false,
+                            toolbarButtons: [
+                                'microphone', 'camera', 'desktop', 'hangup', 'videoquality',
+                                'chat', 'raisehand', 'tileview'
+                            ],
+                            filmStripOnly: false,
+                            disableDOMOperations: true
+                        },
+                        interfaceConfigOverwrite: {
+                            SHOW_JITSI_WATERMARK: false,
+                            HIDE_DEEP_LINKING_LOGO: true
+                        },
+                        userInfo: {
+                            displayName: user.name
+                        },
+                        jwt: "eyJraWQiOiJ2cGFhcy1tYWdpYy1jb29raWUtMWU0MDZhZWY0N2Y1NDRhZjkwNGNiOTdmZjM3MzAwOTEvM2JhYjU5LVNBTVBMRV9BUFAiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJqaXRzaSIsImlzcyI6ImNoYXQiLCJpYXQiOjE3Nzk3NDI4MDYsImV4cCI6MTc3OTc1MDAwNiwibmJmIjoxNzc5NzQyODAxLCJzdWIiOiJ2cGFhcy1tYWdpYy1jb29raWUtMWU0MDZhZWY0N2Y1NDRhZjkwNGNiOTdmZjM3MzAwOTEiLCJjb250ZXh0Ijp7ImZlYXR1cmVzIjp7ImxpdmVzdHJlYW1pbmciOmZhbHNlLCJmaWxlLXVwbG9hZCI6ZmFsc2UsIm91dGJvdW5kLWNhbGwiOmZhbHNlLCJzaXAtb3V0Ym91bmQtY2FsbCI6ZmFsc2UsInRyYW5zY3JpcHRpb24iOmZhbHNlLCJsaXN0LXZpc2l0b3JzIjpmYWxzZSwicmVjb3JkaW5nIjpmYWxzZSwiZmxpcCI6ZmFsc2V9LCJ1c2VyIjp7ImhpZGRlbi1mcm9tLXJlY29yZGVyIjpmYWxzZSwibW9kZXJhdG9yIjp0cnVlLCJuYW1lIjoiVGVzdCBVc2VyIiwiaWQiOiJnb29nbGUtb2F1dGgyfDEwMDI1ODYzNTIzNjQ1NjMzOTY4NyIsImF2YXRhciI6IiIsImVtYWlsIjoidGVzdC51c2VyQGNvbXBhbnkuY29tIn19LCJyb29tIjoiKiJ9.t95as_EkwNyMlvHvYB5rtWsdjUL0c_2EGO-EHnJ4vGU-Dlbogzo9of1x-Qst0AmUfAqo5iwYyTmEfPPcPgoe7Z0KTTKXIR8MD8ZDYHOYmHaXEj6q7sH959wrwM7y5U1TXnyTF2CfJQ3nrSEFD8ijb9mQ21LQP9lNGU29W9X6z8bnp-a4NW-zWLtsial6SsR0o7mXxwexE-2sO9j_4S-M5yjYJNjl6CGPRnpr5qK6BRsUokkOgGYteF3oW1688U0M_x1N-isCICt6c4OCGxxBaeHVPbz6l3T7l-mLPMSYm_c9GUWYZtJjLTNpU4sFcL0z-d_cNoEHQcsL77Z85IG26A"
+                    };
+
+                    self.api = new JitsiMeetExternalAPI("8x8.vc", options);
+                    var jitsiIframe = self.api.getIFrame();
+                    if (jitsiIframe) {
+                        var currentAllow = jitsiIframe.getAttribute('allow') || '';
+                        if (currentAllow.indexOf('display-capture') === -1) {
+                            jitsiIframe.setAttribute('allow', currentAllow ? currentAllow + '; display-capture' : 'display-capture');
+                        }
+                    }
+                    self.api.addEventListener("videoConferenceJoined", (event) => {
+                        resolve(event);
+                    });
+                    self.api.addEventListener("participantJoined", (p) => {
+                        self.participants.set(p.id, { id: p.id, displayName: p.displayName });
+                        self.trigger("participantJoined", p);
+                    });
+                    self.api.addEventListener("participantLeft", (p) => {
+                        self.participants.delete(p.id);
+                        self.trigger("participantLeft", p);
+                    });
+                    self.api.addCommandListener("vailism_sync", (payload) => {
+                        self.trigger("syncCommand", payload);
+                    });
+                });
+            }
+
+            broadcastCommand(action, data) {
+                if (!this.api) return;
+                this.api.sendCommand("vailism_sync", Object.assign({
+                    action: action,
+                    senderId: this.api._myParticipantId,
+                    timestamp: Date.now()
+                }, data));
+            }
+
+            on(event, handler) {
+                if (!this.eventListeners[event]) this.eventListeners[event] = [];
+                this.eventListeners[event].push(handler);
+            }
+
+            trigger(event, data) {
+                if (this.eventListeners[event]) {
+                    this.eventListeners[event].forEach(h => h(data));
+                }
+            }
+
+            destroy() {
+                if (this.api) {
+                    this.api.executeCommand("hangup");
+                    this.api.dispose();
+                    this.api = null;
+                }
+                this.participants.clear();
+                this.eventListeners = {};
+            }
+        }
+
+        class PlaybackSyncer {
+            constructor(roomManager, playerWrapper) {
+                this.room = roomManager;
+                this.wrapper = playerWrapper;
+                this.maxDriftSeconds = 1.5;
+                this.isSyncingLocal = false;
+                this._setupListeners();
+            }
+
+            _setupListeners() {
+                const self = this;
+                self.room.on("syncCommand", (payload) => {
+                    self._handleRemoteSync(payload);
+                });
+            }
+
+            _handleRemoteSync(payload) {
+                const self = this;
+                const { action, senderId, currentTime, playing, isHost } = payload;
+                if (senderId === self.room.api._myParticipantId) return;
+
+                // Host Authorization check
+                const hostControlCheckbox = document.getElementById("hostControlToggle");
+                const syncOnlyHost = hostControlCheckbox ? hostControlCheckbox.checked : true;
+                if (syncOnlyHost && !isHost) {
+                    return;
+                }
+
+                self.isSyncingLocal = true;
+                switch (action) {
+                    case "PLAY":
+                        self.sendToPlayer({ command: "play" });
+                        self._correctDrift(currentTime);
+                        break;
+                    case "PAUSE":
+                        self.sendToPlayer({ command: "pause" });
+                        self._correctDrift(currentTime);
+                        break;
+                    case "SEEK":
+                        self._correctDrift(currentTime, true);
+                        break;
+                    case "HEARTBEAT":
+                        if (!playing) {
+                            self.sendToPlayer({ command: "pause" });
+                        }
+                        self._correctDrift(currentTime);
+                        break;
+                }
+                setTimeout(() => { self.isSyncingLocal = false; }, 400);
+            }
+
+            _correctDrift(targetSeconds, forceImmediate = false) {
+                const self = this;
+                self.getPlayerTime().then((localSeconds) => {
+                    const difference = Math.abs(localSeconds - targetSeconds);
+                    if (forceImmediate || difference > self.maxDriftSeconds) {
+                        self.sendToPlayer({ command: "seek", time: targetSeconds });
+                    }
+                });
+            }
+
+            sendToPlayer(data) {
+                const iframe = this.wrapper.querySelector("iframe");
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage(JSON.stringify(data), "*");
+                    // Multi-source compatibility commands
+                    if (data.command === "play") {
+                        iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "playVideo" }), "*");
+                        iframe.contentWindow.postMessage(JSON.stringify({ method: "play" }), "*");
+                        iframe.contentWindow.postMessage("play", "*");
+                    } else if (data.command === "pause") {
+                        iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "pauseVideo" }), "*");
+                        iframe.contentWindow.postMessage(JSON.stringify({ method: "pause" }), "*");
+                        iframe.contentWindow.postMessage("pause", "*");
+                    } else if (data.command === "seek") {
+                        iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "seekTo", args: [data.time, true] }), "*");
+                        iframe.contentWindow.postMessage(JSON.stringify({ method: "seek", value: data.time }), "*");
+                        iframe.contentWindow.postMessage(JSON.stringify({ type: "seek", time: data.time }), "*");
+                    }
+                }
+            }
+
+            getPlayerTime() {
+                const self = this;
+                const iframe = self.wrapper.querySelector("iframe");
+                return new Promise((resolve) => {
+                    if (!iframe || !iframe.contentWindow) return resolve(0);
+                    const channel = new MessageChannel();
+                    channel.port1.onmessage = (event) => {
+                        var data = event.data;
+                        if (typeof data === "string") {
+                            try { data = JSON.parse(data); } catch(ex) {}
+                        }
+                        if (data && data.data) data = data.data; // Parse structure
+                        resolve(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : 0));
+                    };
+                    iframe.contentWindow.postMessage(
+                        JSON.stringify({ command: "getCurrentTime" }),
+                        "*",
+                        [channel.port2]
+                    );
+                    setTimeout(() => resolve(0), 150);
+                });
+            }
+
+            handleLocalPlayerEvent(evtName, currentTime, duration) {
+                if (this.isSyncingLocal) return;
+                const isHost = this.room.isHost;
+                const hostControlCheckbox = document.getElementById("hostControlToggle");
+                const syncOnlyHost = hostControlCheckbox ? hostControlCheckbox.checked : true;
+
+                if (!isHost && syncOnlyHost) return; // Only host has auth
+
+                if (evtName === "play") {
+                    this.room.broadcastCommand("PLAY", { currentTime, isHost });
+                } else if (evtName === "pause") {
+                    this.room.broadcastCommand("PAUSE", { currentTime, isHost });
+                } else if (evtName === "seek" || evtName === "seeked") {
+                    this.room.broadcastCommand("SEEK", { currentTime, isHost });
+                }
+            }
+        }
+
         // ── Parse URL params ──────────────────────────────────────────────
         var params    = new URLSearchParams(window.location.search);
         var movieId   = params.get('id');
         var mediaType = params.get('type') || 'movie';
+        var partyId   = params.get('partyId');
 
         var loader     = document.getElementById('loader');
         var playerWrap = document.getElementById('player-wrap');
+
+        var roomManager = null;
+        var playbackSyncer = null;
 
         // ── Storage key ──────────────────────────────────────────────────
         var storageKey = mediaType === 'tv'
@@ -482,22 +791,23 @@
             },
             {
                 name: 'SERVER 3',
-                description: 'Popular backup server with multiple language tracks.',
+                description: 'Fast, multi-source provider (videasy.net).',
                 buildUrl: function(id, type, s, e, ts) {
+                    var progressParam = ts > 0 ? ('?progress=' + Math.floor(ts)) : '';
                     if (type === 'tv') {
-                        return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
+                        return 'https://player.videasy.net/tv/' + id + '/' + s + '/' + e + (progressParam ? progressParam + '&color=e50914' : '?color=e50914');
                     }
-                    return 'https://vidsrc.xyz/embed/movie?tmdb=' + id;
+                    return 'https://player.videasy.net/movie/' + id + (progressParam ? progressParam + '&color=e50914' : '?color=e50914');
                 }
             },
             {
                 name: 'SERVER 4',
-                description: 'High-speed alternative streaming server.',
+                description: 'Stable stream with good subtitle support.',
                 buildUrl: function(id, type, s, e, ts) {
                     if (type === 'tv') {
-                        return 'https://vidsrc.cc/v2/embed/tv/' + id + '/' + s + '/' + e;
+                        return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1&s=' + s + '&e=' + e;
                     }
-                    return 'https://vidsrc.cc/v2/embed/movie/' + id;
+                    return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1';
                 }
             }
         ];
@@ -992,6 +1302,11 @@
                 console.log('[VAILISM][' + evtName + '] time=' + currentTime.toFixed(1));
             }
 
+            // Feed to watch-party sync system
+            if (playbackSyncer && typeof playbackSyncer.handleLocalPlayerEvent === 'function') {
+                playbackSyncer.handleLocalPlayerEvent(evtName, currentTime, duration);
+            }
+
             // Binge-Watch Auto-Skip Logic
             if (evtName === 'timeupdate' && mediaType === 'tv') {
                 var timeLeft = duration - currentTime;
@@ -1108,10 +1423,155 @@
 
         window.addEventListener('message', onPlayerMessage);
 
+        // ── Watch Together Initializations ────────────────────────────────
+        var partyBtn = document.getElementById('partyBtn');
+        var partySidebar = document.getElementById('partySidebar');
+        var partyPanelToggle = document.getElementById('partyPanelToggle');
+        var closeSidebarBtn = document.getElementById('closeSidebarBtn');
+
+        function toggleSidebar() {
+            partySidebar.classList.toggle('collapsed');
+            if (partySidebar.classList.contains('collapsed')) {
+                partyPanelToggle.classList.remove('hidden');
+            } else {
+                partyPanelToggle.classList.add('hidden');
+            }
+        }
+
+        if (partyBtn) {
+            partyBtn.onclick = function() {
+                toggleSidebar();
+                if (!roomManager) {
+                    startPartySession(true); // Create as Host
+                }
+            };
+        }
+        if (closeSidebarBtn) {
+            closeSidebarBtn.onclick = toggleSidebar;
+        }
+        if (partyPanelToggle) {
+            partyPanelToggle.onclick = toggleSidebar;
+        }
+
+        function startPartySession(isHost, inputPartyId) {
+            const appId = "vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091";
+            const targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
+            
+            const localUser = localStorage.getItem('vailism_current_user') || ('Guest ' + Math.floor(Math.random() * 9000 + 1000));
+            const userProfile = { name: localUser };
+
+            const chatContainer = document.getElementById("jaas-chat-iframe-container");
+            chatContainer.innerHTML = '<div style="color:rgba(255,255,255,0.6);text-align:center;padding-top:40px;">Joining Party Room...</div>';
+
+            loadJitsiScript().then(() => {
+                roomManager = new RoomManager(appId);
+                roomManager.isHost = isHost;
+
+                roomManager.initSession(targetRoomId, chatContainer, userProfile, isHost)
+                    .then(() => {
+                        console.log("[VAILISM] Jitsi Session Initialized!");
+                        playbackSyncer = new PlaybackSyncer(roomManager, playerWrap);
+                        
+                        const hostControls = document.getElementById("partyHostControls");
+                        if (hostControls) {
+                            hostControls.style.display = isHost ? "block" : "none";
+                        }
+
+                        // Generate/Update Share Link
+                        const copyPartyLinkBtn = document.getElementById("copyPartyLinkBtn");
+                        const inviteLink = window.location.origin + window.location.pathname + 
+                            '?id=' + movieId + '&type=' + mediaType + '&partyId=' + targetRoomId +
+                            (mediaType === 'tv' ? ('&s=' + (params.get('s') || '1') + '&e=' + (params.get('e') || '1')) : '');
+
+                        if (copyPartyLinkBtn) {
+                            copyPartyLinkBtn.onclick = function() {
+                                navigator.clipboard.writeText(inviteLink).then(() => {
+                                    copyPartyLinkBtn.textContent = "Link Copied!";
+                                    setTimeout(() => {
+                                        copyPartyLinkBtn.innerHTML = `
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle; margin-right:4px;">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                            </svg>
+                                            Copy Share Link`;
+                                    }, 2000);
+                                });
+                            };
+                        }
+
+                        updateParticipantsList();
+                        roomManager.on("participantJoined", updateParticipantsList);
+                        roomManager.on("participantLeft", updateParticipantsList);
+
+                        // Broadcast Host playback state updates periodically
+                        if (isHost) {
+                            window._partyHeartbeat = setInterval(() => {
+                                playbackSyncer.getPlayerTime().then(currentTime => {
+                                    roomManager.broadcastCommand("HEARTBEAT", {
+                                        currentTime: currentTime,
+                                        playing: hasReceivedPlaybackEvent,
+                                        isHost: true
+                                    });
+                                });
+                            }, 3000);
+                        }
+                    })
+                    .catch(err => {
+                        console.error("[VAILISM] Room Join error:", err);
+                        chatContainer.innerHTML = '<div style="color:#ff4444;text-align:center;padding-top:40px;">Failed to join conference.</div>';
+                    });
+            }).catch(err => {
+                console.error("[VAILISM] Script load error:", err);
+                chatContainer.innerHTML = '<div style="color:#ff4444;text-align:center;padding-top:40px;">Failed to load Jitsi API.</div>';
+            });
+        }
+
+        function updateParticipantsList() {
+            const listContainer = document.getElementById("partyParticipantsList");
+            if (!listContainer || !roomManager) return;
+
+            listContainer.innerHTML = "";
+            
+            const localName = localStorage.getItem('vailism_current_user') || 'You';
+            const meRow = document.createElement("div");
+            meRow.className = "party-member-row";
+            meRow.innerHTML = `
+                <div class="party-member-avatar" style="background:#e50914;">${localName.charAt(0).toUpperCase()}</div>
+                <div>${localName} (You)</div>
+            `;
+            listContainer.appendChild(meRow);
+
+            roomManager.participants.forEach(p => {
+                const pRow = document.createElement("div");
+                pRow.className = "party-member-row";
+                pRow.innerHTML = `
+                    <div class="party-member-avatar" style="background:#333;">${p.displayName.charAt(0).toUpperCase()}</div>
+                    <div>${p.displayName}</div>
+                `;
+                listContainer.appendChild(pRow);
+            });
+        }
+
+        // Auto-join Party if parameter is in query URL
+        if (partyId) {
+            console.log("[VAILISM] Party ID query detected. Auto-joining room:", partyId);
+            partySidebar.classList.remove('collapsed');
+            partyPanelToggle.classList.add('hidden');
+            startPartySession(false, partyId); // Join as Guest
+        }
+
         // ── Cleanup on page unload (prevents memory leaks / stacking on
         //    browsers that keep pages in bfcache) ────────────────────────
         function cleanup() {
             window.removeEventListener('message', onPlayerMessage);
+            if (roomManager) {
+                roomManager.destroy();
+                roomManager = null;
+            }
+            if (window._partyHeartbeat) {
+                clearInterval(window._partyHeartbeat);
+                window._partyHeartbeat = null;
+            }
             if (saveThrottle) {
                 clearTimeout(saveThrottle);
                 saveThrottle = null;

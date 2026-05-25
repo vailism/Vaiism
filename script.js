@@ -440,13 +440,14 @@ const SERVERS = [
     },
     {
         name: 'SERVER 3',
-        description: 'Popular backup server with multiple language tracks.',
-        pingUrl: 'https://vidsrc.xyz/',
+        description: 'Fast, multi-source provider (videasy.net).',
+        pingUrl: 'https://player.videasy.net/',
         buildUrl: function(id, type, s, e, ts) {
+            var progressParam = ts > 0 ? ('?progress=' + Math.floor(ts)) : '';
             if (type === 'tv') {
-                return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
+                return 'https://player.videasy.net/tv/' + id + '/' + s + '/' + e + (progressParam ? progressParam + '&color=e50914' : '?color=e50914');
             }
-            return 'https://vidsrc.xyz/embed/movie?tmdb=' + id;
+            return 'https://player.videasy.net/movie/' + id + (progressParam ? progressParam + '&color=e50914' : '?color=e50914');
         }
     },
     {
@@ -458,39 +459,6 @@ const SERVERS = [
                 return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1&s=' + s + '&e=' + e;
             }
             return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1';
-        }
-    },
-    {
-        name: 'SERVER 5',
-        description: 'Fast, multi-source provider (embed.su).',
-        pingUrl: 'https://embed.su/',
-        buildUrl: function(id, type, s, e, ts) {
-            if (type === 'tv') {
-                return 'https://embed.su/embed/tv/' + id + '/' + s + '/' + e;
-            }
-            return 'https://embed.su/embed/movie/' + id;
-        }
-    },
-    {
-        name: 'SERVER 6',
-        description: 'Classic, highly reliable backup server (vidsrc.me).',
-        pingUrl: 'https://vidsrc.me/',
-        buildUrl: function(id, type, s, e, ts) {
-            if (type === 'tv') {
-                return 'https://vidsrc.me/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
-            }
-            return 'https://vidsrc.me/embed/movie?tmdb=' + id;
-        }
-    },
-    {
-        name: 'SERVER 7',
-        description: 'Clean HLS streaming backup (autoembed).',
-        pingUrl: 'https://player.autoembed.co/',
-        buildUrl: function(id, type, s, e, ts) {
-            if (type === 'tv') {
-                return 'https://player.autoembed.co/tv/' + id + '/' + s + '/' + e;
-            }
-            return 'https://player.autoembed.co/movie/' + id;
         }
     }
 ];
@@ -592,6 +560,15 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 Back
             </button>
             <div class="vailism-modal-right">
+                <button class="vailism-server-btn" id="modal-party-btn" style="margin-right: 12px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.15);">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; display: inline-block; vertical-align: middle;">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    Watch Together
+                </button>
                 <button class="vailism-server-btn" id="modal-next-ep-btn" style="display:none; margin-right: 12px; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
                     Next Ep
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px;">
@@ -755,6 +732,20 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     const backBtn = modal.querySelector('#modal-back');
     if (backBtn) {
         backBtn.onclick = (ev) => { ev.stopPropagation(); closeModalPlayer(); };
+    }
+
+    // ── Watch Together (Party) Button ─────────────────────────────────────
+    const modalPartyBtn = modal.querySelector('#modal-party-btn');
+    if (modalPartyBtn) {
+        modalPartyBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            closeModalPlayer();
+            const partyUrl = 'player.html?id=' + movieId + '&type=' + mediaType + 
+                (modal._season ? '&s=' + modal._season : '') + 
+                (modal._episode ? '&e=' + modal._episode : '') + 
+                '&startParty=true';
+            window.location.href = partyUrl;
+        };
     }
 
     // ── ESC to close ──────────────────────────────────────────────────────
