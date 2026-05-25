@@ -455,6 +455,36 @@ const SERVERS = [
             }
             return 'https://vidsrc.cc/v2/embed/movie/' + id;
         }
+    },
+    {
+        name: 'SERVER 5',
+        description: 'Fast, multi-source provider (embed.su).',
+        buildUrl: function(id, type, s, e, ts) {
+            if (type === 'tv') {
+                return 'https://embed.su/embed/tv/' + id + '/' + s + '/' + e;
+            }
+            return 'https://embed.su/embed/movie/' + id;
+        }
+    },
+    {
+        name: 'SERVER 6',
+        description: 'Classic, highly reliable backup server (vidsrc.me).',
+        buildUrl: function(id, type, s, e, ts) {
+            if (type === 'tv') {
+                return 'https://vidsrc.me/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
+            }
+            return 'https://vidsrc.me/embed/movie?tmdb=' + id;
+        }
+    },
+    {
+        name: 'SERVER 7',
+        description: 'Clean HLS streaming backup (autoembed).',
+        buildUrl: function(id, type, s, e, ts) {
+            if (type === 'tv') {
+                return 'https://player.autoembed.co/tv/' + id + '/' + s + '/' + e;
+            }
+            return 'https://player.autoembed.co/movie/' + id;
+        }
     }
 ];
 
@@ -1727,6 +1757,9 @@ document.addEventListener('DOMContentLoaded', () => {
             prefetchMovieDetails(id, type);
         }
     }, { passive: true });
+
+    // Initialize Auth & Sync System
+    if (typeof initAuthSync === 'function') initAuthSync();
 });
 
 // ── Smart TV Keyboard Navigation (Spatial Navigation) ──────────────────────
@@ -1826,3 +1859,342 @@ document.addEventListener('keydown', (e) => {
 
     if (bestMatch) setSpatialFocus(bestMatch);
 });
+
+// ─── Account & Sync System ───────────────────────────────────────────────────
+const SYNC_BUCKET = 'vailism_shared_2026';
+
+// XOR encryption helper for lightweight protection of public bucket contents
+function encryptSyncData(text, key) {
+    let result = '';
+    for (let i = 0; i < text.length; i++) {
+        result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(result);
+}
+
+function decryptSyncData(encoded, key) {
+    try {
+        let text = atob(encoded);
+        let result = '';
+        for (let i = 0; i < text.length; i++) {
+            result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return result;
+    } catch (e) {
+        return null;
+    }
+}
+
+// Gather all database history/watchlist entries
+async function getAllSyncData() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const data = {};
+            const request = store.openCursor();
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (cursor.key.startsWith('vailism_progress_') || cursor.key === 'vailism_watchlist') {
+                        data[cursor.key] = cursor.value;
+                    }
+                    cursor.continue();
+                } else {
+                    data['vailism_preferred_server'] = localStorage.getItem('vailism_preferred_server');
+                    resolve(data);
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    } catch (e) {
+        return {};
+    }
+}
+
+// Merge restored JSON payload into active browser DB
+async function importSyncData(data) {
+    if (!data || typeof data !== 'object') return;
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        
+        for (const key in data) {
+            if (key.startsWith('vailism_progress_') || key === 'vailism_watchlist') {
+                store.put(data[key], key);
+            } else if (key === 'vailism_preferred_server' && data[key]) {
+                localStorage.setItem('vailism_preferred_server', data[key]);
+            }
+        }
+        
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch (e) {
+        console.error('[Sync] Import failed:', e);
+    }
+}
+
+// Main logic coordinator
+async function initAuthSync() {
+    const profileBtn = document.getElementById('profileBtn');
+    const modal = document.getElementById('account-modal');
+    const closeBtn = document.getElementById('closeAccountModalBtn');
+    const tabs = document.querySelectorAll('.auth-tab-btn');
+    const tabPanes = document.querySelectorAll('.auth-tab-pane');
+    
+    // Auth elements
+    const authForm = document.getElementById('authForm');
+    const authFormTitle = document.getElementById('authFormTitle');
+    const authUsernameInput = document.getElementById('authUsername');
+    const authPasswordInput = document.getElementById('authPassword');
+    const authSubmitBtn = document.getElementById('authSubmitBtn');
+    const authToggleLink = document.getElementById('authToggleLink');
+    const authError = document.getElementById('authError');
+    
+    // Profile elements
+    const profileName = document.getElementById('profileName');
+    const profileStatus = document.getElementById('profileStatus');
+    const profileLogoutBtn = document.getElementById('profileLogoutBtn');
+    const statHistoryCount = document.getElementById('statHistoryCount');
+    const statWatchlistCount = document.getElementById('statWatchlistCount');
+    
+    // Sync elements
+    const generateSyncKeyBtn = document.getElementById('generateSyncKeyBtn');
+    const syncKeyDisplay = document.getElementById('syncKeyDisplay');
+    const syncKeyValue = document.getElementById('syncKeyValue');
+    const copySyncKeyBtn = document.getElementById('copySyncKeyBtn');
+    const restoreSyncKeyInput = document.getElementById('restoreSyncKeyInput');
+    const restoreSyncBtn = document.getElementById('restoreSyncBtn');
+    const syncError = document.getElementById('syncError');
+    const syncSuccess = document.getElementById('syncSuccess');
+
+    if (!profileBtn || !modal) return;
+
+    let isLoginMode = false; // Default form to Register
+
+    // Tab switcher
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tabPanes.forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            const targetPane = document.getElementById(tab.dataset.tab);
+            if (targetPane) targetPane.classList.add('active');
+            
+            // Refresh stats on switching to Profile tab
+            if (tab.dataset.tab === 'profile-tab') {
+                updateProfileUI();
+            }
+        });
+    });
+
+    // Toggle between login and register modes
+    authToggleLink.addEventListener('click', () => {
+        isLoginMode = !isLoginMode;
+        if (isLoginMode) {
+            authFormTitle.textContent = 'Log In to Profile';
+            authSubmitBtn.textContent = 'Log In';
+            authToggleLink.textContent = "Don't have an account? Register";
+        } else {
+            authFormTitle.textContent = 'Create Local Account';
+            authSubmitBtn.textContent = 'Register Account';
+            authToggleLink.textContent = 'Already have an account? Log In';
+        }
+        authError.textContent = '';
+    });
+
+    // Close / Open Modal
+    profileBtn.addEventListener('click', () => {
+        modal.classList.remove('hidden');
+        updateProfileUI();
+    });
+    
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+    }
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.add('hidden');
+    });
+
+    // Handle Auth Form Submission
+    authForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        authError.textContent = '';
+        
+        const username = authUsernameInput.value.trim().toLowerCase();
+        const password = authPasswordInput.value;
+        if (!username || !password) return;
+
+        const accounts = JSON.parse(localStorage.getItem('vailism_accounts') || '{}');
+
+        if (isLoginMode) {
+            // Log In
+            if (accounts[username] && accounts[username] === password) {
+                localStorage.setItem('vailism_current_user', username);
+                updateProfileUI();
+                // Switch to profile tab
+                document.getElementById('tabProfileHeader').click();
+            } else {
+                authError.textContent = 'Invalid username or password.';
+            }
+        } else {
+            // Register
+            if (accounts[username]) {
+                authError.textContent = 'Username already exists.';
+            } else {
+                accounts[username] = password;
+                localStorage.setItem('vailism_accounts', JSON.stringify(accounts));
+                localStorage.setItem('vailism_current_user', username);
+                updateProfileUI();
+                // Switch to profile tab
+                document.getElementById('tabProfileHeader').click();
+            }
+        }
+    });
+
+    // Logout Button
+    profileLogoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('vailism_current_user');
+        updateProfileUI();
+    });
+
+    // Generate Sync Key (Cloud Upload)
+    generateSyncKeyBtn.addEventListener('click', async () => {
+        syncError.textContent = '';
+        syncSuccess.textContent = '';
+        
+        // Generate random 12-char key: VAIL-XXXX-XXXX
+        const rand = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+        const syncKey = `VAIL-${rand()}-${rand()}`;
+        
+        const localData = await getAllSyncData();
+        const payload = JSON.stringify(localData);
+        const encrypted = encryptSyncData(payload, syncKey);
+
+        try {
+            generateSyncKeyBtn.disabled = true;
+            generateSyncKeyBtn.textContent = 'Backing up...';
+            
+            const res = await fetch(`https://kvdb.io/${SYNC_BUCKET}/${syncKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: encrypted
+            });
+
+            if (res.ok) {
+                syncKeyValue.textContent = syncKey;
+                syncKeyDisplay.classList.remove('hidden');
+                syncSuccess.textContent = 'Successfully uploaded data to cloud backup.';
+            } else {
+                syncError.textContent = 'Failed to connect to sync server. Try again.';
+            }
+        } catch (err) {
+            syncError.textContent = 'Error uploading backup payload.';
+        } finally {
+            generateSyncKeyBtn.disabled = false;
+            generateSyncKeyBtn.textContent = 'Generate Sync Key';
+        }
+    });
+
+    // Copy Sync Key
+    copySyncKeyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(syncKeyValue.textContent);
+        const icon = copySyncKeyBtn.querySelector('i');
+        if (icon) {
+            icon.setAttribute('data-lucide', 'check');
+            if (window.lucide) lucide.createIcons();
+            setTimeout(() => {
+                icon.setAttribute('data-lucide', 'copy');
+                if (window.lucide) lucide.createIcons();
+            }, 2000);
+        }
+    });
+
+    // Restore Sync Key (Cloud Download & Merge)
+    restoreSyncBtn.addEventListener('click', async () => {
+        syncError.textContent = '';
+        syncSuccess.textContent = '';
+        
+        const syncKey = restoreSyncKeyInput.value.trim().toUpperCase();
+        if (!syncKey || !syncKey.startsWith('VAIL-')) {
+            syncError.textContent = 'Please enter a valid Sync Key (e.g. VAIL-XXXX-XXXX).';
+            return;
+        }
+
+        try {
+            restoreSyncBtn.disabled = true;
+            restoreSyncBtn.textContent = 'Restoring...';
+            
+            const res = await fetch(`https://kvdb.io/${SYNC_BUCKET}/${syncKey}`);
+            if (!res.ok) {
+                syncError.textContent = 'Sync Key not found or expired.';
+                return;
+            }
+
+            const encrypted = await res.text();
+            const payload = decryptSyncData(encrypted, syncKey);
+            if (!payload) {
+                syncError.textContent = 'Failed to decrypt backup package.';
+                return;
+            }
+
+            const data = JSON.parse(payload);
+            await importSyncData(data);
+            
+            syncSuccess.textContent = 'Data successfully synchronized! Reloading page...';
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } catch (err) {
+            syncError.textContent = 'Connection error during sync restoration.';
+        } finally {
+            restoreSyncBtn.disabled = false;
+            restoreSyncBtn.textContent = 'Restore';
+        }
+    });
+
+    // Dynamic UI refresher
+    async function updateProfileUI() {
+        const currentUser = localStorage.getItem('vailism_current_user');
+        
+        // Count history and watchlist
+        const allData = await getAllSyncData();
+        const historyCount = Object.keys(allData).filter(k => k.startsWith('vailism_progress_')).length;
+        const watchlistData = allData['vailism_watchlist'];
+        const watchlistCount = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items.length : 0;
+        
+        statHistoryCount.textContent = historyCount;
+        statWatchlistCount.textContent = watchlistCount;
+
+        if (currentUser) {
+            profileName.textContent = currentUser.toUpperCase();
+            profileStatus.textContent = 'Signed in. Your data syncs with your profile.';
+            profileLogoutBtn.style.display = 'block';
+            
+            // Switch tabs availability
+            document.getElementById('tabLoginHeader').style.display = 'none';
+        } else {
+            profileName.textContent = 'Guest Mode';
+            profileStatus.textContent = 'Data is stored locally on this browser.';
+            profileLogoutBtn.style.display = 'none';
+            document.getElementById('tabLoginHeader').style.display = 'block';
+        }
+    }
+
+    // Auto-open auth modal if redirect query parameter exists
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('openAuth')) {
+        // Clean query parameter from URL
+        const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+        window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+        profileBtn.click();
+    }
+}
+

@@ -94,6 +94,9 @@
                 <span class="search-icon"><i data-lucide="search"></i></span>
                 <input type="text" id="search-input" placeholder="Titles, genres..." autocomplete="off">
             </div>
+            <button class="profile-btn" id="profileBtn" aria-label="Profile">
+                <i data-lucide="user"></i>
+            </button>
         </div>
     </nav>
 
@@ -105,13 +108,13 @@
         </div>
     </div>
 
-    <!-- Main App Container (Hidden during search) -->
+    <!-- Main App Wrap -->
     <div id="app-content">
         <!-- Hero Section -->
         <header class="hero" id="hero">
             <div class="hero-vignette"></div>
             <div class="hero-content">
-                <h1 class="hero-title skeleton-text" id="hero-title"></h1>
+                <h1 class="hero-title skeleton-text" id="hero-title">Loading...</h1>
                 <div class="hero-meta" id="hero-meta" style="opacity: 0;">
                     <span id="hero-rating" class="meta-rating"></span>
                     <span id="hero-year" class="meta-year"></span>
@@ -134,6 +137,91 @@
         <main class="main-content" id="main-content">
             <!-- Dynamically injected rows -->
         </main>
+    </div>
+
+    <!-- Account & Sync Modal -->
+    <div id="account-modal" class="auth-modal hidden">
+        <div class="auth-modal-content">
+            <button class="auth-modal-close" id="closeAccountModalBtn">&times;</button>
+            
+            <!-- Tab Headers -->
+            <div class="auth-tabs" id="authTabs">
+                <button class="auth-tab-btn active" data-tab="profile-tab" id="tabProfileHeader">Profile</button>
+                <button class="auth-tab-btn" data-tab="auth-tab" id="tabLoginHeader">Log In</button>
+                <button class="auth-tab-btn" data-tab="sync-tab" id="tabSyncHeader">Cloud Sync</button>
+            </div>
+
+            <!-- Profile View -->
+            <div class="auth-tab-pane active" id="profile-tab">
+                <div class="profile-summary">
+                    <div class="profile-avatar"><i data-lucide="user"></i></div>
+                    <h3 id="profileName">Guest Mode</h3>
+                    <p id="profileStatus">Data is stored locally on this browser.</p>
+                </div>
+                <div class="profile-stats">
+                    <div class="stat-box">
+                        <span class="stat-num" id="statHistoryCount">0</span>
+                        <span class="stat-label">Watched</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-num" id="statWatchlistCount">0</span>
+                        <span class="stat-label">Watchlist</span>
+                    </div>
+                </div>
+                <div class="profile-actions">
+                    <button class="btn btn-primary" id="profileLogoutBtn" style="display:none;">Log Out</button>
+                </div>
+            </div>
+
+            <!-- Login/Signup View -->
+            <div class="auth-tab-pane" id="auth-tab">
+                <form id="authForm" class="auth-form">
+                    <h3 id="authFormTitle">Create Local Account</h3>
+                    <p class="form-desc">Keep your data organized under a local user profile.</p>
+                    <div class="form-group">
+                        <label for="authUsername">Username</label>
+                        <input type="text" id="authUsername" required placeholder="Enter username">
+                    </div>
+                    <div class="form-group">
+                        <label for="authPassword">Password</label>
+                        <input type="password" id="authPassword" required placeholder="Enter password">
+                    </div>
+                    <div class="form-error" id="authError"></div>
+                    <button type="submit" class="btn btn-primary w-100" id="authSubmitBtn">Register Account</button>
+                    <p class="auth-toggle-link" id="authToggleLink">Already have an account? Log In</p>
+                </form>
+            </div>
+
+            <!-- Cloud Sync View -->
+            <div class="auth-tab-pane" id="sync-tab">
+                <h3>Cloud Backup & Sync</h3>
+                <p class="form-desc">Sync your watchlist, watch history, and server preferences across other devices anonymously.</p>
+                
+                <div class="sync-section">
+                    <h4>Backup / Upload Data</h4>
+                    <p class="sub-desc">Generate a secure Sync Key to backup your history and preferences online.</p>
+                    <button class="btn btn-info w-100" id="generateSyncKeyBtn">Generate Sync Key</button>
+                    <div id="syncKeyDisplay" class="sync-key-display hidden">
+                        <span class="key-label">Your Sync Key:</span>
+                        <code id="syncKeyValue">XXXX-XXXX-XXXX</code>
+                        <button class="btn-copy" id="copySyncKeyBtn" title="Copy Key"><i data-lucide="copy"></i></button>
+                    </div>
+                </div>
+
+                <hr class="auth-divider">
+
+                <div class="sync-section">
+                    <h4>Restore / Sync Device</h4>
+                    <p class="sub-desc">Enter a Sync Key from another device to load and merge your data.</p>
+                    <div class="sync-input-group">
+                        <input type="text" id="restoreSyncKeyInput" placeholder="Paste Sync Key here...">
+                        <button class="btn btn-primary" id="restoreSyncBtn">Restore</button>
+                    </div>
+                    <div class="form-error" id="syncError"></div>
+                    <div class="form-success" id="syncSuccess"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- App logic: deferred to unblock rendering -->
