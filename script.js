@@ -2075,7 +2075,7 @@ async function initAuthSync() {
         const syncKey = `VAIL-${rand()}-${rand()}`;
         
         const localData = await getAllSyncData();
-        const payload = JSON.stringify(localData);
+        const payload = encodeURIComponent(JSON.stringify(localData));
         const encrypted = encryptSyncData(payload, syncKey);
 
         try {
@@ -2145,7 +2145,7 @@ async function initAuthSync() {
                 return;
             }
 
-            const data = JSON.parse(payload);
+            const data = JSON.parse(decodeURIComponent(payload));
             await importSyncData(data);
             
             syncSuccess.textContent = 'Data successfully synchronized! Reloading page...';
