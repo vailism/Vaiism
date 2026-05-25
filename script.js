@@ -418,6 +418,7 @@ const SERVERS = [
     {
         name: 'SERVER 1',
         description: 'Fastest server, supports Auto-Resume & Auto-Play.',
+        pingUrl: 'https://vidlink.pro/',
         buildUrl: function(id, type, s, e, ts) {
             var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
             if (type === 'tv') {
@@ -429,6 +430,7 @@ const SERVERS = [
     {
         name: 'SERVER 2',
         description: 'Extremely reliable, fast streaming & high quality.',
+        pingUrl: 'https://vidsrc.to/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
                 return 'https://vidsrc.to/embed/tv/' + id + '/' + s + '/' + e;
@@ -439,6 +441,7 @@ const SERVERS = [
     {
         name: 'SERVER 3',
         description: 'Popular backup server with multiple language tracks.',
+        pingUrl: 'https://vidsrc.xyz/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
                 return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
@@ -448,17 +451,19 @@ const SERVERS = [
     },
     {
         name: 'SERVER 4',
-        description: 'High-speed alternative streaming server.',
+        description: 'Stable stream with good subtitle support.',
+        pingUrl: 'https://superembed.stream/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
-                return 'https://vidsrc.cc/v2/embed/tv/' + id + '/' + s + '/' + e;
+                return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1&s=' + s + '&e=' + e;
             }
-            return 'https://vidsrc.cc/v2/embed/movie/' + id;
+            return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1';
         }
     },
     {
         name: 'SERVER 5',
         description: 'Fast, multi-source provider (embed.su).',
+        pingUrl: 'https://embed.su/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
                 return 'https://embed.su/embed/tv/' + id + '/' + s + '/' + e;
@@ -469,6 +474,7 @@ const SERVERS = [
     {
         name: 'SERVER 6',
         description: 'Classic, highly reliable backup server (vidsrc.me).',
+        pingUrl: 'https://vidsrc.me/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
                 return 'https://vidsrc.me/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
@@ -479,6 +485,7 @@ const SERVERS = [
     {
         name: 'SERVER 7',
         description: 'Clean HLS streaming backup (autoembed).',
+        pingUrl: 'https://player.autoembed.co/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
                 return 'https://player.autoembed.co/tv/' + id + '/' + s + '/' + e;
@@ -487,6 +494,62 @@ const SERVERS = [
         }
     }
 ];
+
+// ── Auto-Select Fastest Server ───────────────────────────────────────────────
+async function findFastestServer() {
+    // Only run test if user hasn't manually selected a server recently
+    if (sessionStorage.getItem('vailism_server_tested')) return;
+    
+    // Default fallback to SERVER 1 if no test finishes
+    let bestServer = SERVERS[0];
+    
+    const promises = SERVERS.map(server => {
+        return new Promise(resolve => {
+            if (!server.pingUrl) return resolve({ server, latency: 9999 });
+            const start = performance.now();
+            const controller = new AbortController();
+            const timeout = setTimeout(() => { controller.abort(); resolve({ server, latency: 9999 }); }, 3000);
+            
+            fetch(server.pingUrl, { mode: 'no-cors', cache: 'no-store', signal: controller.signal })
+                .then(() => {
+                    clearTimeout(timeout);
+                    resolve({ server, latency: performance.now() - start });
+                })
+                .catch(() => {
+                    clearTimeout(timeout);
+                    resolve({ server, latency: 9999 });
+                });
+        });
+    });
+
+    try {
+        const results = await Promise.all(promises);
+        results.sort((a, b) => a.latency - b.latency);
+        
+        // Filter out completely dead servers
+        const validResults = results.filter(r => r.latency < 5000);
+        
+        if (validResults.length > 0) {
+            // Pick fastest server, but strongly prioritize SERVER 1 (vidlink) if it is reasonably fast (<800ms)
+            // because SERVER 1 has native progress tracking and Auto-Play features.
+            let fastest = validResults[0].server;
+            
+            const server1Res = validResults.find(r => r.server.name === 'SERVER 1');
+            if (server1Res && server1Res.latency < 800) {
+                fastest = SERVERS[0];
+            }
+            
+            // Only override if the user hasn't explicitly saved a server
+            if (!localStorage.getItem('vailism_preferred_server')) {
+                localStorage.setItem('vailism_preferred_server', fastest.name);
+                console.log(`[VAILISM] Auto-selected fastest server: ${fastest.name}`);
+            }
+        }
+        sessionStorage.setItem('vailism_server_tested', 'true');
+    } catch(e) {
+        console.error('[VAILISM] Server speed test failed', e);
+    }
+}
 
 function buildEmbedUrl(id, type, s, e, ts) {
     var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
@@ -1758,6 +1821,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, { passive: true });
 
+    // Run background server speed test
+    findFastestServer();
+    
     // Initialize Auth & Sync System
     if (typeof initAuthSync === 'function') initAuthSync();
 });
