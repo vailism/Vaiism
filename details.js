@@ -148,6 +148,185 @@ document.addEventListener('DOMContentLoaded', async () => {
             playBtn.onclick = () => window.playMovie(id, type);
         }
 
+        // ── Watchlist Button ──────────────────────────────────────────────────
+        const watchlistBtn = document.getElementById('details-watchlist-btn');
+        if (watchlistBtn) {
+            watchlistBtn.style.display = 'flex';
+            
+            // Helper to get watchlist array
+            const getWatchlist = () => {
+                const list = lsGet('vailism_watchlist');
+                return (list && Array.isArray(list.items)) ? list.items : [];
+            };
+            
+            // Update button UI state
+            const updateWatchlistBtnUI = () => {
+                const list = getWatchlist();
+                const inList = list.some(item => String(item.id) === String(id) && item.mediaType === type);
+                
+                if (inList) {
+                    watchlistBtn.classList.add('in-list');
+                    watchlistBtn.innerHTML = '<i data-lucide="check"></i> In My List';
+                } else {
+                    watchlistBtn.classList.remove('in-list');
+                    watchlistBtn.innerHTML = '<i data-lucide="plus"></i> My List';
+                }
+                if (window.lucide) window.lucide.createIcons();
+            };
+            
+            updateWatchlistBtnUI();
+            
+            watchlistBtn.onclick = (e) => {
+                e.stopPropagation();
+                // Throttle clicks to avoid storage spam
+                watchlistBtn.style.pointerEvents = 'none';
+                setTimeout(() => { watchlistBtn.style.pointerEvents = 'auto'; }, 600);
+                
+                let list = getWatchlist();
+                const index = list.findIndex(item => String(item.id) === String(id) && item.mediaType === type);
+                
+                if (index > -1) {
+                    list.splice(index, 1);
+                } else {
+                    list.push({ id: parseInt(id, 10), mediaType: type, addedAt: Date.now() });
+                }
+                
+                lsSet('vailism_watchlist', { version: 1, items: list });
+                updateWatchlistBtnUI();
+            };
+        }
+
+        // ── Trailer Button and Modal ──────────────────────────────────────────
+        const trailerBtn = document.getElementById('details-trailer-btn');
+        const trailerModal = document.getElementById('trailer-modal');
+        const trailerCloseBtn = document.getElementById('trailer-close-btn');
+        const trailerPlayerContainer = document.getElementById('trailer-player-container');
+        
+        if (trailerBtn && trailerModal && trailerPlayerContainer) {
+            let trailerKey = null;
+            
+            // Fetch videos asynchronously in the background
+            (async () => {
+                try {
+                    const videoData = await fetchApi(`/${type}/${id}/videos`);
+                    if (videoData && videoData.results && videoData.results.length > 0) {
+                        // Find a YouTube trailer, teaser, or clip
+                        const trailer = videoData.results.find(v => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser' || v.type === 'Clip'));
+                        if (trailer && trailer.key) {
+                            trailerKey = trailer.key;
+                            trailerBtn.style.display = 'flex';
+                            if (window.lucide) window.lucide.createIcons();
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[VAILISM] Failed to load trailer videos:', err);
+                }
+            })();
+            
+            const closeTrailer = () => {
+                trailerModal.classList.remove('show');
+                trailerModal.setAttribute('aria-hidden', 'true');
+                document.body.style.overflow = '';
+                // Destroy iframe to stop audio
+                trailerPlayerContainer.innerHTML = '';
+                // Remove Esc listener
+                document.removeEventListener('keydown', handleTrailerEsc);
+            };
+            
+            const handleTrailerEsc = (e) => {
+                if (e.key === 'Escape') closeTrailer();
+            };
+            
+            trailerBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (!trailerKey) return;
+                
+                // Inject iframe
+                trailerPlayerContainer.innerHTML = `
+                    <iframe class="trailer-iframe" 
+                            src="https://www.youtube-nocookie.com/embed/${trailerKey}?autoplay=1&enablejsapi=1&rel=0" 
+                            allow="autoplay; encrypted-media" 
+                            allowfullscreen></iframe>`;
+                
+                trailerModal.classList.add('show');
+                trailerModal.setAttribute('aria-hidden', 'false');
+                document.body.style.overflow = 'hidden';
+                
+                // Bind Esc key to close
+                document.addEventListener('keydown', handleTrailerEsc);
+                
+                // Close button trigger
+                if (trailerCloseBtn) {
+                    trailerCloseBtn.onclick = (ev) => {
+                        ev.stopPropagation();
+                        closeTrailer();
+                    };
+                }
+                
+                // Click outside trailer container to close
+                trailerModal.onclick = (ev) => {
+                    if (ev.target === trailerModal) {
+                        closeTrailer();
+                    }
+                };
+            };
+        }
+
+        // ── Cast Gallery ──────────────────────────────────────────────────────
+        const castSection = document.getElementById('cast-section');
+        const castPosters = document.getElementById('cast-posters');
+        
+        if (castSection && castPosters) {
+            // Lazy load cast gallery when scrolled near viewport
+            const castObserver = new IntersectionObserver((entries, observer) => {
+                if (entries[0].isIntersecting) {
+                    observer.unobserve(castSection);
+                    loadCastGallery();
+                }
+            }, { rootMargin: '0px 0px 400px 0px' });
+            
+            castObserver.observe(castSection);
+            
+            async function loadCastGallery() {
+                try {
+                    const creditsData = await fetchApi(`/${type}/${id}/credits`);
+                    if (creditsData && creditsData.cast && creditsData.cast.length > 0) {
+                        castPosters.innerHTML = '';
+                        castSection.classList.remove('hidden');
+                        
+                        // Limit to top 10 cast members
+                        const topCast = creditsData.cast.slice(0, 10);
+                        
+                        topCast.forEach(member => {
+                            const card = document.createElement('div');
+                            card.className = 'cast-card';
+                            
+                            const name = member.name.replace(/"/g, '&quot;');
+                            const character = (member.character || '').replace(/"/g, '&quot;');
+                            
+                            let avatarHTML = '';
+                            if (member.profile_path) {
+                                avatarHTML = `<img class="cast-avatar" src="https://image.tmdb.org/t/p/w185${member.profile_path}" alt="${name}" loading="lazy" decoding="async">`;
+                            } else {
+                                // Initials placeholder
+                                const initials = member.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+                                avatarHTML = `<div class="cast-avatar-placeholder">${initials}</div>`;
+                            }
+                            
+                            card.innerHTML = `
+                                ${avatarHTML}
+                                <div class="cast-name" title="${name}">${name}</div>
+                                <div class="cast-character" title="${character}">${character}</div>
+                            `;
+                            castPosters.appendChild(card);
+                        });
+                    }
+                } catch (err) {
+                    console.warn('[VAILISM] Failed to load cast credits:', err);
+                }
+            }
+        }
+
         // ── TV: Episodes section ──────────────────────────────────────────────
         if (type === 'tv' && details.seasons && details.seasons.length > 0) {
             const epBtn         = document.getElementById('details-episodes-btn');

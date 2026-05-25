@@ -102,6 +102,43 @@ function sessionCacheSet(key, data) {
 }
 
 // ─── Safe localStorage helpers ────────────────────────────────────────────────────
+function getProgressKey(movieId, mediaType, season, episode) {
+    if (mediaType === 'tv') {
+        const s = season !== undefined ? season : 1;
+        const e = episode !== undefined ? episode : 1;
+        return 'vailism_progress_' + movieId + '_s' + s + '_e' + e;
+    }
+    return 'vailism_progress_' + movieId;
+}
+
+function getLatestProgressForShow(showId) {
+    const keys = lsKeys();
+    const progressKeys = keys
+        .filter(k => k.startsWith('vailism_progress_' + showId))
+        .map(k => ({ key: k, data: lsGet(k) }))
+        .filter(item => item.data && item.data.updatedAt)
+        .sort((a, b) => b.data.updatedAt - a.data.updatedAt); // Most recent first
+    return progressKeys.length > 0 ? progressKeys[0].data : null;
+}
+
+function evictOldestProgress() {
+    console.warn('[VAILISM] LocalStorage limit reached. Running LRU eviction on watch progress...');
+    const keys = lsKeys();
+    const progressKeys = keys
+        .filter(k => k.startsWith('vailism_progress_'))
+        .map(k => ({ key: k, data: lsGet(k) }))
+        .filter(item => item.data && item.data.updatedAt)
+        .sort((a, b) => a.data.updatedAt - b.data.updatedAt); // Oldest first
+        
+    if (progressKeys.length > 0) {
+        // Evict oldest 3 items to free up block quota
+        progressKeys.slice(0, 3).forEach(item => {
+            lsRemove(item.key);
+            console.log(`[VAILISM] Evicted expired progress key: ${item.key}`);
+        });
+    }
+}
+
 function lsGet(key) {
     try {
         const raw = localStorage.getItem(key);
@@ -140,6 +177,14 @@ function lsSet(key, value) {
         localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
         console.warn('[VAILISM] localStorage write failed:', e);
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+            evictOldestProgress();
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch (retryError) {
+                console.error('[VAILISM] Retry write failed after eviction:', retryError);
+            }
+        }
     }
 }
 
@@ -522,7 +567,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         }
         
         var ts = 0;
-        var storageKey = 'vailism_progress_' + movieId;
+        var storageKey = getProgressKey(movieId, mediaType, modal._season || seasonNum, modal._episode || episodeNum);
         try {
             var savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
             if (savedData && savedData.timestamp && savedData.duration) {
@@ -589,7 +634,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 resetModalControlsTimer();
                 
                 var ts = 0;
-                var storageKey = 'vailism_progress_' + movieId;
+                var storageKey = getProgressKey(movieId, mediaType, modal._season, modal._episode);
                 try {
                     var savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
                     if (savedData && savedData.timestamp && savedData.duration) {
@@ -700,7 +745,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         if ((evtName === 'timeupdate' || evtName === 'pause') && currentTime > 0 && duration > 0 && currentTime < duration) {
             if (!modalSaveThrottle) {
                 modalSaveThrottle = setTimeout(() => { modalSaveThrottle = null; }, 5000);
-                var storageKey = 'vailism_progress_' + movieId;
+                var storageKey = getProgressKey(movieId, mediaType, modal._season, modal._episode);
                 var toSave = {
                     id: parseInt(movieId, 10),
                     mediaType: mediaType,
@@ -712,18 +757,18 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                     toSave.season  = parseInt(modal._season, 10) || 1;
                     toSave.episode = parseInt(modal._episode, 10) || 1;
                 }
-                try { localStorage.setItem(storageKey, JSON.stringify(toSave)); } catch (e) {}
+                try { lsSet(storageKey, toSave); } catch (e) {}
             }
         }
 
         // Auto-play next episode on video end (TV only)
         if (evtName === 'ended' && mediaType === 'tv') {
             // Clear current progress
-            try { localStorage.removeItem('vailism_progress_' + movieId); } catch (e) {}
+            try { lsRemove(getProgressKey(movieId, mediaType, modal._season, modal._episode)); } catch (e) {}
             autoPlayNextEpisode(modal);
         } else if (evtName === 'ended') {
             // Movie ended — clear progress
-            try { localStorage.removeItem('vailism_progress_' + movieId); } catch (e) {}
+            try { lsRemove(getProgressKey(movieId, mediaType)); } catch (e) {}
         }
     };
     window.addEventListener('message', modal._msgHandler);
@@ -870,8 +915,17 @@ window.playMovie = function (id, type, s, e) {
     type = type || 'movie';
 
     var ts = 0;
-    var storageKey = 'vailism_progress_' + id;
-    var savedData = lsGet(storageKey);
+    var savedData = null;
+    if (type === 'tv') {
+        if (s && e) {
+            savedData = lsGet('vailism_progress_' + id + '_s' + s + '_e' + e);
+        } else {
+            savedData = getLatestProgressForShow(id);
+        }
+    } else {
+        savedData = lsGet('vailism_progress_' + id);
+    }
+
     if (savedData && savedData.timestamp && savedData.duration) {
         var rawTs = parseFloat(savedData.timestamp);
         var dur = parseFloat(savedData.duration);
@@ -1193,11 +1247,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!mainContent) return;
 
         // Fetch and validate entries
-        const progressEntries = keys
+        const validatedEntries = keys
             .map(key => ({ key, data: lsGet(key) }))
             .filter(item => isValidProgress(item.data))
-            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0))
-            .slice(0, 10);
+            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
+
+        // Group by show/movie ID to only keep the most recently updated progress for each title
+        const groupedMap = new Map();
+        validatedEntries.forEach(item => {
+            if (!groupedMap.has(item.data.id)) {
+                groupedMap.set(item.data.id, item);
+            }
+        });
+
+        const progressEntries = Array.from(groupedMap.values()).slice(0, 10);
 
         if (progressEntries.length === 0) return;
 
@@ -1258,7 +1321,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </span>
                         <div class="play-icon"
                              onclick="event.stopPropagation();
-                                      window.playMovie('${movieId}','${typePath}')">
+                                      window.playMovie('${movieId}','${typePath}', ${savedData.season || 'undefined'}, ${savedData.episode || 'undefined'})">
                             <i data-lucide="play" fill="currentColor" size="16"></i>
                         </div>
                     </div>`;
@@ -1269,6 +1332,98 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.addEventListener('mouseenter', warmVidLink, { passive: true });
             } catch (e) {
                 console.warn('[VAILISM] Continue Watching fetch failed for', item.key, e);
+            }
+        });
+
+        await Promise.all(fetchPromises);
+
+        // Remove the section entirely if nothing loaded
+        if (rowPosters.children.length === 0) {
+            rowSection.remove();
+        } else {
+            refreshIcons();
+        }
+    }
+
+    // ── Watchlist / My List ──────────────────────────────────────────────────
+    async function loadWatchlist() {
+        const watchlistData = lsGet('vailism_watchlist');
+        const items = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items : [];
+        if (items.length === 0) return;
+
+        const mainContent = document.getElementById('main-content');
+        if (!mainContent) return;
+
+        // Sort items by addedAt descending
+        const sortedItems = items
+            .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
+            .slice(0, 10);
+
+        if (sortedItems.length === 0) return;
+
+        const rowSection = document.createElement('section');
+        rowSection.classList.add('row');
+        const rowHeader = document.createElement('h2');
+        rowHeader.classList.add('row-header');
+        rowHeader.textContent = 'My List';
+        const rowPosters = document.createElement('div');
+        rowPosters.classList.add('row-posters');
+
+        // Insert after "Continue Watching" if it exists, otherwise at the very top of mainContent
+        const firstRow = mainContent.firstChild;
+        if (firstRow && firstRow.classList && firstRow.querySelector('.row-header') && firstRow.querySelector('.row-header').textContent === 'Continue Watching') {
+            mainContent.insertBefore(rowSection, firstRow.nextSibling);
+        } else {
+            mainContent.insertBefore(rowSection, mainContent.firstChild);
+        }
+        rowSection.appendChild(rowHeader);
+        rowSection.appendChild(rowPosters);
+
+        const fetchPromises = sortedItems.map(async item => {
+            const movieId   = item.id;
+            const typePath  = item.mediaType;
+
+            try {
+                const data = await fetchDetails(typePath, movieId);
+                if (!data || (!data.poster_path && !data.backdrop_path)) return;
+
+                const imgPath        = data.poster_path || data.backdrop_path;
+                const title           = (data.title || data.name || 'Movie').replace(/"/g, '&quot;');
+
+                const card = document.createElement('div');
+                card.classList.add('card');
+                card.dataset.id = movieId;
+                card.onclick = () => window.location.href = `details.html?id=${movieId}&type=${typePath}`;
+
+                card.innerHTML = `
+                    <img src="${IMG_BASE_URL}${imgPath}"
+                         alt="${title}"
+                         loading="lazy"
+                         decoding="async"
+                         onerror="this.src='${FALLBACK_IMG}'">
+                    <div class="card-info-btn"
+                         onclick="event.stopPropagation();
+                                  window.location.href='details.html?id=${movieId}&amp;type=${typePath}'">
+                        <i data-lucide="info" size="14"></i>
+                    </div>
+                    <div class="card-overlay">
+                        <span style="font-weight:600;font-size:14px;
+                                     text-shadow:1px 1px 2px rgba(0,0,0,1);color:#fff;">
+                            ${data.title || data.name || ''}
+                        </span>
+                        <div class="play-icon"
+                             onclick="event.stopPropagation();
+                                      window.playMovie('${movieId}','${typePath}')">
+                            <i data-lucide="play" fill="currentColor" size="16"></i>
+                        </div>
+                    </div>`;
+
+                rowPosters.appendChild(card);
+
+                // Warm VidLink connection on hover
+                card.addEventListener('mouseenter', warmVidLink, { passive: true });
+            } catch (e) {
+                console.warn('[VAILISM] Watchlist fetch failed for', movieId, e);
             }
         });
 
@@ -1386,6 +1541,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (searchInput) {
         const debouncedSearch = debounce(e => searchMovies(e.target.value), 500);
         searchInput.addEventListener('input', debouncedSearch);
+
+        // Escape key search dismissal
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && searchContainer && searchContainer.classList.contains('active')) {
+                closeSearch();
+            }
+        });
     }
 
     // ── Boot ────────────────────────────────────────────────────────────────────
@@ -1395,6 +1557,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Priority 2: Continue Watching & rows (deferred to idle)
         const deferredBoot = function() {
             loadContinueWatching();
+            loadWatchlist();
             loadMoreRows();
         };
         if (window.requestIdleCallback) {

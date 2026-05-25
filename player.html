@@ -378,7 +378,9 @@
         var playerWrap = document.getElementById('player-wrap');
 
         // ── Storage key ──────────────────────────────────────────────────
-        var storageKey = 'vailism_progress_' + movieId;
+        var storageKey = mediaType === 'tv'
+            ? ('vailism_progress_' + movieId + '_s' + (params.get('s') || '1') + '_e' + (params.get('e') || '1'))
+            : ('vailism_progress_' + movieId);
 
         // ── Guard: invalid ID ─────────────────────────────────────────────
         if (!movieId || movieId === 'undefined' || movieId === 'null') {
@@ -987,6 +989,17 @@
                     if (saveThrottle) return;
                     saveThrottle = setTimeout(function () { saveThrottle = null; }, 3000);
 
+                    var currentS = 1;
+                    var currentE = 1;
+                    if (mediaType === 'tv') {
+                        currentS = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
+                        currentE = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
+                    }
+
+                    var activeStorageKey = mediaType === 'tv'
+                        ? ('vailism_progress_' + movieId + '_s' + currentS + '_e' + currentE)
+                        : ('vailism_progress_' + movieId);
+
                     var toSave = {
                         id:        parseInt(movieId, 10),
                         mediaType: mediaType,
@@ -996,22 +1009,52 @@
                     };
 
                     if (mediaType === 'tv') {
-                        // Use existing season/ep from current playback or fallback to params/saved/default
-                        toSave.season  = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
-                        toSave.episode = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
+                        toSave.season  = currentS;
+                        toSave.episode = currentE;
                     }
 
                     try {
-                        localStorage.setItem(storageKey, JSON.stringify(toSave));
+                        localStorage.setItem(activeStorageKey, JSON.stringify(toSave));
                     } catch (e) {
                         console.warn('[VAILISM] localStorage write failed:', e);
+                        if (e.name === 'QuotaExceededError' || e.code === 22) {
+                            try {
+                                var keys = Object.keys(localStorage);
+                                var progressEntries = keys
+                                    .filter(function(k) { return k.indexOf('vailism_progress_') === 0; })
+                                    .map(function(k) {
+                                        try { return { key: k, data: JSON.parse(localStorage.getItem(k)) }; } catch(ex) { return null; }
+                                    })
+                                    .filter(function(item) { return item && item.data && item.data.updatedAt; })
+                                    .sort(function(a, b) { return a.data.updatedAt - b.data.updatedAt; });
+                                
+                                if (progressEntries.length > 0) {
+                                    progressEntries.slice(0, 3).forEach(function(item) {
+                                        localStorage.removeItem(item.key);
+                                    });
+                                    localStorage.setItem(activeStorageKey, JSON.stringify(toSave));
+                                }
+                            } catch (retryErr) {
+                                console.error('[VAILISM] Eviction/retry failed:', retryErr);
+                            }
+                        }
                     }
                 }
             }
 
             // Clear storage when video completes
             if (evtName === 'ended' || evtName === 'complete') {
-                try { localStorage.removeItem(storageKey); } catch (e) {}
+                var currentS = 1;
+                var currentE = 1;
+                if (mediaType === 'tv') {
+                    currentS = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
+                    currentE = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
+                }
+                var activeStorageKey = mediaType === 'tv'
+                    ? ('vailism_progress_' + movieId + '_s' + currentS + '_e' + currentE)
+                    : ('vailism_progress_' + movieId);
+
+                try { localStorage.removeItem(activeStorageKey); } catch (e) {}
                 console.log('[VAILISM] Playback complete – progress cleared.');
             }
         }

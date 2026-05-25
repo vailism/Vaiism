@@ -1018,3 +1018,148 @@ body {
         padding-right: 6%;
     }
 }
+
+/* --- WATCHLIST BUTTON STYLING --- */
+.btn-watchlist {
+    background-color: rgba(109, 109, 110, 0.4);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    font-weight: 600;
+}
+.btn-watchlist.in-list {
+    background-color: rgba(70, 211, 105, 0.2);
+    border-color: rgba(70, 211, 105, 0.4);
+    color: #46d369;
+}
+.btn-watchlist.in-list:hover {
+    background-color: rgba(70, 211, 105, 0.3);
+    border-color: rgba(70, 211, 105, 0.5);
+}
+
+/* --- CINEMATIC TRAILER MODAL --- */
+.trailer-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(15px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1), visibility 0.3s ease;
+}
+.trailer-modal.show {
+    opacity: 1;
+    visibility: visible;
+}
+.trailer-container {
+    width: 90%;
+    max-width: 960px;
+    aspect-ratio: 16/9;
+    position: relative;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+    background: #000;
+    transform: scale(0.95);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.trailer-modal.show .trailer-container {
+    transform: scale(1.0);
+}
+.trailer-close-btn {
+    position: absolute;
+    top: -45px;
+    right: 0;
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.2s;
+}
+.trailer-close-btn:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+.trailer-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+/* --- CAST GALLERY --- */
+.cast-section {
+    contain-intrinsic-size: 0 160px;
+}
+.cast-card {
+    flex: 0 0 120px;
+    width: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    cursor: default;
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    contain: layout style;
+}
+.cast-card:hover {
+    transform: translateY(-4px);
+}
+.cast-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-bottom: 10px;
+    box-shadow: 0 6px 15px rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.1);
+    background-color: var(--dark-search);
+}
+.cast-avatar-placeholder {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-muted);
+    font-weight: 700;
+    font-size: 20px;
+    margin-bottom: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.4);
+}
+.cast-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cast-character {
+    font-size: 11px;
+    color: rgba(255,255,255,0.45);
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+/* CLS Reservoirs for watch history and watchlist row offsets */
+.main-content {
+    min-height: 100vh;
+}
+

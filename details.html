@@ -59,6 +59,12 @@
                     <button class="btn btn-play" id="details-play" style="display: none;">
                         <i data-lucide="play" fill="currentColor"></i> Play
                     </button>
+                    <button class="btn btn-info" id="details-trailer-btn" style="display: none;">
+                        <i data-lucide="video"></i> Trailer
+                    </button>
+                    <button class="btn btn-watchlist" id="details-watchlist-btn" style="display: none;" aria-label="Add to watchlist">
+                        <i data-lucide="plus"></i> My List
+                    </button>
                     <!-- Episodes shortcut visible only for TV -->
                     <button class="btn btn-info" id="details-episodes-btn" style="display: none;" onclick="document.getElementById('episodes-section').scrollIntoView({behavior: 'smooth'})">
                         <i data-lucide="list"></i> Episodes
@@ -79,6 +85,14 @@
                 </div>
             </section>
 
+            <!-- Cast Section -->
+            <section class="row hidden cast-section" id="cast-section">
+                <h2 class="row-header">Cast</h2>
+                <div class="row-posters" id="cast-posters">
+                    <!-- Dynamic cast profiles here -->
+                </div>
+            </section>
+
             <!-- Similar Content -->
             <section class="row" id="similar-section">
                 <h2 class="row-header">Similar Titles</h2>
@@ -93,6 +107,18 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- Trailer Modal -->
+    <div id="trailer-modal" class="trailer-modal" aria-hidden="true" role="dialog">
+        <div class="trailer-container">
+            <button class="trailer-close-btn" id="trailer-close-btn" aria-label="Close trailer">
+                <i data-lucide="x"></i> Close
+            </button>
+            <div id="trailer-player-container" style="width:100%; height:100%;">
+                <!-- YouTube iframe dynamically injected here -->
+            </div>
+        </div>
     </div>
 
     <!-- Core App Logic -->
