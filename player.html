@@ -688,6 +688,7 @@
         var movieId   = params.get('id');
         var mediaType = params.get('type') || 'movie';
         var partyId   = params.get('partyId');
+        var startParty = params.get('startParty') === 'true';
 
         var loader     = document.getElementById('loader');
         var playerWrap = document.getElementById('player-wrap');
@@ -1558,6 +1559,11 @@
             partySidebar.classList.remove('collapsed');
             partyPanelToggle.classList.add('hidden');
             startPartySession(false, partyId); // Join as Guest
+        } else if (startParty) {
+            console.log("[VAILISM] Party Start parameter detected. Auto-creating host room.");
+            partySidebar.classList.remove('collapsed');
+            partyPanelToggle.classList.add('hidden');
+            startPartySession(true); // Create as Host
         }
 
         // ── Cleanup on page unload (prevents memory leaks / stacking on
