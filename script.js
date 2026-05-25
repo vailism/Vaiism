@@ -1243,6 +1243,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Row Virtualization (Windowing) ────────────────────────────────────────
     const rowVisibilityObserver = new IntersectionObserver((entries) => {
+        if (typeof playbackActive !== 'undefined' && playbackActive) return; // Prevent layout thrashing and image fetching during video playback
         entries.forEach(entry => {
             const row = entry.target;
             const postersContainer = row.querySelector('.row-posters');
