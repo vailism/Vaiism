@@ -8,6 +8,7 @@ export class JitsiManager {
         this.username = null;
         this.micMuted = false;
         this.cameraMuted = true;
+        this.screensharing = false;
         this.participants = new Map(); // id -> { id, name, speaking, micMuted, videoMuted }
         this.dominantSpeaker = null;
         this.appId = "vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091";
@@ -32,6 +33,9 @@ export class JitsiManager {
         this.eventBus.on("JITSI_TOGGLE_CAMERA", () => {
             this.toggleCamera();
         });
+        this.eventBus.on("JITSI_TOGGLE_SCREENSHARE", () => {
+            this.toggleScreenshare();
+        });
     }
 
     onStop() {
@@ -48,6 +52,7 @@ export class JitsiManager {
         this.username = username;
         this.participants.clear();
         this.dominantSpeaker = null;
+        this.screensharing = false;
 
         const container = document.getElementById("jitsi-iframe-container");
         if (!container) {
@@ -94,6 +99,7 @@ export class JitsiManager {
             this.isJoined = true;
             this.micMuted = false;
             this.cameraMuted = true;
+            this.screensharing = false;
 
             this.api.addEventListener("videoConferenceJoined", (evt) => {
                 console.log("[JitsiManager] Conference Joined", evt);
@@ -102,7 +108,11 @@ export class JitsiManager {
                 
                 this.api.isAudioMuted().then(muted => {
                     this.micMuted = muted;
-                    this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: this.micMuted, cameraMuted: this.cameraMuted });
+                    this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                        micMuted: this.micMuted, 
+                        cameraMuted: this.cameraMuted,
+                        screensharing: this.screensharing
+                    });
                     this.notifyParticipantsChanged();
                 });
             });
@@ -116,6 +126,7 @@ export class JitsiManager {
                     micMuted: false,
                     videoMuted: true
                 });
+                this.updateContainerVisibility();
                 this.notifyParticipantsChanged();
             });
 
@@ -125,13 +136,18 @@ export class JitsiManager {
                 if (this.dominantSpeaker === evt.id) {
                     this.dominantSpeaker = null;
                 }
+                this.updateContainerVisibility();
                 this.notifyParticipantsChanged();
             });
 
             this.api.addEventListener("audioMuteStatusChanged", (evt) => {
                 if (evt.local) {
                     this.micMuted = evt.muted;
-                    this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: this.micMuted, cameraMuted: this.cameraMuted });
+                    this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                        micMuted: this.micMuted, 
+                        cameraMuted: this.cameraMuted,
+                        screensharing: this.screensharing
+                    });
                 } else {
                     const p = this.participants.get(evt.id);
                     if (p) {
@@ -144,14 +160,31 @@ export class JitsiManager {
             this.api.addEventListener("videoMuteStatusChanged", (evt) => {
                 if (evt.local) {
                     this.cameraMuted = evt.muted;
-                    this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: this.micMuted, cameraMuted: this.cameraMuted });
-                    container.style.display = this.cameraMuted ? "none" : "block";
+                    this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                        micMuted: this.micMuted, 
+                        cameraMuted: this.cameraMuted,
+                        screensharing: this.screensharing
+                    });
+                    this.updateContainerVisibility();
                 } else {
                     const p = this.participants.get(evt.id);
                     if (p) {
                         p.videoMuted = evt.muted;
                     }
+                    this.updateContainerVisibility();
                 }
+                this.notifyParticipantsChanged();
+            });
+
+            this.api.addEventListener("screenSharingStatusChanged", (evt) => {
+                console.log("[JitsiManager] Screensharing status changed:", evt);
+                this.screensharing = !!evt.on;
+                this.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                    micMuted: this.micMuted, 
+                    cameraMuted: this.cameraMuted,
+                    screensharing: this.screensharing
+                });
+                this.updateContainerVisibility();
                 this.notifyParticipantsChanged();
             });
 
@@ -193,6 +226,7 @@ export class JitsiManager {
         this.isJoined = false;
         this.participants.clear();
         this.dominantSpeaker = null;
+        this.screensharing = false;
 
         const container = document.getElementById("jitsi-iframe-container");
         if (container) {
@@ -216,6 +250,19 @@ export class JitsiManager {
         this.api.executeCommand("toggleVideo");
     }
 
+    toggleScreenshare() {
+        if (!this.api) return;
+        this.api.executeCommand("toggleShareScreen");
+    }
+
+    updateContainerVisibility() {
+        const container = document.getElementById("jitsi-iframe-container");
+        if (!container) return;
+        
+        const show = !this.cameraMuted || this.screensharing || Array.from(this.participants.values()).some(p => !p.videoMuted);
+        container.style.display = show ? "block" : "none";
+    }
+
     notifyParticipantsChanged() {
         this.eventBus.emit("JITSI_PARTICIPANTS_CHANGED", {
             count: this.participants.size + (this.isJoined ? 1 : 0),
@@ -224,6 +271,7 @@ export class JitsiManager {
                 name: this.username,
                 micMuted: this.micMuted,
                 cameraMuted: this.cameraMuted,
+                screensharing: this.screensharing,
                 speaking: this.dominantSpeaker === 'local'
             }
         });

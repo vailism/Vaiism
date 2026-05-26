@@ -454,12 +454,17 @@
                             </button>
                         </div>
                         
-                        <div id="voiceMuteControls" style="display:none; justify-content:space-between; align-items:center; gap:10px;">
-                            <button class="party-copy-btn" id="toggleMicBtn" style="background:rgba(255,255,255,0.1); flex:1; border:none; height:32px; border-radius:4px; font-size:12px; cursor:pointer; color:#fff;">
-                                🎤 Mute Mic
-                            </button>
-                            <button class="party-copy-btn" id="toggleCameraBtn" style="background:rgba(255,255,255,0.1); flex:1; border:none; height:32px; border-radius:4px; font-size:12px; cursor:pointer; color:#fff;">
-                                📷 Turn Camera On
+                        <div id="voiceMuteControls" style="display:none; flex-direction:column; gap:10px;">
+                            <div style="display:flex; gap:10px; width:100%;">
+                                <button class="party-copy-btn" id="toggleMicBtn" style="background:rgba(255,255,255,0.1); flex:1; border:none; height:32px; border-radius:4px; font-size:12px; cursor:pointer; color:#fff;">
+                                    🎤 Mute Mic
+                                </button>
+                                <button class="party-copy-btn" id="toggleCameraBtn" style="background:rgba(255,255,255,0.1); flex:1; border:none; height:32px; border-radius:4px; font-size:12px; cursor:pointer; color:#fff;">
+                                    📷 Turn Camera On
+                                </button>
+                            </div>
+                            <button class="party-copy-btn" id="toggleScreenshareBtn" style="background:rgba(255,255,255,0.1); border:none; height:32px; border-radius:4px; font-size:12px; cursor:pointer; color:#fff; width:100%; display:flex; align-items:center; justify-content:center; gap:4px;">
+                                🖥️ Share Screen
                             </button>
                         </div>
 

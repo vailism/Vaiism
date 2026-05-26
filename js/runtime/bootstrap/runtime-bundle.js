@@ -3882,6 +3882,7 @@
             this.username = null;
             this.micMuted = false;
             this.cameraMuted = true;
+            this.screensharing = false;
             this.participants = new Map();
             this.dominantSpeaker = null;
             this.appId = "vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091";
@@ -3907,6 +3908,9 @@
             self.eventBus.on("JITSI_TOGGLE_CAMERA", function() {
                 self.toggleCamera();
             });
+            self.eventBus.on("JITSI_TOGGLE_SCREENSHARE", function() {
+                self.toggleScreenshare();
+            });
         }
 
         onStop() {
@@ -3924,6 +3928,7 @@
             self.username = username;
             self.participants.clear();
             self.dominantSpeaker = null;
+            self.screensharing = false;
 
             var container = document.getElementById("jitsi-iframe-container");
             if (!container) {
@@ -3970,6 +3975,7 @@
                 self.isJoined = true;
                 self.micMuted = false;
                 self.cameraMuted = true;
+                self.screensharing = false;
 
                 self.api.addEventListener("videoConferenceJoined", function(evt) {
                     console.log("[JitsiManager] Conference Joined", evt);
@@ -3978,7 +3984,11 @@
                     
                     self.api.isAudioMuted().then(function(muted) {
                         self.micMuted = muted;
-                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: self.micMuted, cameraMuted: self.cameraMuted });
+                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                            micMuted: self.micMuted, 
+                            cameraMuted: self.cameraMuted,
+                            screensharing: self.screensharing
+                        });
                         self.notifyParticipantsChanged();
                     });
                 });
@@ -3992,6 +4002,7 @@
                         micMuted: false,
                         videoMuted: true
                     });
+                    self.updateContainerVisibility();
                     self.notifyParticipantsChanged();
                 });
 
@@ -4001,13 +4012,18 @@
                     if (self.dominantSpeaker === evt.id) {
                         self.dominantSpeaker = null;
                     }
+                    self.updateContainerVisibility();
                     self.notifyParticipantsChanged();
                 });
 
                 self.api.addEventListener("audioMuteStatusChanged", function(evt) {
                     if (evt.local) {
                         self.micMuted = evt.muted;
-                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: self.micMuted, cameraMuted: self.cameraMuted });
+                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                            micMuted: self.micMuted, 
+                            cameraMuted: self.cameraMuted,
+                            screensharing: self.screensharing
+                        });
                     } else {
                         var p = self.participants.get(evt.id);
                         if (p) {
@@ -4020,14 +4036,31 @@
                 self.api.addEventListener("videoMuteStatusChanged", function(evt) {
                     if (evt.local) {
                         self.cameraMuted = evt.muted;
-                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: self.micMuted, cameraMuted: self.cameraMuted });
-                        container.style.display = self.cameraMuted ? "none" : "block";
+                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                            micMuted: self.micMuted, 
+                            cameraMuted: self.cameraMuted,
+                            screensharing: self.screensharing
+                        });
+                        self.updateContainerVisibility();
                     } else {
                         var p = self.participants.get(evt.id);
                         if (p) {
                             p.videoMuted = evt.muted;
                         }
+                        self.updateContainerVisibility();
                     }
+                    self.notifyParticipantsChanged();
+                });
+
+                self.api.addEventListener("screenSharingStatusChanged", function(evt) {
+                    console.log("[JitsiManager] Screensharing status changed:", evt);
+                    self.screensharing = !!evt.on;
+                    self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { 
+                        micMuted: self.micMuted, 
+                        cameraMuted: self.cameraMuted,
+                        screensharing: self.screensharing
+                    });
+                    self.updateContainerVisibility();
                     self.notifyParticipantsChanged();
                 });
 
@@ -4078,6 +4111,7 @@
             self.isJoined = false;
             self.participants.clear();
             self.dominantSpeaker = null;
+            self.screensharing = false;
 
             var container = document.getElementById("jitsi-iframe-container");
             if (container) {
@@ -4101,6 +4135,22 @@
             this.api.executeCommand("toggleVideo");
         }
 
+        toggleScreenshare() {
+            if (!this.api) return;
+            this.api.executeCommand("toggleShareScreen");
+        }
+
+        updateContainerVisibility() {
+            var container = document.getElementById("jitsi-iframe-container");
+            if (!container) return;
+            var remoteVideoActive = false;
+            this.participants.forEach(function(p) {
+                if (!p.videoMuted) remoteVideoActive = true;
+            });
+            var show = !this.cameraMuted || this.screensharing || remoteVideoActive;
+            container.style.display = show ? "block" : "none";
+        }
+
         notifyParticipantsChanged() {
             var self = this;
             self.eventBus.emit("JITSI_PARTICIPANTS_CHANGED", {
@@ -4110,6 +4160,7 @@
                     name: self.username,
                     micMuted: self.micMuted,
                     cameraMuted: self.cameraMuted,
+                    screensharing: self.screensharing,
                     speaking: self.dominantSpeaker === 'local'
                 }
             });
@@ -4194,6 +4245,7 @@
         var leaveVoiceBtn = document.getElementById("leaveVoiceBtn");
         var toggleMicBtn = document.getElementById("toggleMicBtn");
         var toggleCameraBtn = document.getElementById("toggleCameraBtn");
+        var toggleScreenshareBtn = document.getElementById("toggleScreenshareBtn");
 
         if (joinVoiceBtn) {
             joinVoiceBtn.addEventListener("click", function() {
@@ -4217,6 +4269,12 @@
         if (toggleCameraBtn) {
             toggleCameraBtn.addEventListener("click", function() {
                 eventBus.emit("JITSI_TOGGLE_CAMERA");
+            });
+        }
+
+        if (toggleScreenshareBtn) {
+            toggleScreenshareBtn.addEventListener("click", function() {
+                eventBus.emit("JITSI_TOGGLE_SCREENSHARE");
             });
         }
 
@@ -4252,6 +4310,7 @@
         eventBus.on("JITSI_LOCAL_MUTE_CHANGED", function(data) {
             var micBtn = document.getElementById("toggleMicBtn");
             var camBtn = document.getElementById("toggleCameraBtn");
+            var screenBtn = document.getElementById("toggleScreenshareBtn");
 
             if (micBtn) {
                 micBtn.textContent = data.micMuted ? "🎤 Unmute Mic" : "🎤 Mute Mic";
@@ -4260,6 +4319,10 @@
             if (camBtn) {
                 camBtn.textContent = data.cameraMuted ? "📷 Turn Camera On" : "📷 Turn Camera Off";
                 camBtn.style.background = data.cameraMuted ? "rgba(255,255,255,0.1)" : "rgba(229, 9, 20, 0.2)";
+            }
+            if (screenBtn) {
+                screenBtn.textContent = data.screensharing ? "🖥️ Stop Sharing Screen" : "🖥️ Share Screen";
+                screenBtn.style.background = data.screensharing ? "rgba(229, 9, 20, 0.2)" : "rgba(255,255,255,0.1)";
             }
         });
 

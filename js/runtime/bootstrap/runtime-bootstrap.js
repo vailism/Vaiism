@@ -95,6 +95,7 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     const leaveVoiceBtn = document.getElementById("leaveVoiceBtn");
     const toggleMicBtn = document.getElementById("toggleMicBtn");
     const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+    const toggleScreenshareBtn = document.getElementById("toggleScreenshareBtn");
 
     if (joinVoiceBtn) {
         joinVoiceBtn.addEventListener("click", () => {
@@ -118,6 +119,12 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     if (toggleCameraBtn) {
         toggleCameraBtn.addEventListener("click", () => {
             eventBus.emit("JITSI_TOGGLE_CAMERA");
+        });
+    }
+
+    if (toggleScreenshareBtn) {
+        toggleScreenshareBtn.addEventListener("click", () => {
+            eventBus.emit("JITSI_TOGGLE_SCREENSHARE");
         });
     }
 
@@ -154,6 +161,7 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     eventBus.on("JITSI_LOCAL_MUTE_CHANGED", (data) => {
         const micBtn = document.getElementById("toggleMicBtn");
         const camBtn = document.getElementById("toggleCameraBtn");
+        const screenBtn = document.getElementById("toggleScreenshareBtn");
 
         if (micBtn) {
             micBtn.textContent = data.micMuted ? "🎤 Unmute Mic" : "🎤 Mute Mic";
@@ -162,6 +170,10 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
         if (camBtn) {
             camBtn.textContent = data.cameraMuted ? "📷 Turn Camera On" : "📷 Turn Camera Off";
             camBtn.style.background = data.cameraMuted ? "rgba(255,255,255,0.1)" : "rgba(229, 9, 20, 0.2)";
+        }
+        if (screenBtn) {
+            screenBtn.textContent = data.screensharing ? "🖥️ Stop Sharing Screen" : "🖥️ Share Screen";
+            screenBtn.style.background = data.screensharing ? "rgba(229, 9, 20, 0.2)" : "rgba(255,255,255,0.1)";
         }
     });
 
