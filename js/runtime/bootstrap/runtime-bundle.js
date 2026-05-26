@@ -490,7 +490,7 @@
             }
 
             self.socket = io(self.serverUrl, {
-                transports: ['websocket'],
+                transports: ['websocket', 'polling'],
                 reconnectionAttempts: Infinity,
                 reconnectionDelay: 1000,
                 reconnectionDelayMax: 5000,
@@ -4475,11 +4475,22 @@
                         if (res && !res.error) {
                             console.log("[VAILISM ROOM] Room created: " + res.roomId);
                             reconnect.setRoomContext(res.roomId, userName);
+                            // Set host presence so UI shows HOST badge
+                            presence.isHost = true;
+                            presence.hostId = socket.getSocketId();
+                            // Update targetRoomId for voice join
+                            targetRoomId = res.roomId;
                             fsm.transitionTo("BUFFERING", "Host room created, awaiting playback readiness");
                             if (typeof window.setupShareLink === "function") {
                                 window.setupShareLink(res.roomId);
                                 console.log("[VAILISM PARTY] Share link generated for room: " + res.roomId);
                             }
+                            // Trigger initial presence render
+                            eventBus.emit("PRESENCE_UPDATED", {
+                                participants: presence.participants,
+                                hostId: presence.hostId,
+                                isHost: true
+                            });
                         } else {
                             console.error("[VAILISM ROOM] Room creation failed:", res ? res.error : "unknown error");
                         }

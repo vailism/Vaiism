@@ -27,9 +27,29 @@ app.use(compression());
 app.use(express.json({ limit: '10kb' }));
 
 // Production CORS Origin validation
-const clientOrigin = process.env.CLIENT_ORIGIN || 'https://vaibhavanand.codes';
+const allowedOrigins = (process.env.CLIENT_ORIGIN || 'https://vaibhavanand.codes')
+    .split(',')
+    .map(s => s.trim());
+
+// Also allow common variants
+if (allowedOrigins.includes('https://vaibhavanand.codes')) {
+    allowedOrigins.push('https://www.vaibhavanand.codes');
+    allowedOrigins.push('http://localhost:5500');
+    allowedOrigins.push('http://localhost:5501');
+    allowedOrigins.push('http://127.0.0.1:5500');
+    allowedOrigins.push('http://127.0.0.1:5501');
+}
+
 app.use(cors({
-    origin: clientOrigin,
+    origin: function(origin, callback) {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        console.warn('[CORS] Blocked origin:', origin);
+        return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST']
 }));
 
@@ -60,14 +80,19 @@ app.get('/health', healthLimiter, (req, res) => {
 const server = http.createServer(app);
 
 // Production Socket.io config
-// - websocket-only transport to bypass slow HTTP polling connections
+// - allow both websocket and polling for maximum compatibility
 // - pingTimeout / pingInterval custom values for slow networks
 const io = new Server(server, {
     cors: {
-        origin: clientOrigin,
+        origin: function(origin, callback) {
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.includes(origin)) return callback(null, true);
+            console.warn('[Socket.io CORS] Blocked origin:', origin);
+            return callback(new Error('Not allowed by CORS'));
+        },
         methods: ['GET', 'POST']
     },
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
     pingTimeout: parseInt(process.env.HEARTBEAT_TIMEOUT_MS) || 20000,
     pingInterval: 10000
 });

@@ -38,7 +38,7 @@ export class SocketManager {
         }
 
         this.socket = io(this.serverUrl, {
-            transports: ['websocket'],
+            transports: ['websocket', 'polling'],
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
