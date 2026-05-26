@@ -11,8 +11,6 @@ export class JitsiManager {
         this.screensharing = false;
         this.participants = new Map(); // id -> { id, name, speaking, micMuted, videoMuted }
         this.dominantSpeaker = null;
-        this.appId = "vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091";
-        this.apiKey = "89d878";
     }
 
     injectKernel(kernel) {
@@ -60,7 +58,7 @@ export class JitsiManager {
             return;
         }
 
-        const fullRoomName = `${this.appId}/${this.apiKey}/vailism-${roomCode}`;
+        const fullRoomName = `VailismWatchParty_${roomCode}`;
         
         console.log(`[JitsiManager] Connecting to Jitsi room: ${fullRoomName}`);
         this.eventBus.emit("JITSI_STATUS_CHANGED", { status: "connecting" });
@@ -72,7 +70,7 @@ export class JitsiManager {
                 return;
             }
 
-            this.api = new window.JitsiMeetExternalAPI("8x8.vc", {
+            this.api = new window.JitsiMeetExternalAPI("meet.jit.si", {
                 roomName: fullRoomName,
                 width: "100%",
                 height: "100%",
@@ -92,7 +90,9 @@ export class JitsiManager {
                     TOOLBAR_BUTTONS: [],
                     SETTINGS_SECTIONS: [],
                     SHOW_JITSI_WATERMARK: false,
-                    SHOW_WATERMARK_FOR_GUESTS: false
+                    SHOW_WATERMARK_FOR_GUESTS: false,
+                    DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+                    filmStripOnly: false
                 }
             });
 

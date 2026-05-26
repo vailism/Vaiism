@@ -27,6 +27,8 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     console.log("[Bootstrap] Initializing modular Watch Together (beta) runtime...");
     const kernel = new RuntimeKernel();
     
+    const targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
+    
     // Core Services
     const eventBus = new EventBus();
     kernel.register("eventBus", eventBus);
@@ -188,7 +190,6 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     await kernel.boot();
 
     // Trigger Socket.io connect and rooms handshake
-    const targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
     reconnect.setRoomContext(targetRoomId, userName);
 
     const fsm = kernel.get("fsm");

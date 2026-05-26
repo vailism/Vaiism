@@ -343,7 +343,7 @@
             var bootOrder = [
                 "logger", "metrics", "eventBus", "fsm",
                 "recovery.failureIsolation",
-                "socket", "network.presence", "network.quality", "provider.health",
+                "socket", "network.presence", "network.quality", "provider.health", "jitsi",
                 "sync.confidence", "sync.snapshots", "sync.drift", "sync.heartbeats", "sync",
                 "recovery.watchdog", "recovery.reconnect", "recovery",
                 "ui.toast", "ui.status", "ui.presence", "ui.overlay", "ui.hud"
@@ -382,7 +382,7 @@
                 "ui.hud", "ui.overlay", "ui.presence", "ui.status", "ui.toast",
                 "recovery", "recovery.reconnect", "recovery.watchdog",
                 "sync", "sync.heartbeats", "sync.drift", "sync.snapshots", "sync.confidence",
-                "provider.health", "network.quality", "network.presence", "socket",
+                "jitsi", "provider.health", "network.quality", "network.presence", "socket",
                 "recovery.failureIsolation", "fsm", "eventBus", "metrics", "logger"
             ];
 
@@ -3930,8 +3930,6 @@
             this.screensharing = false;
             this.participants = new Map();
             this.dominantSpeaker = null;
-            this.appId = "vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091";
-            this.apiKey = "89d878";
         }
 
         injectKernel(kernel) {
@@ -3981,7 +3979,8 @@
                 return;
             }
 
-            var fullRoomName = self.appId + "/" + self.apiKey + "/vailism-" + roomCode;
+            // Simple unique room name using the room code
+            var fullRoomName = "VailismWatchParty_" + roomCode;
             
             console.log("[JitsiManager] Connecting to Jitsi room: " + fullRoomName);
             self.eventBus.emit("JITSI_STATUS_CHANGED", { status: "connecting" });
@@ -3993,7 +3992,7 @@
                     return;
                 }
 
-                self.api = new window.JitsiMeetExternalAPI("8x8.vc", {
+                self.api = new window.JitsiMeetExternalAPI("meet.jit.si", {
                     roomName: fullRoomName,
                     width: "100%",
                     height: "100%",
@@ -4013,7 +4012,9 @@
                         TOOLBAR_BUTTONS: [],
                         SETTINGS_SECTIONS: [],
                         SHOW_JITSI_WATERMARK: false,
-                        SHOW_WATERMARK_FOR_GUESTS: false
+                        SHOW_WATERMARK_FOR_GUESTS: false,
+                        DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+                        filmStripOnly: false
                     }
                 });
 
@@ -4222,6 +4223,8 @@
 
         var kernel = new RuntimeKernel();
         
+        var targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
+        
         // Core Services
         var eventBus = new EventBus();
         kernel.register("eventBus", eventBus);
@@ -4378,12 +4381,88 @@
             }
         });
 
+        // ═══════════════════════════════════════════════════════════════════
+        // CHAT SYSTEM WIRING
+        // ═══════════════════════════════════════════════════════════════════
+        var chatInput = document.getElementById("partyChatInput");
+        var sendChatBtn = document.getElementById("sendChatBtn");
+        var chatMessages = document.getElementById("partyChatMessages");
+        var escapeHTMLChat = function(str) {
+            return String(str).replace(/[&<>'"]/g, function(m) {
+                return ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[m];
+            });
+        };
+
+        // Enable chat input when socket connects
+        eventBus.on("SOCKET_CONNECTED", function() {
+            if (chatInput) { chatInput.disabled = false; chatInput.placeholder = "Message friends..."; }
+            if (sendChatBtn) sendChatBtn.disabled = false;
+        });
+
+        eventBus.on("SOCKET_DISCONNECTED", function() {
+            if (chatInput) { chatInput.disabled = true; chatInput.placeholder = "Reconnecting..."; }
+            if (sendChatBtn) sendChatBtn.disabled = true;
+        });
+
+        // Send chat message handler
+        function sendChatMessage() {
+            if (!chatInput || !chatInput.value.trim()) return;
+            var text = chatInput.value.trim();
+            if (text.length === 0) return;
+            socket.emitChatMessage(text);
+            chatInput.value = "";
+            // Stop typing indicator
+            presence.handleLocalTyping(false);
+        }
+
+        if (sendChatBtn) {
+            sendChatBtn.addEventListener("click", sendChatMessage);
+        }
+
+        if (chatInput) {
+            chatInput.addEventListener("keydown", function(e) {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+            // Typing indicator
+            chatInput.addEventListener("input", function() {
+                presence.handleLocalTyping(chatInput.value.length > 0);
+            });
+        }
+
+        // Render incoming chat messages
+        eventBus.on("CHAT_MESSAGE_RECEIVED", function(data) {
+            if (!chatMessages) return;
+            var isLocal = socket.getSocketId() === data.senderId;
+            var msgDiv = document.createElement("div");
+            msgDiv.style.cssText = "margin-bottom:8px; padding:6px 10px; border-radius:8px; font-size:13px; max-width:85%; word-wrap:break-word;" +
+                (isLocal
+                    ? "background:rgba(229,9,20,0.15); border:1px solid rgba(229,9,20,0.3); margin-left:auto; text-align:right;"
+                    : "background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08);");
+            
+            var nameSpan = document.createElement("div");
+            nameSpan.style.cssText = "font-size:11px; font-weight:600; color:" + (isLocal ? "#e50914" : "rgba(255,255,255,0.5)") + "; margin-bottom:2px;";
+            nameSpan.textContent = isLocal ? "You" : data.senderName;
+            
+            var textSpan = document.createElement("div");
+            textSpan.style.cssText = "color:rgba(255,255,255,0.9);";
+            textSpan.textContent = data.text;
+            
+            msgDiv.appendChild(nameSpan);
+            msgDiv.appendChild(textSpan);
+            chatMessages.appendChild(msgDiv);
+            
+            // Auto-scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+
         // Boot subsystems topological sequence
         kernel.boot().then(function() {
             console.log("[VAILISM BOOT] Kernel boot complete. Initiating socket connection...");
 
             // Trigger Socket.io connect and rooms handshake
-            var targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
             reconnect.setRoomContext(targetRoomId, userName);
             var fsm = kernel.get("fsm");
             fsm.transitionTo("CONNECTING", "Bootstrapping watch-together socket connection");
