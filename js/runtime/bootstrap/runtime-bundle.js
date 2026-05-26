@@ -1624,6 +1624,8 @@
             this.eventBus = null;
             this.maxDriftSeconds = 1.5;
             this.hardSeekTimestamps = [];
+            this.softConvergenceWindowSeconds = 15;
+            this.hardSeekWindowSeconds = 15;
         }
 
         injectKernel(kernel) {
@@ -1635,6 +1637,8 @@
             var self = this;
             self.maxDriftSeconds = 1.5;
             self.hardSeekTimestamps = [];
+            self.softConvergenceWindowSeconds = 15;
+            self.hardSeekWindowSeconds = 15;
 
             self.eventBus.on("SYNC_CONFIDENCE_CHANGED", function(data) {
                 if (data.confidence === "unstable") {
@@ -1654,26 +1658,149 @@
         }
 
         adjustPlayback(localSeconds, targetSeconds, adapter, isPlaying) {
+            var syncEngine = this.kernel.get("sync");
+            if (!syncEngine || !adapter) return "blocked";
+
+            syncEngine.unfreezeSyncIfReady();
+
+            var adapterState = typeof adapter.getStateSnapshot === 'function' ? adapter.getStateSnapshot() : null;
+
+            if (syncEngine.shouldAbortSync && syncEngine.shouldAbortSync()) {
+                this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "sync-frozen" });
+                return "frozen";
+            }
+
+            if (!adapter.iframe || !adapter.iframe.contentWindow) {
+                this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "iframe-not-ready" });
+                return "blocked";
+            }
+
             var difference = this.calculateDrift(localSeconds, targetSeconds);
             var absDiff = Math.abs(difference);
+            var buffering = !!(adapterState && adapterState.buffering);
+            var stalled = !!(adapterState && adapterState.paused && isPlaying);
+            var cooldownActive = typeof syncEngine.isSeekCooldownActive === 'function' && syncEngine.isSeekCooldownActive();
+            var aggressiveAllowed = !!(syncEngine.providerSyncMode === 'precise' && !syncEngine.aggressiveSeekingDisabled);
 
-            if (absDiff > this.maxDriftSeconds) {
-                console.log("[DriftController] Hard drift exceeded limit (" + absDiff.toFixed(2) + "s). Seeking to " + targetSeconds.toFixed(1) + "s");
-                console.log("[VAILISM SYNC] Applying SEEK", { targetTime: targetSeconds, difference: difference });
-                this.recordHardSeek(difference);
-                adapter.seek(targetSeconds);
-                adapter.setPlaybackRate(1.0);
-                this.eventBus.emit("DRIFT_SEEK_EXECUTED", { targetTime: targetSeconds, difference: difference });
-                return "stabilizing";
-            } else if (absDiff > 0.25) {
-                var rate = difference > 0 ? 0.97 : 1.03;
-                adapter.setPlaybackRate(rate);
-                this.eventBus.emit("DRIFT_RATE_ADJUSTED", { rate: rate, difference: difference });
-                return "stabilizing";
-            } else {
-                adapter.setPlaybackRate(1.0);
+            if (buffering) {
+                if (typeof syncEngine.noteProviderBufferingStart === 'function') {
+                    syncEngine.noteProviderBufferingStart();
+                }
+                if (typeof syncEngine.isBufferingBlocked === 'function' && syncEngine.isBufferingBlocked()) {
+                    syncEngine.freezeSync('buffering>8s');
+                    this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "buffering-freeze", difference: difference });
+                    return "frozen";
+                }
+                this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "buffering-active", difference: difference });
+                return "frozen";
+            }
+
+            if (typeof syncEngine.noteProviderBufferingEnd === 'function') {
+                syncEngine.noteProviderBufferingEnd();
+            }
+
+            if (stalled) {
+                this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "playback-stalled", difference: difference });
+                return "blocked";
+            }
+
+            if (cooldownActive) {
+                if (absDiff >= 2 && absDiff <= 15) {
+                    return this.applySoftConvergence(localSeconds, targetSeconds, adapter, difference, syncEngine);
+                }
+                if (absDiff <= 2) {
+                    this.restoreNormalPlaybackRate(adapter, syncEngine);
+                    return "synced";
+                }
+                this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "seek-cooldown", difference: difference });
+                return "cooldown";
+            }
+
+            if (absDiff > this.hardSeekWindowSeconds) {
+                if (aggressiveAllowed && typeof syncEngine.canPerformHardSeek === 'function' && syncEngine.canPerformHardSeek(adapter, difference)) {
+                    console.log("[DriftController] Hard drift exceeded safe window (" + absDiff.toFixed(2) + "s). Seeking to " + targetSeconds.toFixed(1) + "s");
+                    console.log("[VAILISM RECONCILE] Applying hard seek", { targetTime: targetSeconds, difference: difference });
+
+                    this.recordHardSeek(difference);
+                    syncEngine.noteHardSeekIssued(targetSeconds, difference);
+                    adapter.seek(targetSeconds);
+                    if (typeof adapter.setPlaybackRate === 'function') {
+                        adapter.setPlaybackRate(1.0);
+                    }
+
+                    this.eventBus.emit("DRIFT_SEEK_EXECUTED", { targetTime: targetSeconds, difference: difference, mode: 'precise' });
+                    return "seeking";
+                }
+
+                return this.applySoftConvergence(localSeconds, targetSeconds, adapter, difference, syncEngine, true);
+            }
+
+            if (absDiff >= 2) {
+                return this.applySoftConvergence(localSeconds, targetSeconds, adapter, difference, syncEngine);
+            }
+
+            this.restoreNormalPlaybackRate(adapter, syncEngine);
+            this.eventBus.emit("DRIFT_RATE_ADJUSTED", { rate: 1.0, difference: difference });
+            return "synced";
+        }
+
+        applySoftConvergence(localSeconds, targetSeconds, adapter, difference, syncEngine, forceSoft = false) {
+            var absDiff = Math.abs(difference);
+            if (!adapter || typeof adapter.setPlaybackRate !== 'function') {
+                return "blocked";
+            }
+
+            var providerSupportsRate = !syncEngine.providerCapabilities || syncEngine.providerCapabilities.supportsPlaybackRate !== false;
+            if (!providerSupportsRate) {
+                this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "rate-control-unsupported", difference: difference });
+                return "blocked";
+            }
+
+            if (absDiff <= 2 && !forceSoft) {
+                this.restoreNormalPlaybackRate(adapter, syncEngine);
                 return "synced";
             }
+
+            var rate = difference > 0 ? 0.95 : 1.05;
+            console.log('[VAILISM RECONCILE] Soft convergence', {
+                localTime: localSeconds,
+                hostTime: targetSeconds,
+                calculatedDrift: difference,
+                playbackRate: rate,
+                absDiff: absDiff
+            });
+
+            adapter.setPlaybackRate(rate);
+            syncEngine.softConvergenceActive = true;
+            if (typeof syncEngine.noteSuccessfulConvergence === 'function') {
+                syncEngine.noteSuccessfulConvergence('soft', { targetTime: targetSeconds, difference: difference, rate: rate });
+            }
+
+            this.eventBus.emit("DRIFT_RATE_ADJUSTED", { rate: rate, difference: difference, mode: 'safe-soft' });
+
+            if (absDiff <= 15) {
+                setTimeout(function() {
+                    this.restoreNormalPlaybackRate(adapter, syncEngine);
+                }.bind(this), 1200);
+            }
+
+            return "stabilizing";
+        }
+
+        restoreNormalPlaybackRate(adapter, syncEngine) {
+            if (!adapter || typeof adapter.setPlaybackRate !== 'function') return;
+            adapter.setPlaybackRate(1.0);
+            if (syncEngine) {
+                syncEngine.softConvergenceActive = false;
+            }
+            var providerStability = syncEngine && typeof syncEngine.getProviderStabilityStatus === 'function'
+                ? syncEngine.getProviderStabilityStatus()
+                : null;
+            this.eventBus.emit("DRIFT_RATE_ADJUSTED", { rate: 1.0, difference: 0, mode: 'restore' });
+            this.eventBus.emit("CONVERGENCE_COMPLETED", {
+                provider: syncEngine && typeof syncEngine.getProviderName === 'function' ? syncEngine.getProviderName() : 'unknown',
+                stability: providerStability ? providerStability.score : undefined
+            });
         }
 
         recordHardSeek(difference) {
@@ -1830,6 +1957,21 @@
             this.periodicSnapshotIntervalMs = 2500;
             this.maxDriftSeconds = 0.75;
             this.forceHardSync = false;
+            this.providerSyncMode = 'safe';
+            this.aggressiveSeekingDisabled = false;
+            this.seekCooldownUntil = 0;
+            this.bufferingSince = 0;
+            this.syncFrozenUntil = 0;
+            this.softConvergenceActive = false;
+            this.lastSuccessfulConvergence = null;
+            this.providerReady = false;
+            this.providerStability = {
+                successfulSeeks: 0,
+                failedSeeks: 0,
+                bufferingFreezes: 0,
+                reloadRecoveries: 0,
+                softConvergences: 0
+            };
             this.lastAppliedSeek = null;
             this.lastAppliedRemoteSnapshot = null;
             this.lastVerifiedPlaybackTime = null;
@@ -1927,6 +2069,8 @@
                     };
                 this.providerCapabilities = capabilities;
                 this.softSyncMode = !capabilities.supportsTelemetry;
+                this.providerReady = true;
+                this.updateProviderSyncMode(adapter, capabilities);
 
                 if (typeof adapter.setTelemetryListener === 'function') {
                     adapter.setTelemetryListener((snapshot) => {
@@ -2000,6 +2144,8 @@
                 if (typeof nextAdapter.getCapabilities === 'function') {
                     this.providerCapabilities = nextAdapter.getCapabilities();
                     this.softSyncMode = !this.providerCapabilities.supportsTelemetry;
+                    this.providerReady = true;
+                    this.updateProviderSyncMode(nextAdapter, this.providerCapabilities);
                 }
                 this.pollingActive = !!nextAdapter.pollingActive;
             }
@@ -2024,6 +2170,119 @@
             return (this.commandVerification.success / this.commandVerification.total) * 100;
         }
 
+        getProviderName(adapter = null) {
+            const currentAdapter = adapter || this.adapter || this.getAdapter();
+            return currentAdapter ? currentAdapter.constructor.name : 'None';
+        }
+
+        updateProviderSyncMode(adapter, capabilities = null) {
+            const providerName = this.getProviderName(adapter);
+            const providerCaps = capabilities || (adapter && typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : this.providerCapabilities);
+            const defaultSafe = providerName.includes('Vidsrc') || providerName.includes('Videasy');
+            const score = this.getProviderStabilityScore();
+
+            if (this.aggressiveSeekingDisabled || score < 45) {
+                this.providerSyncMode = 'safe';
+            } else if (defaultSafe) {
+                this.providerSyncMode = 'safe';
+            } else if (providerCaps && providerCaps.supportsSeeking && !this.softSyncMode) {
+                this.providerSyncMode = 'precise';
+            } else {
+                this.providerSyncMode = 'safe';
+            }
+        }
+
+        getProviderStabilityScore() {
+            const seeks = this.providerStability.successfulSeeks;
+            const failures = this.providerStability.failedSeeks;
+            const freezes = this.providerStability.bufferingFreezes;
+            const reloads = this.providerStability.reloadRecoveries;
+            const softs = this.providerStability.softConvergences;
+            const raw = 100 + (seeks * 6) - (failures * 22) - (freezes * 18) - (reloads * 14) + (softs * 1);
+            return Math.max(0, Math.min(100, raw));
+        }
+
+        isSeekCooldownActive() {
+            return Date.now() < this.seekCooldownUntil;
+        }
+
+        isSyncFrozen() {
+            return Date.now() < this.syncFrozenUntil;
+        }
+
+        isBufferingBlocked() {
+            return this.bufferingSince > 0 && (Date.now() - this.bufferingSince) > 8000;
+        }
+
+        canPerformHardSeek(adapter, differenceSeconds) {
+            if (!adapter || !this.providerReady) return false;
+            if (!adapter.iframe || !adapter.iframe.contentWindow) return false;
+            if (this.forceHardSync) return true;
+            if (this.isSeekCooldownActive() || this.isSyncFrozen()) return false;
+            if (this.isBufferingBlocked()) return false;
+            if (this.aggressiveSeekingDisabled) return false;
+            if (this.providerSyncMode !== 'precise') return false;
+            if (!this.providerCapabilities.supportsSeeking) return false;
+            return Math.abs(differenceSeconds) > 15;
+        }
+
+        noteSuccessfulConvergence(mode, details = {}) {
+            this.softConvergenceActive = mode === 'soft';
+            this.lastSuccessfulConvergence = {
+                mode,
+                ...details,
+                ts: Date.now()
+            };
+
+            if (mode === 'soft') {
+                this.providerStability.softConvergences += 1;
+            }
+        }
+
+        noteHardSeekIssued(targetTime, differenceSeconds) {
+            this.lastAppliedSeek = targetTime;
+            this.seekCooldownUntil = Date.now() + 30000;
+            this.softConvergenceActive = false;
+            this.lastSuccessfulConvergence = {
+                mode: 'hard',
+                targetTime,
+                differenceSeconds,
+                ts: Date.now()
+            };
+        }
+
+        noteProviderBufferingStart() {
+            if (!this.bufferingSince) {
+                this.bufferingSince = Date.now();
+            }
+        }
+
+        noteProviderBufferingEnd() {
+            this.bufferingSince = 0;
+            if (this.isSyncFrozen() && Date.now() >= this.syncFrozenUntil) {
+                this.syncFrozenUntil = 0;
+            }
+        }
+
+        freezeSync(reason = 'buffering') {
+            this.syncFrozenUntil = Date.now() + 10000;
+            this.providerStability.bufferingFreezes += 1;
+            this.softConvergenceActive = false;
+            const confidenceManager = this.kernel.get('sync.confidence');
+            if (confidenceManager) confidenceManager.setConfidence('unstable');
+            console.warn('[VAILISM RECONCILE] Synchronization frozen', { reason, until: this.syncFrozenUntil });
+        }
+
+        unfreezeSyncIfReady() {
+            if (this.syncFrozenUntil > 0 && Date.now() >= this.syncFrozenUntil && !this.isBufferingBlocked()) {
+                this.syncFrozenUntil = 0;
+                const confidenceManager = this.kernel.get('sync.confidence');
+                if (confidenceManager && confidenceManager.getConfidence() === 'unstable') {
+                    confidenceManager.setConfidence('recovering');
+                }
+            }
+        }
+
         getTelemetryStatus() {
             const commandRate = this.getCommandSuccessRate();
             return {
@@ -2031,6 +2290,12 @@
                 pollingActive: this.pollingActive,
                 syntheticClockEnabled: this.syntheticClockEnabled,
                 capabilities: { ...this.providerCapabilities },
+                providerSyncMode: this.providerSyncMode,
+                providerStabilityScore: this.getProviderStabilityScore(),
+                aggressiveSeekingDisabled: this.aggressiveSeekingDisabled,
+                seekCooldownActive: this.isSeekCooldownActive(),
+                softConvergenceActive: this.softConvergenceActive,
+                lastSuccessfulConvergence: this.lastSuccessfulConvergence,
                 softSyncMode: this.softSyncMode,
                 lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null,
                 forceHardSync: this.forceHardSync,
@@ -2077,6 +2342,24 @@
             }));
         }
 
+        shouldAbortSync() {
+            return this.isSyncFrozen() || this.isBufferingBlocked();
+        }
+
+        getProviderStabilityStatus() {
+            return {
+                score: this.getProviderStabilityScore(),
+                mode: this.providerSyncMode,
+                seekCooldownActive: this.isSeekCooldownActive(),
+                softConvergenceActive: this.softConvergenceActive,
+                aggressiveSeekingDisabled: this.aggressiveSeekingDisabled,
+                bufferingActive: this.isBufferingBlocked(),
+                frozen: this.isSyncFrozen(),
+                lastSuccessfulConvergence: this.lastSuccessfulConvergence,
+                stability: { ...this.providerStability }
+            };
+        }
+
         getAdapterType() {
             const adapter = this.getAdapter();
             return adapter ? adapter.constructor.name : 'None';
@@ -2084,6 +2367,8 @@
 
         handleProviderCommandResult(result) {
             if (!result) return;
+
+            this.unfreezeSyncIfReady();
 
             this.commandVerification.total += 1;
             if (result.success) {
@@ -2095,6 +2380,29 @@
             this.lastVerifiedPlaybackTime = Number.isFinite(result.after && result.after.currentTime)
                 ? result.after.currentTime
                 : this.lastVerifiedPlaybackTime;
+
+            if (result.command === 'seek') {
+                if (result.success) {
+                    this.providerStability.successfulSeeks += 1;
+                    this.noteSuccessfulConvergence('hard', {
+                        command: result.command,
+                        targetTime: result.after && Number.isFinite(result.after.currentTime) ? result.after.currentTime : null
+                    });
+                } else {
+                    this.providerStability.failedSeeks += 1;
+                    if (this.providerStability.failedSeeks >= 2) {
+                        this.aggressiveSeekingDisabled = true;
+                        this.providerSyncMode = 'safe';
+                    }
+                }
+            } else if (result.success && (result.command === 'play' || result.command === 'pause' || result.command === 'setPlaybackRate')) {
+                this.noteSuccessfulConvergence(result.command === 'setPlaybackRate' ? 'soft' : 'state', {
+                    command: result.command,
+                    playbackTime: result.after && Number.isFinite(result.after.currentTime) ? result.after.currentTime : null
+                });
+            }
+
+            this.updateProviderSyncMode(this.getAdapter());
 
             this.eventBus.emit('PROVIDER_COMMAND_VERIFIED', {
                 ...result,
@@ -2109,15 +2417,31 @@
         }
 
         handleSeekCommandFailure(result) {
+            if (this.providerStability.failedSeeks >= 2) {
+                this.aggressiveSeekingDisabled = true;
+                this.providerSyncMode = 'safe';
+            }
+
             const adapter = this.getAdapter();
             if (!adapter || !adapter.iframe) return;
+
+            if (this.providerStability.failedSeeks < 3) {
+                console.warn('[VAILISM COMMAND FAILED] Seek verification failed; keeping iframe live and downgrading sync mode.', {
+                    reason: result.reason,
+                    providerSyncMode: this.providerSyncMode,
+                    stability: this.providerStability
+                });
+                return;
+            }
+
             if (!this.lastAppliedRemoteSnapshot) return;
 
             const metrics = this.kernel.get('metrics');
             if (metrics) metrics.increment('providerReloads');
+            this.providerStability.reloadRecoveries += 1;
 
             this.pendingRestoreAfterReload = { ...this.lastAppliedRemoteSnapshot, ts: Date.now() };
-            console.warn('[VAILISM COMMAND FAILED] Seek verification failed. Reloading iframe for forced recovery.', {
+            console.warn('[VAILISM COMMAND FAILED] Seek verification failed. Reloading iframe as last resort.', {
                 reason: result.reason,
                 snapshot: this.pendingRestoreAfterReload
             });
@@ -2130,7 +2454,7 @@
                         const snapshot = this.pendingRestoreAfterReload;
                         this.pendingRestoreAfterReload = null;
                         if (snapshot) {
-                            this.applyHardSnapshot(snapshot, 'reload-restore');
+                            this.applyHardSnapshot(snapshot, 'reload-last-resort');
                         }
                     }, 220);
                 };
@@ -2170,6 +2494,7 @@
 
             const localTime = Number.isFinite(this.lastLocalTime) ? this.lastLocalTime : 0;
             const drift = localTime - targetTime;
+            this.noteHardSeekIssued(targetTime, drift);
             console.log('[VAILISM RECONCILE] Hard snapshot apply', {
                 reason,
                 hostTime: currentTime,
@@ -2311,6 +2636,16 @@
 
             this.telemetrySource = snapshot.source || (snapshot.synthetic ? 'synthetic-clock' : 'provider-telemetry');
             this.lastTelemetryTimestamp = Date.now();
+            if (typeof snapshot.buffering === 'boolean') {
+                if (snapshot.buffering) {
+                    this.noteProviderBufferingStart();
+                    if (this.isBufferingBlocked()) {
+                        this.freezeSync('buffering>8s');
+                    }
+                } else {
+                    this.noteProviderBufferingEnd();
+                }
+            }
             if (Number.isFinite(snapshot.currentTime)) {
                 this.lastLocalTime = snapshot.currentTime;
             }
@@ -2337,6 +2672,8 @@
                 source: this.telemetrySource,
                 synthetic: !!snapshot.synthetic
             });
+
+            this.updateProviderSyncMode(adapter);
 
             const evtName = snapshot.type || 'timeupdate';
             this.handleLocalPlayerEvent(evtName, snapshot.currentTime || 0, snapshot.duration || 0, snapshot);
@@ -3411,6 +3748,15 @@
                         var commandSuccessRate = Number.isFinite(commandVerification.rate)
                             ? commandVerification.rate.toFixed(1) + '%'
                             : '0.0%';
+                        var providerStabilityScore = Number.isFinite(telemetry.providerStabilityScore)
+                            ? telemetry.providerStabilityScore.toFixed(0) + '/100'
+                            : 'N/A';
+                        var syncMode = telemetry.providerSyncMode || 'safe';
+                        var seekCooldownActive = telemetry.seekCooldownActive ? 'YES' : 'NO';
+                        var softConvergenceActive = telemetry.softConvergenceActive ? 'YES' : 'NO';
+                        var lastSuccessfulConvergence = telemetry.lastSuccessfulConvergence
+                            ? JSON.stringify(telemetry.lastSuccessfulConvergence)
+                            : 'N/A';
                         var capabilityMatrix = telemetry.capabilities
                             ? 'cmd=' + (telemetry.capabilities.supportsCommands ? 'Y' : 'N') +
                               ' telem=' + (telemetry.capabilities.supportsTelemetry ? 'Y' : 'N') +
@@ -3435,6 +3781,11 @@
                             'Last Sync: ' + lastSyncAge + '<br>' +
                             'Telemetry Source: ' + (telemetry.source || 'none') + '<br>' +
                             'Telemetry Age: ' + telemetryAge + '<br>' +
+                            'Sync Mode: ' + syncMode + '<br>' +
+                            'Provider Stability: ' + providerStabilityScore + '<br>' +
+                            'Seek Cooldown Active: ' + seekCooldownActive + '<br>' +
+                            'Soft Sync Active: ' + softConvergenceActive + '<br>' +
+                            'Last Successful Convergence: ' + lastSuccessfulConvergence + '<br>' +
                             'Force Hard Sync: ' + (telemetry.forceHardSync ? 'YES' : 'NO') + '<br>' +
                             'Polling Active: ' + (telemetry.pollingActive ? 'YES' : 'NO') + '<br>' +
                             'Synthetic Clock: ' + (telemetry.syntheticClockEnabled ? 'YES' : 'NO') + '<br>' +

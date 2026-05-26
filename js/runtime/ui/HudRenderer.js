@@ -97,6 +97,15 @@ export class HudRenderer {
                     const commandSuccessRate = Number.isFinite(commandVerification.rate)
                         ? `${commandVerification.rate.toFixed(1)}%`
                         : '0.0%';
+                    const providerStabilityScore = Number.isFinite(telemetry.providerStabilityScore)
+                        ? `${telemetry.providerStabilityScore.toFixed(0)}/100`
+                        : 'N/A';
+                    const syncMode = telemetry.providerSyncMode || 'safe';
+                    const seekCooldownActive = telemetry.seekCooldownActive ? 'YES' : 'NO';
+                    const softConvergenceActive = telemetry.softConvergenceActive ? 'YES' : 'NO';
+                    const lastSuccessfulConvergence = telemetry.lastSuccessfulConvergence
+                        ? JSON.stringify(telemetry.lastSuccessfulConvergence)
+                        : 'N/A';
                     const capabilityMatrix = telemetry.capabilities
                         ? `cmd=${telemetry.capabilities.supportsCommands ? 'Y' : 'N'} telem=${telemetry.capabilities.supportsTelemetry ? 'Y' : 'N'} seek=${telemetry.capabilities.supportsSeeking ? 'Y' : 'N'} rate=${telemetry.capabilities.supportsPlaybackRate ? 'Y' : 'N'}`
                         : 'N/A';
@@ -118,6 +127,11 @@ export class HudRenderer {
                         Last Sync: ${lastSyncAge}<br>
                         Telemetry Source: ${telemetry.source || 'none'}<br>
                         Telemetry Age: ${telemetryAge}<br>
+                        Sync Mode: ${syncMode}<br>
+                        Provider Stability: ${providerStabilityScore}<br>
+                        Seek Cooldown Active: ${seekCooldownActive}<br>
+                        Soft Sync Active: ${softConvergenceActive}<br>
+                        Last Successful Convergence: ${lastSuccessfulConvergence}<br>
                         Force Hard Sync: ${telemetry.forceHardSync ? 'YES' : 'NO'}<br>
                         Polling Active: ${telemetry.pollingActive ? 'YES' : 'NO'}<br>
                         Synthetic Clock: ${telemetry.syntheticClockEnabled ? 'YES' : 'NO'}<br>

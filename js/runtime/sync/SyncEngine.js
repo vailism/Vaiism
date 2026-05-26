@@ -38,6 +38,21 @@ export class SyncEngine {
         this.periodicSnapshotIntervalMs = 2500;
         this.maxDriftSeconds = 0.75;
         this.forceHardSync = false;
+        this.providerSyncMode = 'safe';
+        this.aggressiveSeekingDisabled = false;
+        this.seekCooldownUntil = 0;
+        this.bufferingSince = 0;
+        this.syncFrozenUntil = 0;
+        this.softConvergenceActive = false;
+        this.lastSuccessfulConvergence = null;
+        this.providerReady = false;
+        this.providerStability = {
+            successfulSeeks: 0,
+            failedSeeks: 0,
+            bufferingFreezes: 0,
+            reloadRecoveries: 0,
+            softConvergences: 0
+        };
         this.lastAppliedSeek = null;
         this.lastAppliedRemoteSnapshot = null;
         this.lastVerifiedPlaybackTime = null;
@@ -137,6 +152,8 @@ export class SyncEngine {
                 };
             this.providerCapabilities = capabilities;
             this.softSyncMode = !capabilities.supportsTelemetry;
+            this.providerReady = true;
+            this.updateProviderSyncMode(adapter, capabilities);
 
             if (typeof adapter.setTelemetryListener === 'function') {
                 adapter.setTelemetryListener((snapshot) => {
@@ -210,6 +227,8 @@ export class SyncEngine {
             if (typeof nextAdapter.getCapabilities === 'function') {
                 this.providerCapabilities = nextAdapter.getCapabilities();
                 this.softSyncMode = !this.providerCapabilities.supportsTelemetry;
+                this.providerReady = true;
+                this.updateProviderSyncMode(nextAdapter, this.providerCapabilities);
             }
             this.pollingActive = !!nextAdapter.pollingActive;
         }
@@ -237,6 +256,119 @@ export class SyncEngine {
     getCommandSuccessRate() {
         if (!this.commandVerification.total) return 0;
         return (this.commandVerification.success / this.commandVerification.total) * 100;
+    }
+
+    getProviderName(adapter = null) {
+        const currentAdapter = adapter || this.adapter || this.getAdapter();
+        return currentAdapter ? currentAdapter.constructor.name : 'None';
+    }
+
+    updateProviderSyncMode(adapter, capabilities = null) {
+        const providerName = this.getProviderName(adapter);
+        const providerCaps = capabilities || (adapter && typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : this.providerCapabilities);
+        const defaultSafe = providerName.includes('Vidsrc') || providerName.includes('Videasy');
+        const score = this.getProviderStabilityScore();
+
+        if (this.aggressiveSeekingDisabled || score < 45) {
+            this.providerSyncMode = 'safe';
+        } else if (defaultSafe) {
+            this.providerSyncMode = 'safe';
+        } else if (providerCaps && providerCaps.supportsSeeking && !this.softSyncMode) {
+            this.providerSyncMode = 'precise';
+        } else {
+            this.providerSyncMode = 'safe';
+        }
+    }
+
+    getProviderStabilityScore() {
+        const seeks = this.providerStability.successfulSeeks;
+        const failures = this.providerStability.failedSeeks;
+        const freezes = this.providerStability.bufferingFreezes;
+        const reloads = this.providerStability.reloadRecoveries;
+        const softs = this.providerStability.softConvergences;
+        const raw = 100 + (seeks * 6) - (failures * 22) - (freezes * 18) - (reloads * 14) + (softs * 1);
+        return Math.max(0, Math.min(100, raw));
+    }
+
+    isSeekCooldownActive() {
+        return Date.now() < this.seekCooldownUntil;
+    }
+
+    isSyncFrozen() {
+        return Date.now() < this.syncFrozenUntil;
+    }
+
+    isBufferingBlocked() {
+        return this.bufferingSince > 0 && (Date.now() - this.bufferingSince) > 8000;
+    }
+
+    canPerformHardSeek(adapter, differenceSeconds) {
+        if (!adapter || !this.providerReady) return false;
+        if (!adapter.iframe || !adapter.iframe.contentWindow) return false;
+        if (this.forceHardSync) return true;
+        if (this.isSeekCooldownActive() || this.isSyncFrozen()) return false;
+        if (this.isBufferingBlocked()) return false;
+        if (this.aggressiveSeekingDisabled) return false;
+        if (this.providerSyncMode !== 'precise') return false;
+        if (!this.providerCapabilities.supportsSeeking) return false;
+        return Math.abs(differenceSeconds) > 15;
+    }
+
+    noteSuccessfulConvergence(mode, details = {}) {
+        this.softConvergenceActive = mode === 'soft';
+        this.lastSuccessfulConvergence = {
+            mode,
+            ...details,
+            ts: Date.now()
+        };
+
+        if (mode === 'soft') {
+            this.providerStability.softConvergences += 1;
+        }
+    }
+
+    noteHardSeekIssued(targetTime, differenceSeconds) {
+        this.lastAppliedSeek = targetTime;
+        this.seekCooldownUntil = Date.now() + 30000;
+        this.softConvergenceActive = false;
+        this.lastSuccessfulConvergence = {
+            mode: 'hard',
+            targetTime,
+            differenceSeconds,
+            ts: Date.now()
+        };
+    }
+
+    noteProviderBufferingStart() {
+        if (!this.bufferingSince) {
+            this.bufferingSince = Date.now();
+        }
+    }
+
+    noteProviderBufferingEnd() {
+        this.bufferingSince = 0;
+        if (this.isSyncFrozen() && Date.now() >= this.syncFrozenUntil) {
+            this.syncFrozenUntil = 0;
+        }
+    }
+
+    freezeSync(reason = 'buffering') {
+        this.syncFrozenUntil = Date.now() + 10000;
+        this.providerStability.bufferingFreezes += 1;
+        this.softConvergenceActive = false;
+        const confidenceManager = this.kernel.get('sync.confidence');
+        if (confidenceManager) confidenceManager.setConfidence('unstable');
+        console.warn('[VAILISM RECONCILE] Synchronization frozen', { reason, until: this.syncFrozenUntil });
+    }
+
+    unfreezeSyncIfReady() {
+        if (this.syncFrozenUntil > 0 && Date.now() >= this.syncFrozenUntil && !this.isBufferingBlocked()) {
+            this.syncFrozenUntil = 0;
+            const confidenceManager = this.kernel.get('sync.confidence');
+            if (confidenceManager && confidenceManager.getConfidence() === 'unstable') {
+                confidenceManager.setConfidence('recovering');
+            }
+        }
     }
 
     recordProviderCommand(command, success, details = {}) {
@@ -268,6 +400,12 @@ export class SyncEngine {
             pollingActive: this.pollingActive,
             syntheticClockEnabled: this.syntheticClockEnabled,
             capabilities: { ...this.providerCapabilities },
+            providerSyncMode: this.providerSyncMode,
+            providerStabilityScore: this.getProviderStabilityScore(),
+            aggressiveSeekingDisabled: this.aggressiveSeekingDisabled,
+            seekCooldownActive: this.isSeekCooldownActive(),
+            softConvergenceActive: this.softConvergenceActive,
+            lastSuccessfulConvergence: this.lastSuccessfulConvergence,
             softSyncMode: this.softSyncMode,
             lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null,
             forceHardSync: this.forceHardSync,
@@ -284,6 +422,8 @@ export class SyncEngine {
     handleProviderCommandResult(result) {
         if (!result) return;
 
+        this.unfreezeSyncIfReady();
+
         this.commandVerification.total += 1;
         if (result.success) {
             this.commandVerification.success += 1;
@@ -294,6 +434,30 @@ export class SyncEngine {
         this.lastVerifiedPlaybackTime = Number.isFinite(result.after && result.after.currentTime)
             ? result.after.currentTime
             : this.lastVerifiedPlaybackTime;
+
+        if (result.command === 'seek') {
+            if (result.success) {
+                this.providerStability.successfulSeeks += 1;
+                this.providerStability.reloadRecoveries += 0;
+                this.noteSuccessfulConvergence('hard', {
+                    command: result.command,
+                    targetTime: result.after && Number.isFinite(result.after.currentTime) ? result.after.currentTime : null
+                });
+            } else {
+                this.providerStability.failedSeeks += 1;
+                if (this.providerStability.failedSeeks >= 2) {
+                    this.aggressiveSeekingDisabled = true;
+                    this.providerSyncMode = 'safe';
+                }
+            }
+        } else if (result.success && (result.command === 'play' || result.command === 'pause' || result.command === 'setPlaybackRate')) {
+            this.noteSuccessfulConvergence(result.command === 'setPlaybackRate' ? 'soft' : 'state', {
+                command: result.command,
+                playbackTime: result.after && Number.isFinite(result.after.currentTime) ? result.after.currentTime : null
+            });
+        }
+
+        this.updateProviderSyncMode(this.getAdapter());
 
         this.eventBus.emit('PROVIDER_COMMAND_VERIFIED', {
             ...result,
@@ -308,15 +472,31 @@ export class SyncEngine {
     }
 
     handleSeekCommandFailure(result) {
+        if (this.providerStability.failedSeeks >= 2) {
+            this.aggressiveSeekingDisabled = true;
+            this.providerSyncMode = 'safe';
+        }
+
         const adapter = this.getAdapter();
         if (!adapter || !adapter.iframe) return;
+
+        if (this.providerStability.failedSeeks < 3) {
+            console.warn('[VAILISM COMMAND FAILED] Seek verification failed; keeping iframe live and downgrading sync mode.', {
+                reason: result.reason,
+                providerSyncMode: this.providerSyncMode,
+                stability: this.providerStability
+            });
+            return;
+        }
+
         if (!this.lastAppliedRemoteSnapshot) return;
 
         const metrics = this.kernel.get('metrics');
         if (metrics) metrics.increment('providerReloads');
+        this.providerStability.reloadRecoveries += 1;
 
         this.pendingRestoreAfterReload = { ...this.lastAppliedRemoteSnapshot, ts: Date.now() };
-        console.warn('[VAILISM COMMAND FAILED] Seek verification failed. Reloading iframe for forced recovery.', {
+        console.warn('[VAILISM COMMAND FAILED] Seek verification failed. Reloading iframe as last resort.', {
             reason: result.reason,
             snapshot: this.pendingRestoreAfterReload
         });
@@ -329,7 +509,7 @@ export class SyncEngine {
                     const snapshot = this.pendingRestoreAfterReload;
                     this.pendingRestoreAfterReload = null;
                     if (snapshot) {
-                        this.applyHardSnapshot(snapshot, 'reload-restore');
+                        this.applyHardSnapshot(snapshot, 'reload-last-resort');
                     }
                 }, 220);
             };
@@ -369,6 +549,7 @@ export class SyncEngine {
 
         const localTime = Number.isFinite(this.lastLocalTime) ? this.lastLocalTime : 0;
         const drift = localTime - targetTime;
+        this.noteHardSeekIssued(targetTime, drift);
         console.log('[VAILISM RECONCILE] Hard snapshot apply', {
             reason,
             hostTime: currentTime,
@@ -466,6 +647,24 @@ export class SyncEngine {
         }));
     }
 
+    shouldAbortSync() {
+        return this.isSyncFrozen() || this.isBufferingBlocked();
+    }
+
+    getProviderStabilityStatus() {
+        return {
+            score: this.getProviderStabilityScore(),
+            mode: this.providerSyncMode,
+            seekCooldownActive: this.isSeekCooldownActive(),
+            softConvergenceActive: this.softConvergenceActive,
+            aggressiveSeekingDisabled: this.aggressiveSeekingDisabled,
+            bufferingActive: this.isBufferingBlocked(),
+            frozen: this.isSyncFrozen(),
+            lastSuccessfulConvergence: this.lastSuccessfulConvergence,
+            stability: { ...this.providerStability }
+        };
+    }
+
     maybeBroadcastSnapshot(snapshot) {
         const socket = this.kernel.get('socket');
         if (!socket || !socket.isHost || !socket.isConnected()) return;
@@ -515,6 +714,16 @@ export class SyncEngine {
 
         this.telemetrySource = snapshot.source || (snapshot.synthetic ? 'synthetic-clock' : 'provider-telemetry');
         this.lastTelemetryTimestamp = Date.now();
+        if (typeof snapshot.buffering === 'boolean') {
+            if (snapshot.buffering) {
+                this.noteProviderBufferingStart();
+                if (this.isBufferingBlocked()) {
+                    this.freezeSync('buffering>8s');
+                }
+            } else {
+                this.noteProviderBufferingEnd();
+            }
+        }
         if (Number.isFinite(snapshot.currentTime)) {
             this.lastLocalTime = snapshot.currentTime;
         }
@@ -541,6 +750,8 @@ export class SyncEngine {
             source: this.telemetrySource,
             synthetic: !!snapshot.synthetic
         });
+
+        this.updateProviderSyncMode(adapter);
 
         const evtName = snapshot.type || 'timeupdate';
         this.handleLocalPlayerEvent(evtName, snapshot.currentTime || 0, snapshot.duration || 0, snapshot);
