@@ -114,6 +114,17 @@ export class HudRenderer {
                     const avgDrift = metricsStore.getAverageDrift().toFixed(3) + "s";
                     const avgRtt = metricsStore.getAverageRtt(socket.rtt) + "ms";
                     
+                    const jitsi = this.kernel.get("jitsi");
+                    const jitsiConnected = jitsi && jitsi.isJoined ? "YES" : "NO";
+                    const jitsiPartCount = jitsi ? jitsi.participants.size + (jitsi.isJoined ? 1 : 0) : 0;
+                    let currentSpeaker = "None";
+                    if (jitsi && jitsi.dominantSpeaker) {
+                        currentSpeaker = jitsi.dominantSpeaker === 'local' 
+                            ? `${jitsi.username} (You)` 
+                            : (jitsi.participants.get(jitsi.dominantSpeaker)?.name || jitsi.dominantSpeaker);
+                    }
+                    const syncFreezeState = syncEngine.isSyncFrozen() ? "FROZEN" : "ACTIVE";
+
                     hud.innerHTML = `
                         <strong>Watch Together Debug HUD</strong><br>
                         Status: <span style="color: ${socket.isConnected() ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
@@ -128,6 +139,11 @@ export class HudRenderer {
                         Telemetry Source: ${telemetry.source || 'none'}<br>
                         Telemetry Age: ${telemetryAge}<br>
                         Sync Mode: ${syncMode}<br>
+                        SAFE_SYNC_MODE: <span style="color: #00ff66">TRUE</span><br>
+                        Sync Freeze State: <span style="color: ${syncEngine.isSyncFrozen() ? '#ff4444' : '#00ff66'}">${syncFreezeState}</span><br>
+                        Jitsi Connected: <span style="color: ${jitsi && jitsi.isJoined ? '#00ff66' : '#ff4444'}">${jitsiConnected}</span><br>
+                        Voice Participants: ${jitsiPartCount}<br>
+                        Current Speaker: <span style="color: #00e5ff">${currentSpeaker}</span><br>
                         Provider Stability: ${providerStabilityScore}<br>
                         Seek Cooldown Active: ${seekCooldownActive}<br>
                         Soft Sync Active: ${softConvergenceActive}<br>

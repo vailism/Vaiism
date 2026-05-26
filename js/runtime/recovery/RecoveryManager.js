@@ -41,6 +41,17 @@ export class RecoveryManager {
         
         metrics.increment("stallsCount");
 
+        const SAFE_SYNC_MODE = true;
+        if (SAFE_SYNC_MODE) {
+            console.log("[RecoveryManager] [SAFE_SYNC_MODE] Playback stalled. Skipping aggressive recovery seeks and reload loops to prevent interrupts.");
+            // Freeze sync temporarily to let it buffer/stabilize
+            if (typeof syncEngine.freezeSync === 'function') {
+                syncEngine.freezeSync('stall-recovery');
+            }
+            this.eventBus.emit("SHOW_TOAST", { message: "Sync temporarily paused to stabilize playback..." });
+            return;
+        }
+
         if (this.retryCount < 3) {
             this.retryCount++;
             metrics.increment("recoveryAttempts");
@@ -65,6 +76,12 @@ export class RecoveryManager {
     }
 
     triggerIframeReload() {
+        const SAFE_SYNC_MODE = true;
+        if (SAFE_SYNC_MODE) {
+            console.log("[RecoveryManager] [SAFE_SYNC_MODE] triggerIframeReload requested but disabled.");
+            return;
+        }
+
         const syncEngine = this.kernel.get("sync");
         const fsm = this.kernel.get("fsm");
         const metrics = this.kernel.get("metrics");

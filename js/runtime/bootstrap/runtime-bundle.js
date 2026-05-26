@@ -1680,7 +1680,6 @@
             var buffering = !!(adapterState && adapterState.buffering);
             var stalled = !!(adapterState && adapterState.paused && isPlaying);
             var cooldownActive = typeof syncEngine.isSeekCooldownActive === 'function' && syncEngine.isSeekCooldownActive();
-            var aggressiveAllowed = !!(syncEngine.providerSyncMode === 'precise' && !syncEngine.aggressiveSeekingDisabled);
 
             if (buffering) {
                 if (typeof syncEngine.noteProviderBufferingStart === 'function') {
@@ -1703,6 +1702,33 @@
                 this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "playback-stalled", difference: difference });
                 return "blocked";
             }
+
+            // --- SAFE_SYNC_MODE ---
+            var SAFE_SYNC_MODE = true;
+            if (SAFE_SYNC_MODE) {
+                // Restore normal playback rate, no rate manipulation allowed
+                this.restoreNormalPlaybackRate(adapter, syncEngine);
+                
+                // Only seek if drift > 20s
+                if (absDiff > 20) {
+                    if (cooldownActive) {
+                        this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "seek-cooldown", difference: difference });
+                        return "cooldown";
+                    }
+                    console.log("[DriftController] [SAFE_SYNC_MODE] Drift exceeded 20s (" + absDiff.toFixed(2) + "s). Seeking to " + targetSeconds.toFixed(1) + "s");
+                    this.recordHardSeek(difference);
+                    if (typeof syncEngine.noteHardSeekIssued === 'function') {
+                        syncEngine.noteHardSeekIssued(targetSeconds, difference);
+                    }
+                    adapter.seek(targetSeconds);
+                    this.eventBus.emit("DRIFT_SEEK_EXECUTED", { targetTime: targetSeconds, difference: difference, mode: 'safe' });
+                    return "seeking";
+                }
+                
+                return "synced";
+            }
+
+            var aggressiveAllowed = !!(syncEngine.providerSyncMode === 'precise' && !syncEngine.aggressiveSeekingDisabled);
 
             if (cooldownActive) {
                 if (absDiff >= 2 && absDiff <= 15) {
@@ -3102,6 +3128,16 @@
             
             metrics.increment("stallsCount");
 
+            var SAFE_SYNC_MODE = true;
+            if (SAFE_SYNC_MODE) {
+                console.log("[RecoveryManager] [SAFE_SYNC_MODE] Playback stalled. Skipping aggressive recovery seeks and reload loops to prevent interrupts.");
+                if (typeof syncEngine.freezeSync === 'function') {
+                    syncEngine.freezeSync('stall-recovery');
+                }
+                self.eventBus.emit("SHOW_TOAST", { message: "Sync temporarily paused to stabilize playback..." });
+                return;
+            }
+
             if (self.retryCount < 3) {
                 self.retryCount++;
                 metrics.increment("recoveryAttempts");
@@ -3125,6 +3161,12 @@
         }
 
         triggerIframeReload() {
+            var SAFE_SYNC_MODE = true;
+            if (SAFE_SYNC_MODE) {
+                console.log("[RecoveryManager] [SAFE_SYNC_MODE] triggerIframeReload requested but disabled.");
+                return;
+            }
+
             var self = this;
             var syncEngine = self.kernel.get("sync");
             var fsm = self.kernel.get("fsm");
@@ -3825,11 +3867,252 @@
             }, 200);
         }
 
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INTEGRATION: JitsiManager
+    // ═══════════════════════════════════════════════════════════════════════
+    class JitsiManager {
+        constructor() {
+            this.kernel = null;
+            this.eventBus = null;
+            this.api = null;
+            this.isJoined = false;
+            this.roomCode = null;
+            this.username = null;
+            this.micMuted = false;
+            this.cameraMuted = true;
+            this.participants = new Map();
+            this.dominantSpeaker = null;
+            this.appId = "vpaas-magic-cookie-1e406aef47f544af904cb97ff3730091";
+            this.apiKey = "89d878";
+        }
+
+        injectKernel(kernel) {
+            this.kernel = kernel;
+            this.eventBus = kernel.get("eventBus");
+        }
+
+        onStart() {
+            var self = this;
+            self.eventBus.on("JITSI_JOIN_REQUEST", function(data) {
+                self.join(data.roomCode, data.username);
+            });
+            self.eventBus.on("JITSI_LEAVE_REQUEST", function() {
+                self.leave();
+            });
+            self.eventBus.on("JITSI_TOGGLE_MIC", function() {
+                self.toggleMic();
+            });
+            self.eventBus.on("JITSI_TOGGLE_CAMERA", function() {
+                self.toggleCamera();
+            });
+        }
+
         onStop() {
-            if (this.debugHudInterval) {
-                clearInterval(this.debugHudInterval);
-                this.debugHudInterval = null;
+            this.leave();
+        }
+
+        join(roomCode, username) {
+            var self = this;
+            if (self.isJoined || self.api) {
+                console.log("[JitsiManager] Already joined or initializing");
+                return;
             }
+
+            self.roomCode = roomCode;
+            self.username = username;
+            self.participants.clear();
+            self.dominantSpeaker = null;
+
+            var container = document.getElementById("jitsi-iframe-container");
+            if (!container) {
+                console.error("[JitsiManager] jitsi-iframe-container not found in DOM");
+                return;
+            }
+
+            var fullRoomName = self.appId + "/" + self.apiKey + "/vailism-" + roomCode;
+            
+            console.log("[JitsiManager] Connecting to Jitsi room: " + fullRoomName);
+            self.eventBus.emit("JITSI_STATUS_CHANGED", { status: "connecting" });
+
+            try {
+                if (typeof window.JitsiMeetExternalAPI === "undefined") {
+                    console.error("[JitsiManager] JitsiMeetExternalAPI is not loaded.");
+                    self.eventBus.emit("JITSI_STATUS_CHANGED", { status: "error", error: "Library not loaded" });
+                    return;
+                }
+
+                self.api = new window.JitsiMeetExternalAPI("8x8.vc", {
+                    roomName: fullRoomName,
+                    width: "100%",
+                    height: "100%",
+                    parentNode: container,
+                    userInfo: {
+                        displayName: username
+                    },
+                    configOverwrite: {
+                        startWithAudioMuted: false,
+                        startWithVideoMuted: true,
+                        prejoinPageEnabled: false,
+                        enableWelcomePage: false,
+                        disableDeepLinking: true,
+                        analytics: { disabled: true }
+                    },
+                    interfaceConfigOverwrite: {
+                        TOOLBAR_BUTTONS: [],
+                        SETTINGS_SECTIONS: [],
+                        SHOW_JITSI_WATERMARK: false,
+                        SHOW_WATERMARK_FOR_GUESTS: false
+                    }
+                });
+
+                self.isJoined = true;
+                self.micMuted = false;
+                self.cameraMuted = true;
+
+                self.api.addEventListener("videoConferenceJoined", function(evt) {
+                    console.log("[JitsiManager] Conference Joined", evt);
+                    self.eventBus.emit("JITSI_STATUS_CHANGED", { status: "connected" });
+                    self.eventBus.emit("SHOW_TOAST", { message: "Joined voice party!" });
+                    
+                    self.api.isAudioMuted().then(function(muted) {
+                        self.micMuted = muted;
+                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: self.micMuted, cameraMuted: self.cameraMuted });
+                        self.notifyParticipantsChanged();
+                    });
+                });
+
+                self.api.addEventListener("participantJoined", function(evt) {
+                    console.log("[JitsiManager] Participant joined:", evt);
+                    self.participants.set(evt.id, {
+                        id: evt.id,
+                        name: evt.displayName || "Friend",
+                        speaking: false,
+                        micMuted: false,
+                        videoMuted: true
+                    });
+                    self.notifyParticipantsChanged();
+                });
+
+                self.api.addEventListener("participantLeft", function(evt) {
+                    console.log("[JitsiManager] Participant left:", evt);
+                    self.participants.delete(evt.id);
+                    if (self.dominantSpeaker === evt.id) {
+                        self.dominantSpeaker = null;
+                    }
+                    self.notifyParticipantsChanged();
+                });
+
+                self.api.addEventListener("audioMuteStatusChanged", function(evt) {
+                    if (evt.local) {
+                        self.micMuted = evt.muted;
+                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: self.micMuted, cameraMuted: self.cameraMuted });
+                    } else {
+                        var p = self.participants.get(evt.id);
+                        if (p) {
+                            p.micMuted = evt.muted;
+                        }
+                    }
+                    self.notifyParticipantsChanged();
+                });
+
+                self.api.addEventListener("videoMuteStatusChanged", function(evt) {
+                    if (evt.local) {
+                        self.cameraMuted = evt.muted;
+                        self.eventBus.emit("JITSI_LOCAL_MUTE_CHANGED", { micMuted: self.micMuted, cameraMuted: self.cameraMuted });
+                        container.style.display = self.cameraMuted ? "none" : "block";
+                    } else {
+                        var p = self.participants.get(evt.id);
+                        if (p) {
+                            p.videoMuted = evt.muted;
+                        }
+                    }
+                    self.notifyParticipantsChanged();
+                });
+
+                self.api.addEventListener("dominantSpeakerChanged", function(evt) {
+                    self.dominantSpeaker = evt.id;
+                    self.participants.forEach(function(p, id) {
+                        p.speaking = (id === evt.id);
+                    });
+                    
+                    var speakerName = "Someone";
+                    if (evt.id === 'local') {
+                        speakerName = self.username;
+                    } else {
+                        var p = self.participants.get(evt.id);
+                        if (p) speakerName = p.name;
+                    }
+
+                    self.eventBus.emit("JITSI_SPEAKING_CHANGED", {
+                        dominantSpeakerId: evt.id,
+                        dominantSpeakerName: speakerName
+                    });
+                    self.notifyParticipantsChanged();
+                });
+
+                self.api.addEventListener("readyToClose", function() {
+                    self.leave();
+                });
+
+            } catch (err) {
+                console.error("[JitsiManager] Error starting Jitsi Meet:", err);
+                self.eventBus.emit("JITSI_STATUS_CHANGED", { status: "error", error: err.message });
+            }
+        }
+
+        leave() {
+            var self = this;
+            if (!self.api) return;
+            
+            console.log("[JitsiManager] Leaving Jitsi Meet");
+            try {
+                self.api.executeCommand("hangup");
+                self.api.dispose();
+            } catch (e) {
+                console.error("[JitsiManager] Error disposing API:", e);
+            }
+            
+            self.api = null;
+            self.isJoined = false;
+            self.participants.clear();
+            self.dominantSpeaker = null;
+
+            var container = document.getElementById("jitsi-iframe-container");
+            if (container) {
+                container.style.display = "none";
+                container.innerHTML = "";
+            }
+
+            self.eventBus.emit("JITSI_STATUS_CHANGED", { status: "disconnected" });
+            self.eventBus.emit("JITSI_SPEAKING_CHANGED", { dominantSpeakerId: null, dominantSpeakerName: null });
+            self.eventBus.emit("SHOW_TOAST", { message: "Left voice party." });
+            self.notifyParticipantsChanged();
+        }
+
+        toggleMic() {
+            if (!this.api) return;
+            this.api.executeCommand("toggleAudio");
+        }
+
+        toggleCamera() {
+            if (!this.api) return;
+            this.api.executeCommand("toggleVideo");
+        }
+
+        notifyParticipantsChanged() {
+            var self = this;
+            self.eventBus.emit("JITSI_PARTICIPANTS_CHANGED", {
+                count: self.participants.size + (self.isJoined ? 1 : 0),
+                participants: Array.from(self.participants.values()),
+                local: {
+                    name: self.username,
+                    micMuted: self.micMuted,
+                    cameraMuted: self.cameraMuted,
+                    speaking: self.dominantSpeaker === 'local'
+                }
+            });
         }
     }
 
@@ -3883,6 +4166,7 @@
         kernel.register("ui.presence", new PresenceRenderer());
         kernel.register("ui.overlay", new OverlayManager());
         kernel.register("ui.hud", new HudRenderer());
+        kernel.register("jitsi", new JitsiManager());
 
         // Inject parameters
         socket.isHost = isHost;
@@ -3890,6 +4174,101 @@
         // Bind globally for fallback/legacy updates
         window.VailRuntime = kernel;
         window._vailRuntimeBooted = true;
+
+        // Collapsible Voice panel UI
+        var voiceHeader = document.getElementById("voiceCollapseHeader");
+        var voiceControls = document.getElementById("partyVoiceControls");
+        var voiceIcon = document.getElementById("voiceCollapseIcon");
+        if (voiceHeader && voiceControls && voiceIcon) {
+            var voiceCollapsed = false;
+            voiceHeader.addEventListener("click", function() {
+                voiceCollapsed = !voiceCollapsed;
+                voiceControls.style.maxHeight = voiceCollapsed ? "0px" : "500px";
+                voiceControls.style.padding = voiceCollapsed ? "0px" : "0 20px";
+                voiceIcon.style.transform = voiceCollapsed ? "rotate(-90deg)" : "rotate(0deg)";
+            });
+        }
+
+        // Join / Leave click handlers
+        var joinVoiceBtn = document.getElementById("joinVoiceBtn");
+        var leaveVoiceBtn = document.getElementById("leaveVoiceBtn");
+        var toggleMicBtn = document.getElementById("toggleMicBtn");
+        var toggleCameraBtn = document.getElementById("toggleCameraBtn");
+
+        if (joinVoiceBtn) {
+            joinVoiceBtn.addEventListener("click", function() {
+                var currentRoomId = reconnect.roomId || targetRoomId;
+                eventBus.emit("JITSI_JOIN_REQUEST", { roomCode: currentRoomId, username: userName });
+            });
+        }
+
+        if (leaveVoiceBtn) {
+            leaveVoiceBtn.addEventListener("click", function() {
+                eventBus.emit("JITSI_LEAVE_REQUEST");
+            });
+        }
+
+        if (toggleMicBtn) {
+            toggleMicBtn.addEventListener("click", function() {
+                eventBus.emit("JITSI_TOGGLE_MIC");
+            });
+        }
+
+        if (toggleCameraBtn) {
+            toggleCameraBtn.addEventListener("click", function() {
+                eventBus.emit("JITSI_TOGGLE_CAMERA");
+            });
+        }
+
+        // Listen to Jitsi status events to update UI
+        eventBus.on("JITSI_STATUS_CHANGED", function(data) {
+            var dot = document.getElementById("voiceStatusDot");
+            var txt = document.getElementById("voiceStatusText");
+            var muteControls = document.getElementById("voiceMuteControls");
+            var joinBtn = document.getElementById("joinVoiceBtn");
+            var leaveBtn = document.getElementById("leaveVoiceBtn");
+
+            if (data.status === "connected") {
+                if (dot) dot.style.background = "#00ff66";
+                if (txt) txt.textContent = "Connected";
+                if (joinBtn) joinBtn.style.display = "none";
+                if (leaveBtn) leaveBtn.style.display = "flex";
+                if (muteControls) muteControls.style.display = "flex";
+                if (joinBtn) joinBtn.removeAttribute("disabled");
+            } else if (data.status === "connecting") {
+                if (dot) dot.style.background = "#f5a623";
+                if (txt) txt.textContent = "Connecting...";
+                if (joinBtn) joinBtn.setAttribute("disabled", "true");
+            } else {
+                if (dot) dot.style.background = "#ff4444";
+                if (txt) txt.textContent = data.error ? ("Error: " + data.error) : "Not Connected";
+                if (joinBtn) joinBtn.style.display = "flex";
+                if (leaveBtn) leaveBtn.style.display = "none";
+                if (muteControls) muteControls.style.display = "none";
+                if (joinBtn) joinBtn.removeAttribute("disabled");
+            }
+        });
+
+        eventBus.on("JITSI_LOCAL_MUTE_CHANGED", function(data) {
+            var micBtn = document.getElementById("toggleMicBtn");
+            var camBtn = document.getElementById("toggleCameraBtn");
+
+            if (micBtn) {
+                micBtn.textContent = data.micMuted ? "🎤 Unmute Mic" : "🎤 Mute Mic";
+                micBtn.style.background = data.micMuted ? "rgba(229, 9, 20, 0.2)" : "rgba(255,255,255,0.1)";
+            }
+            if (camBtn) {
+                camBtn.textContent = data.cameraMuted ? "📷 Turn Camera On" : "📷 Turn Camera Off";
+                camBtn.style.background = data.cameraMuted ? "rgba(255,255,255,0.1)" : "rgba(229, 9, 20, 0.2)";
+            }
+        });
+
+        eventBus.on("JITSI_PARTICIPANTS_CHANGED", function(data) {
+            var countSpan = document.getElementById("voiceParticipantCount");
+            if (countSpan) {
+                countSpan.textContent = data.count;
+            }
+        });
 
         // Boot subsystems topological sequence
         kernel.boot().then(function() {

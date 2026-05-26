@@ -62,8 +62,7 @@ export class DriftController {
         const buffering = !!(adapterState && adapterState.buffering);
         const stalled = !!(adapterState && adapterState.paused && isPlaying);
         const cooldownActive = typeof syncEngine.isSeekCooldownActive === 'function' && syncEngine.isSeekCooldownActive();
-        const aggressiveAllowed = !!(syncEngine.providerSyncMode === 'precise' && !syncEngine.aggressiveSeekingDisabled);
-
+        
         if (buffering) {
             if (typeof syncEngine.noteProviderBufferingStart === 'function') {
                 syncEngine.noteProviderBufferingStart();
@@ -85,6 +84,33 @@ export class DriftController {
             this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "playback-stalled", difference });
             return "blocked";
         }
+
+        // --- SAFE_SYNC_MODE ---
+        const SAFE_SYNC_MODE = true;
+        if (SAFE_SYNC_MODE) {
+            // Restore normal playback rate, no rate manipulation allowed
+            this.restoreNormalPlaybackRate(adapter, syncEngine);
+            
+            // Only seek if drift > 20s
+            if (absDiff > 20) {
+                if (cooldownActive) {
+                    this.eventBus.emit("SYNC_CORRECTION_ABORTED", { reason: "seek-cooldown", difference });
+                    return "cooldown";
+                }
+                console.log(`[DriftController] [SAFE_SYNC_MODE] Drift exceeded 20s (${absDiff.toFixed(2)}s). Seeking to ${targetSeconds.toFixed(1)}s`);
+                this.recordHardSeek(difference);
+                if (typeof syncEngine.noteHardSeekIssued === 'function') {
+                    syncEngine.noteHardSeekIssued(targetSeconds, difference);
+                }
+                adapter.seek(targetSeconds);
+                this.eventBus.emit("DRIFT_SEEK_EXECUTED", { targetTime: targetSeconds, difference, mode: 'safe' });
+                return "seeking";
+            }
+            
+            return "synced";
+        }
+
+        const aggressiveAllowed = !!(syncEngine.providerSyncMode === 'precise' && !syncEngine.aggressiveSeekingDisabled);
 
         if (cooldownActive) {
             if (absDiff >= 2 && absDiff <= 15) {

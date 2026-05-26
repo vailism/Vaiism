@@ -18,6 +18,16 @@ export class PresenceRenderer {
         this.eventBus.on("TYPING_UPDATED", (data) => {
             this.updateTypingIndicatorUI(data.activeTypers);
         });
+
+        this.eventBus.on("JITSI_PARTICIPANTS_CHANGED", (data) => {
+            this.latestJitsiData = data;
+            const presence = this.kernel.get("network.presence");
+            const socket = this.kernel.get("socket");
+            const participants = presence ? presence.participants : new Map();
+            const hostId = presence ? presence.hostId : null;
+            const isHost = socket ? socket.isHost : false;
+            this.updateParticipantsListUI(participants, hostId, isHost);
+        });
     }
 
     onStop() {}
@@ -39,15 +49,30 @@ export class PresenceRenderer {
 
             const fragment = document.createDocumentFragment();
             
+            // Jitsi local status
+            const jitsi = this.kernel.get("jitsi");
+            let localVoiceBadge = "";
+            let localSpeakingClass = "";
+            if (jitsi && jitsi.isJoined) {
+                if (jitsi.dominantSpeaker === 'local') {
+                    localVoiceBadge = ' <span class="speaking-indicator" title="Speaking">🔊</span>';
+                    localSpeakingClass = " speaking";
+                } else if (jitsi.micMuted) {
+                    localVoiceBadge = ' <span class="muted-indicator" title="Muted">🔇</span>';
+                } else {
+                    localVoiceBadge = ' <span class="voice-active-indicator" title="Voice Connected">🎙️</span>';
+                }
+            }
+
             // Add local user
             const meRow = document.createElement("div");
-            meRow.className = "party-member-row";
+            meRow.className = "party-member-row" + localSpeakingClass;
             const escapedLocalName = this.escapeHTML(userName);
             const firstCharLocal = this.escapeHTML(userName.charAt(0).toUpperCase());
             meRow.innerHTML = `
                 <div class="party-member-avatar" style="background:#e50914;">${firstCharLocal}</div>
                 <div class="party-member-info">
-                    <span class="party-member-name">${escapedLocalName} (You) ${isHost ? '👑' : ''}</span>
+                    <span class="party-member-name">${escapedLocalName} (You) ${isHost ? '👑' : ''}${localVoiceBadge}</span>
                     <span class="party-member-role">${isHost ? 'Host' : 'Viewer'}</span>
                 </div>
             `;
@@ -57,14 +82,34 @@ export class PresenceRenderer {
             participants.forEach((p, sId) => {
                 if (socket && sId === socket.getSocketId()) return;
                 const pRow = document.createElement("div");
-                pRow.className = "party-member-row";
+                
+                // Find matching Jitsi participant
+                let remoteVoiceBadge = "";
+                let remoteSpeakingClass = "";
+                if (jitsi && jitsi.isJoined) {
+                    const jp = Array.from(jitsi.participants.values()).find(
+                        jUser => jUser.name.toLowerCase() === p.displayName.toLowerCase()
+                    );
+                    if (jp) {
+                        if (jp.speaking || jitsi.dominantSpeaker === jp.id) {
+                            remoteVoiceBadge = ' <span class="speaking-indicator" title="Speaking">🔊</span>';
+                            remoteSpeakingClass = " speaking";
+                        } else if (jp.micMuted) {
+                            remoteVoiceBadge = ' <span class="muted-indicator" title="Muted">🔇</span>';
+                        } else {
+                            remoteVoiceBadge = ' <span class="voice-active-indicator" title="Voice Connected">🎙️</span>';
+                        }
+                    }
+                }
+
+                pRow.className = "party-member-row" + remoteSpeakingClass;
                 const isPHost = (sId === hostId);
                 const escapedDisplayName = this.escapeHTML(p.displayName);
                 const firstCharDisplay = this.escapeHTML(p.displayName.charAt(0).toUpperCase());
                 pRow.innerHTML = `
                     <div class="party-member-avatar" style="background:#333;">${firstCharDisplay}</div>
                     <div class="party-member-info">
-                        <span class="party-member-name">${escapedDisplayName} ${isPHost ? '👑' : ''}</span>
+                        <span class="party-member-name">${escapedDisplayName} ${isPHost ? '👑' : ''}${remoteVoiceBadge}</span>
                         <span class="party-member-role">${isPHost ? 'Host' : 'Viewer'}</span>
                     </div>
                 `;

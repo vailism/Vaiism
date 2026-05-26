@@ -129,7 +129,10 @@ export class StatusRenderer {
                 }
             }
 
-            if (confidence === "stabilizing" && (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "SYNCING")) {
+            if (syncEngine && syncEngine.isSyncFrozen()) {
+                displayStatus = "Sync Paused";
+                stateDotClass = "connecting";
+            } else if (confidence === "stabilizing" && (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "SYNCING")) {
                 displayStatus = "Sync Stabilizing";
                 stateDotClass = "connecting";
             } else if (confidence === "delayed") {

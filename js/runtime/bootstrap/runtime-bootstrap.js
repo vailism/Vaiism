@@ -21,6 +21,7 @@ import { StatusRenderer } from '../ui/StatusRenderer.js';
 import { PresenceRenderer } from '../ui/PresenceRenderer.js';
 import { OverlayManager } from '../ui/OverlayManager.js';
 import { HudRenderer } from '../ui/HudRenderer.js';
+import { JitsiManager } from '../integrations/JitsiManager.js';
 
 window.startModularWatchTogether = async function (isHost, inputPartyId, userName, videoId, videoType, playerWrapper) {
     console.log("[Bootstrap] Initializing modular Watch Together runtime...");
@@ -66,6 +67,7 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     kernel.register("ui.presence", new PresenceRenderer());
     kernel.register("ui.overlay", new OverlayManager());
     kernel.register("ui.hud", new HudRenderer());
+    kernel.register("jitsi", new JitsiManager());
 
     // Inject parameters
     socket.isHost = isHost;
@@ -73,6 +75,102 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     // Bind globally for fallback/legacy updates
     window.VailRuntime = kernel;
     window._vailRuntimeBooted = true;
+
+    // Collapsible Voice panel UI
+    const voiceHeader = document.getElementById("voiceCollapseHeader");
+    const voiceControls = document.getElementById("partyVoiceControls");
+    const voiceIcon = document.getElementById("voiceCollapseIcon");
+    if (voiceHeader && voiceControls && voiceIcon) {
+        let collapsed = false;
+        voiceHeader.addEventListener("click", () => {
+            collapsed = !collapsed;
+            voiceControls.style.maxHeight = collapsed ? "0px" : "500px";
+            voiceControls.style.padding = collapsed ? "0px" : "0 20px";
+            voiceIcon.style.transform = collapsed ? "rotate(-90deg)" : "rotate(0deg)";
+        });
+    }
+
+    // Join / Leave click handlers
+    const joinVoiceBtn = document.getElementById("joinVoiceBtn");
+    const leaveVoiceBtn = document.getElementById("leaveVoiceBtn");
+    const toggleMicBtn = document.getElementById("toggleMicBtn");
+    const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+
+    if (joinVoiceBtn) {
+        joinVoiceBtn.addEventListener("click", () => {
+            const currentRoomId = reconnect.roomId || targetRoomId;
+            eventBus.emit("JITSI_JOIN_REQUEST", { roomCode: currentRoomId, username: userName });
+        });
+    }
+
+    if (leaveVoiceBtn) {
+        leaveVoiceBtn.addEventListener("click", () => {
+            eventBus.emit("JITSI_LEAVE_REQUEST");
+        });
+    }
+
+    if (toggleMicBtn) {
+        toggleMicBtn.addEventListener("click", () => {
+            eventBus.emit("JITSI_TOGGLE_MIC");
+        });
+    }
+
+    if (toggleCameraBtn) {
+        toggleCameraBtn.addEventListener("click", () => {
+            eventBus.emit("JITSI_TOGGLE_CAMERA");
+        });
+    }
+
+    // Listen to Jitsi status events to update UI
+    eventBus.on("JITSI_STATUS_CHANGED", (data) => {
+        const dot = document.getElementById("voiceStatusDot");
+        const txt = document.getElementById("voiceStatusText");
+        const muteControls = document.getElementById("voiceMuteControls");
+        const joinBtn = document.getElementById("joinVoiceBtn");
+        const leaveBtn = document.getElementById("leaveVoiceBtn");
+
+        if (data.status === "connected") {
+            if (dot) dot.style.background = "#00ff66";
+            if (txt) txt.textContent = "Connected";
+            if (joinBtn) joinBtn.style.display = "none";
+            if (leaveBtn) leaveBtn.style.display = "flex";
+            if (muteControls) muteControls.style.display = "flex";
+            if (joinBtn) joinBtn.removeAttribute("disabled");
+        } else if (data.status === "connecting") {
+            if (dot) dot.style.background = "#f5a623";
+            if (txt) txt.textContent = "Connecting...";
+            if (joinBtn) joinBtn.setAttribute("disabled", "true");
+        } else {
+            // disconnected or error
+            if (dot) dot.style.background = "#ff4444";
+            if (txt) txt.textContent = data.error ? `Error: ${data.error}` : "Not Connected";
+            if (joinBtn) joinBtn.style.display = "flex";
+            if (leaveBtn) leaveBtn.style.display = "none";
+            if (muteControls) muteControls.style.display = "none";
+            if (joinBtn) joinBtn.removeAttribute("disabled");
+        }
+    });
+
+    eventBus.on("JITSI_LOCAL_MUTE_CHANGED", (data) => {
+        const micBtn = document.getElementById("toggleMicBtn");
+        const camBtn = document.getElementById("toggleCameraBtn");
+
+        if (micBtn) {
+            micBtn.textContent = data.micMuted ? "🎤 Unmute Mic" : "🎤 Mute Mic";
+            micBtn.style.background = data.micMuted ? "rgba(229, 9, 20, 0.2)" : "rgba(255,255,255,0.1)";
+        }
+        if (camBtn) {
+            camBtn.textContent = data.cameraMuted ? "📷 Turn Camera On" : "📷 Turn Camera Off";
+            camBtn.style.background = data.cameraMuted ? "rgba(255,255,255,0.1)" : "rgba(229, 9, 20, 0.2)";
+        }
+    });
+
+    eventBus.on("JITSI_PARTICIPANTS_CHANGED", (data) => {
+        const countSpan = document.getElementById("voiceParticipantCount");
+        if (countSpan) {
+            countSpan.textContent = data.count;
+        }
+    });
 
     // Boot subsystems topological sequence
     await kernel.boot();
