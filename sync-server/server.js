@@ -42,6 +42,11 @@ const healthLimiter = rateLimit({
     message: { error: 'Rate limit exceeded. Please try again later.' }
 });
 
+// Root endpoint friendly welcome
+app.get('/', (req, res) => {
+    res.status(200).send('Vailism Realtime Synchronization Server is running.');
+});
+
 // Health endpoint for keep-warm pings and monitoring
 app.get('/health', healthLimiter, (req, res) => {
     res.status(200).json({
