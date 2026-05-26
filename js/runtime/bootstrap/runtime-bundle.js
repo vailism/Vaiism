@@ -839,6 +839,7 @@
             this.pollTimer = null;
             this.pollingActive = false;
             this.telemetryListener = null;
+            this.commandResultListener = null;
             this.messageListener = null;
             this.visibilityListener = null;
             this.pollCount = 0;
@@ -861,6 +862,12 @@
                 supportsSeeking: true,
                 supportsPlaybackRate: true
             };
+            this.commandVerificationDelayMs = 500;
+            this.commandStats = {
+                total: 0,
+                success: 0,
+                failed: 0
+            };
         }
         play() { return this.sendCommand('play'); }
         pause() { return this.sendCommand('pause'); }
@@ -878,6 +885,12 @@
         }
         setTelemetryListener(listener) {
             this.telemetryListener = typeof listener === 'function' ? listener : null;
+        }
+        setCommandResultListener(listener) {
+            this.commandResultListener = typeof listener === 'function' ? listener : null;
+        }
+        getCommandStats() {
+            return { ...this.commandStats };
         }
         startPolling() {
             var self = this;
@@ -1091,12 +1104,125 @@
                 source: 'synthetic-clock'
             }, true);
         }
+        scheduleCommandVerification(command, details, beforeState) {
+            var self = this;
+            if (!self.pollingActive) return;
+
+            setTimeout(function() {
+                self.pollPlaybackState();
+
+                setTimeout(function() {
+                    var afterState = { ...self.lastKnownState };
+                    var result = self.verifyCommandResult(command, details || {}, beforeState || {}, afterState);
+
+                    self.commandStats.total += 1;
+                    if (result.success) {
+                        self.commandStats.success += 1;
+                    } else {
+                        self.commandStats.failed += 1;
+                        console.warn('[VAILISM COMMAND FAILED]', {
+                            command: command,
+                            reason: result.reason,
+                            expected: result.expected,
+                            before: beforeState,
+                            after: afterState
+                        });
+                    }
+
+                    if (command === 'seek') {
+                        console.log('[VAILISM SEEK VERIFY]', {
+                            success: result.success,
+                            reason: result.reason,
+                            expected: result.expected,
+                            beforeTime: beforeState.currentTime,
+                            afterTime: afterState.currentTime
+                        });
+                    } else if (command === 'play' || command === 'pause') {
+                        console.log('[VAILISM PLAY VERIFY]', {
+                            command: command,
+                            success: result.success,
+                            reason: result.reason,
+                            beforePaused: beforeState.paused,
+                            afterPaused: afterState.paused
+                        });
+                    }
+
+                    if (self.commandResultListener) {
+                        self.commandResultListener({
+                            command: command,
+                            success: result.success,
+                            reason: result.reason,
+                            expected: result.expected,
+                            before: beforeState,
+                            after: afterState,
+                            stats: self.getCommandStats(),
+                            ts: Date.now()
+                        });
+                    }
+                }, 120);
+            }, self.commandVerificationDelayMs);
+        }
+        verifyCommandResult(command, details, beforeState, afterState) {
+            var telemetryAge = Date.now() - this.lastTelemetryAt;
+            if (telemetryAge > 3000) {
+                return {
+                    success: false,
+                    reason: 'stale-telemetry',
+                    expected: { command: command, telemetryAgeMs: telemetryAge }
+                };
+            }
+
+            if (command === 'seek') {
+                var parsedTime = parseFloat(details.time);
+                var expectedTime = Number.isFinite(parsedTime) ? parsedTime : null;
+                var moved = Math.abs((afterState.currentTime || 0) - (beforeState.currentTime || 0));
+                var nearTarget = expectedTime !== null
+                    ? Math.abs((afterState.currentTime || 0) - expectedTime) <= 2.0
+                    : false;
+
+                return {
+                    success: moved > 0.25 || nearTarget,
+                    reason: moved > 0.25 || nearTarget ? 'ok' : 'seek-not-applied',
+                    expected: {
+                        expectedTime: expectedTime,
+                        minMovement: 0.25,
+                        maxDistanceToTarget: 2.0
+                    }
+                };
+            }
+
+            if (command === 'play') {
+                var playSuccess = afterState.paused === false;
+                return {
+                    success: playSuccess,
+                    reason: playSuccess ? 'ok' : 'play-not-applied',
+                    expected: { paused: false }
+                };
+            }
+
+            if (command === 'pause') {
+                var pauseSuccess = afterState.paused === true;
+                return {
+                    success: pauseSuccess,
+                    reason: pauseSuccess ? 'ok' : 'pause-not-applied',
+                    expected: { paused: true }
+                };
+            }
+
+            return {
+                success: true,
+                reason: 'no-verification-required',
+                expected: { command: command }
+            };
+        }
         sendCommand(command, details) {
             details = details || {};
             if (!this.iframe || !this.iframe.contentWindow) {
                 console.warn('[VAILISM PROVIDER] Unable to send ' + command.toUpperCase() + ' command: iframe not ready');
                 return false;
             }
+
+            var beforeState = { ...this.lastKnownState };
 
             var payload = {
                 event: 'command',
@@ -1112,19 +1238,12 @@
                 console.log('[VAILISM PROVIDER] Sending ' + command.toUpperCase() + ' command', payload);
                 this.iframe.contentWindow.postMessage(payload, '*');
 
-                if (command === 'play') {
-                    this.lastKnownState.paused = false;
-                    this.lastKnownState.playing = true;
-                } else if (command === 'pause') {
-                    this.lastKnownState.paused = true;
-                    this.lastKnownState.playing = false;
-                } else if (command === 'seek') {
-                    var time = Number.isFinite(parseFloat(details.time)) ? parseFloat(details.time) : this.lastKnownState.currentTime;
-                    this.lastKnownState.currentTime = time;
-                } else if (command === 'setPlaybackRate') {
+                if (command === 'setPlaybackRate') {
                     var rate = Number.isFinite(parseFloat(details.rate)) ? parseFloat(details.rate) : this.lastKnownState.playbackRate;
                     this.lastKnownState.playbackRate = rate;
                 }
+
+                this.scheduleCommandVerification(command, details, beforeState);
 
                 return true;
             } catch (error) {
@@ -1710,6 +1829,17 @@
             this.lastSnapshotBroadcast = 0;
             this.periodicSnapshotIntervalMs = 2500;
             this.maxDriftSeconds = 0.75;
+            this.forceHardSync = false;
+            this.lastAppliedSeek = null;
+            this.lastAppliedRemoteSnapshot = null;
+            this.lastVerifiedPlaybackTime = null;
+            this.commandVerification = {
+                total: 0,
+                success: 0,
+                failed: 0,
+                rate: 0
+            };
+            this.pendingRestoreAfterReload = null;
         }
 
         injectKernel(kernel) {
@@ -1726,11 +1856,15 @@
             this.lastLocalTime = 0;
             this.lastTimeProgression = Date.now();
             this.lastSnapshotBroadcast = 0;
+            this.forceHardSync = this.readForceHardSyncFlag();
 
             this.refreshAdapter(true);
 
             this.eventBus.on("REMOTE_SYNC_RECEIVED", (payload) => {
                 this.handleRemoteSync(payload);
+            });
+            this.eventBus.on('FORCE_SYNC_NOW', () => {
+                this.forceSyncNow();
             });
 
             const heartbeats = this.kernel.get("sync.heartbeats");
@@ -1799,6 +1933,11 @@
                         this.handleProviderTelemetry(snapshot);
                     });
                 }
+                if (typeof adapter.setCommandResultListener === 'function') {
+                    adapter.setCommandResultListener((result) => {
+                        this.handleProviderCommandResult(result);
+                    });
+                }
                 if (typeof adapter.startPolling === 'function') {
                     adapter.startPolling();
                 }
@@ -1850,6 +1989,11 @@
                         this.handleProviderTelemetry(snapshot);
                     });
                 }
+                if (typeof nextAdapter.setCommandResultListener === 'function') {
+                    nextAdapter.setCommandResultListener((result) => {
+                        this.handleProviderCommandResult(result);
+                    });
+                }
                 if (typeof nextAdapter.startPolling === 'function') {
                     nextAdapter.startPolling();
                 }
@@ -1863,14 +2007,40 @@
             return nextAdapter;
         }
 
+        readForceHardSyncFlag() {
+            try {
+                var urlValue = new URLSearchParams(window.location.search).get('forceHardSync');
+                if (urlValue === '1' || urlValue === 'true') return true;
+                if (window.FORCE_HARD_SYNC === true) return true;
+                if (window.localStorage && window.localStorage.getItem('FORCE_HARD_SYNC') === 'true') return true;
+            } catch (error) {
+                console.warn('[VAILISM RECONCILE] Failed reading FORCE_HARD_SYNC flag', error);
+            }
+            return false;
+        }
+
+        getCommandSuccessRate() {
+            if (!this.commandVerification.total) return 0;
+            return (this.commandVerification.success / this.commandVerification.total) * 100;
+        }
+
         getTelemetryStatus() {
+            const commandRate = this.getCommandSuccessRate();
             return {
                 source: this.telemetrySource,
                 pollingActive: this.pollingActive,
                 syntheticClockEnabled: this.syntheticClockEnabled,
                 capabilities: { ...this.providerCapabilities },
                 softSyncMode: this.softSyncMode,
-                lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null
+                lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null,
+                forceHardSync: this.forceHardSync,
+                lastAppliedSeek: this.lastAppliedSeek,
+                lastAppliedRemoteSnapshot: this.lastAppliedRemoteSnapshot,
+                lastVerifiedPlaybackTime: this.lastVerifiedPlaybackTime,
+                commandVerification: {
+                    ...this.commandVerification,
+                    rate: Number.isFinite(commandRate) ? commandRate : 0
+                }
             };
         }
 
@@ -1910,6 +2080,158 @@
         getAdapterType() {
             const adapter = this.getAdapter();
             return adapter ? adapter.constructor.name : 'None';
+        }
+
+        handleProviderCommandResult(result) {
+            if (!result) return;
+
+            this.commandVerification.total += 1;
+            if (result.success) {
+                this.commandVerification.success += 1;
+            } else {
+                this.commandVerification.failed += 1;
+            }
+            this.commandVerification.rate = this.getCommandSuccessRate();
+            this.lastVerifiedPlaybackTime = Number.isFinite(result.after && result.after.currentTime)
+                ? result.after.currentTime
+                : this.lastVerifiedPlaybackTime;
+
+            this.eventBus.emit('PROVIDER_COMMAND_VERIFIED', {
+                ...result,
+                aggregate: { ...this.commandVerification },
+                rate: this.commandVerification.rate,
+                ts: Date.now()
+            });
+
+            if (!result.success && result.command === 'seek') {
+                this.handleSeekCommandFailure(result);
+            }
+        }
+
+        handleSeekCommandFailure(result) {
+            const adapter = this.getAdapter();
+            if (!adapter || !adapter.iframe) return;
+            if (!this.lastAppliedRemoteSnapshot) return;
+
+            const metrics = this.kernel.get('metrics');
+            if (metrics) metrics.increment('providerReloads');
+
+            this.pendingRestoreAfterReload = { ...this.lastAppliedRemoteSnapshot, ts: Date.now() };
+            console.warn('[VAILISM COMMAND FAILED] Seek verification failed. Reloading iframe for forced recovery.', {
+                reason: result.reason,
+                snapshot: this.pendingRestoreAfterReload
+            });
+
+            try {
+                const frame = adapter.iframe;
+                const onLoad = () => {
+                    frame.removeEventListener('load', onLoad);
+                    setTimeout(() => {
+                        const snapshot = this.pendingRestoreAfterReload;
+                        this.pendingRestoreAfterReload = null;
+                        if (snapshot) {
+                            this.applyHardSnapshot(snapshot, 'reload-restore');
+                        }
+                    }, 220);
+                };
+                frame.addEventListener('load', onLoad);
+                if (frame.contentWindow && frame.contentWindow.location) {
+                    frame.contentWindow.location.reload();
+                } else {
+                    frame.src = frame.src;
+                }
+            } catch (error) {
+                console.error('[VAILISM COMMAND FAILED] Iframe reload fallback failed', error);
+            }
+        }
+
+        applyHardSnapshot(snapshot, reason = 'forced') {
+            const adapter = this.getAdapter();
+            if (!adapter) return;
+
+            const safeSnapshot = snapshot || {};
+            const snapshotTs = Number.isFinite(safeSnapshot.ts) ? safeSnapshot.ts : Date.now();
+            const currentTime = Number.isFinite(safeSnapshot.currentTime) ? safeSnapshot.currentTime : 0;
+            const playing = typeof safeSnapshot.playing === 'boolean' ? safeSnapshot.playing : !safeSnapshot.paused;
+            const lagSeconds = Math.max(0, (Date.now() - snapshotTs) / 1000);
+            const targetTime = currentTime + (playing ? lagSeconds : 0);
+
+            this.lastAppliedSeek = targetTime;
+            this.lastAppliedRemoteSnapshot = {
+                action: safeSnapshot.action || 'SNAPSHOT',
+                currentTime,
+                targetTime,
+                playing,
+                paused: !playing,
+                ts: snapshotTs,
+                reason,
+                appliedAt: Date.now()
+            };
+
+            const localTime = Number.isFinite(this.lastLocalTime) ? this.lastLocalTime : 0;
+            const drift = localTime - targetTime;
+            console.log('[VAILISM RECONCILE] Hard snapshot apply', {
+                reason,
+                hostTime: currentTime,
+                localTime,
+                calculatedDrift: drift,
+                targetTime,
+                forceHardSync: this.forceHardSync,
+                reconciliationResult: 'hard-applied'
+            });
+
+            this.sendProviderCommand(adapter, 'seek', { time: targetTime, reason: `hard-sync:${reason}` });
+            if (playing) {
+                this.isPlaying = true;
+                this.sendProviderCommand(adapter, 'play', { reason: `hard-sync:${reason}` });
+            } else {
+                this.isPlaying = false;
+                this.sendProviderCommand(adapter, 'pause', { reason: `hard-sync:${reason}` });
+            }
+
+            this.eventBus.emit('FORCED_RECONCILIATION_APPLIED', {
+                ...this.lastAppliedRemoteSnapshot,
+                localTime,
+                calculatedDrift: drift,
+                reconciliationResult: 'hard-applied'
+            });
+        }
+
+        forceSyncNow() {
+            const socket = this.kernel.get('socket');
+            const reconnectManager = this.kernel.get('recovery.reconnect');
+            if (socket && reconnectManager && reconnectManager.roomId && reconnectManager.username) {
+                socket.joinRoom(reconnectManager.roomId, reconnectManager.username, (res) => {
+                    const latest = res && res.lastSync ? res.lastSync : null;
+                    if (latest) {
+                        this.applyHardSnapshot(latest, 'manual-button-fresh');
+                        return;
+                    }
+
+                    const snapshots = this.kernel.get('sync.snapshots');
+                    const snapshot = snapshots && typeof snapshots.getSnapshot === 'function'
+                        ? snapshots.getSnapshot()
+                        : null;
+                    if (snapshot) {
+                        this.applyHardSnapshot(snapshot, 'manual-button-cached');
+                    } else {
+                        console.warn('[VAILISM RECONCILE] Force Sync Now requested, but no snapshot is available');
+                    }
+                });
+                return true;
+            }
+
+            const snapshots = this.kernel.get('sync.snapshots');
+            const snapshot = snapshots && typeof snapshots.getSnapshot === 'function'
+                ? snapshots.getSnapshot()
+                : null;
+            if (snapshot) {
+                this.applyHardSnapshot(snapshot, 'manual-button-cached');
+                return true;
+            }
+
+            console.warn('[VAILISM RECONCILE] Force Sync Now requested, but no snapshot is available');
+            return false;
         }
 
         recordProviderCommand(command, success, details) {
@@ -2077,11 +2399,35 @@
             self.isSyncingLocal = true;
             var networkLag = (Date.now() - ts) / 1000;
             var targetTime = currentTime + (playing ? networkLag : 0);
+            var localTime = Number.isFinite(self.lastLocalTime) ? self.lastLocalTime : 0;
+            var calculatedDrift = localTime - targetTime;
+
+            console.log('[VAILISM RECONCILE] Snapshot received', {
+                action: action || 'SYNC',
+                hostTime: currentTime,
+                localTime: localTime,
+                calculatedDrift: calculatedDrift,
+                targetTime: targetTime,
+                forceHardSync: self.forceHardSync,
+                reconciliationResult: self.forceHardSync ? 'hard-sync' : 'drift-controller'
+            });
 
             console.log("[SyncEngine] Remote sync: " + action + " at " + targetTime.toFixed(1) + "s (lag=" + networkLag.toFixed(2) + "s)");
 
             var adapter = self.getAdapter();
             if (adapter) {
+                if (self.forceHardSync) {
+                    self.applyHardSnapshot(payload, 'remote-sync');
+                    var forcedConfidence = self.kernel.get('sync.confidence');
+                    if (forcedConfidence) {
+                        forcedConfidence.setConfidence('stabilizing');
+                    }
+                    setTimeout(function() {
+                        self.isSyncingLocal = false;
+                    }, 500);
+                    return;
+                }
+
                 if (playing !== self.isPlaying) {
                     self.isPlaying = playing;
                     var fsm = self.kernel.get("fsm");
@@ -3052,6 +3398,19 @@
                         var telemetryAge = telemetry.lastTelemetryAgeMs !== null
                             ? (telemetry.lastTelemetryAgeMs / 1000).toFixed(1) + 's'
                             : 'N/A';
+                        var lastAppliedSeek = Number.isFinite(telemetry.lastAppliedSeek)
+                            ? telemetry.lastAppliedSeek.toFixed(2) + 's'
+                            : 'N/A';
+                        var lastAppliedRemoteSnapshot = telemetry.lastAppliedRemoteSnapshot
+                            ? JSON.stringify(telemetry.lastAppliedRemoteSnapshot)
+                            : 'N/A';
+                        var lastVerifiedPlaybackTime = Number.isFinite(telemetry.lastVerifiedPlaybackTime)
+                            ? telemetry.lastVerifiedPlaybackTime.toFixed(2) + 's'
+                            : 'N/A';
+                        var commandVerification = telemetry.commandVerification || { total: 0, success: 0, failed: 0, rate: 0 };
+                        var commandSuccessRate = Number.isFinite(commandVerification.rate)
+                            ? commandVerification.rate.toFixed(1) + '%'
+                            : '0.0%';
                         var capabilityMatrix = telemetry.capabilities
                             ? 'cmd=' + (telemetry.capabilities.supportsCommands ? 'Y' : 'N') +
                               ' telem=' + (telemetry.capabilities.supportsTelemetry ? 'Y' : 'N') +
@@ -3076,9 +3435,14 @@
                             'Last Sync: ' + lastSyncAge + '<br>' +
                             'Telemetry Source: ' + (telemetry.source || 'none') + '<br>' +
                             'Telemetry Age: ' + telemetryAge + '<br>' +
+                            'Force Hard Sync: ' + (telemetry.forceHardSync ? 'YES' : 'NO') + '<br>' +
                             'Polling Active: ' + (telemetry.pollingActive ? 'YES' : 'NO') + '<br>' +
                             'Synthetic Clock: ' + (telemetry.syntheticClockEnabled ? 'YES' : 'NO') + '<br>' +
                             'Soft Sync Mode: ' + (telemetry.softSyncMode ? 'YES' : 'NO') + '<br>' +
+                            'Last Applied Seek: ' + lastAppliedSeek + '<br>' +
+                            'Last Remote Snapshot: ' + lastAppliedRemoteSnapshot + '<br>' +
+                            'Last Verified Playback Time: ' + lastVerifiedPlaybackTime + '<br>' +
+                            'Provider Command Success Rate: ' + commandSuccessRate + ' (' + commandVerification.success + '/' + commandVerification.total + ')<br>' +
                             'Capabilities: ' + capabilityMatrix + '<br>' +
                             'Heartbeat Age: ' + age + '<br>' +
                             'Tab Visibility: ' + vis + '<br>' +
@@ -3095,7 +3459,16 @@
                             'Recovery Seeks: ' + metrics.recoveryAttempts + '<br>' +
                             'Iframe Reloads: ' + metrics.providerReloads + '<br>' +
                             'Socket Reconnects: ' + metrics.reconnectCount + '<br>' +
-                            'Heartbeat Misses: ' + metrics.heartbeatMisses;
+                            'Heartbeat Misses: ' + metrics.heartbeatMisses + '<br>' +
+                            '<button id="vailismForceSyncBtn" style="margin-top:6px;padding:4px 8px;background:#00e5ff;color:#001014;border:0;border-radius:4px;cursor:pointer;font-weight:600;">Force Sync Now</button>';
+
+                        var forceSyncBtn = document.getElementById('vailismForceSyncBtn');
+                        if (forceSyncBtn && !forceSyncBtn.dataset.bound) {
+                            forceSyncBtn.dataset.bound = '1';
+                            forceSyncBtn.addEventListener('click', function() {
+                                self.eventBus.emit('FORCE_SYNC_NOW', { source: 'hud' });
+                            });
+                        }
                     });
                 });
             }, 200);

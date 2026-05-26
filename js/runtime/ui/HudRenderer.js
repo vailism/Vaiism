@@ -84,6 +84,19 @@ export class HudRenderer {
                     const telemetryAge = telemetry.lastTelemetryAgeMs !== null
                         ? (telemetry.lastTelemetryAgeMs / 1000).toFixed(1) + 's'
                         : 'N/A';
+                    const lastAppliedSeek = Number.isFinite(telemetry.lastAppliedSeek)
+                        ? `${telemetry.lastAppliedSeek.toFixed(2)}s`
+                        : 'N/A';
+                    const lastAppliedRemoteSnapshot = telemetry.lastAppliedRemoteSnapshot
+                        ? JSON.stringify(telemetry.lastAppliedRemoteSnapshot)
+                        : 'N/A';
+                    const lastVerifiedPlaybackTime = Number.isFinite(telemetry.lastVerifiedPlaybackTime)
+                        ? `${telemetry.lastVerifiedPlaybackTime.toFixed(2)}s`
+                        : 'N/A';
+                    const commandVerification = telemetry.commandVerification || { total: 0, success: 0, failed: 0, rate: 0 };
+                    const commandSuccessRate = Number.isFinite(commandVerification.rate)
+                        ? `${commandVerification.rate.toFixed(1)}%`
+                        : '0.0%';
                     const capabilityMatrix = telemetry.capabilities
                         ? `cmd=${telemetry.capabilities.supportsCommands ? 'Y' : 'N'} telem=${telemetry.capabilities.supportsTelemetry ? 'Y' : 'N'} seek=${telemetry.capabilities.supportsSeeking ? 'Y' : 'N'} rate=${telemetry.capabilities.supportsPlaybackRate ? 'Y' : 'N'}`
                         : 'N/A';
@@ -105,9 +118,14 @@ export class HudRenderer {
                         Last Sync: ${lastSyncAge}<br>
                         Telemetry Source: ${telemetry.source || 'none'}<br>
                         Telemetry Age: ${telemetryAge}<br>
+                        Force Hard Sync: ${telemetry.forceHardSync ? 'YES' : 'NO'}<br>
                         Polling Active: ${telemetry.pollingActive ? 'YES' : 'NO'}<br>
                         Synthetic Clock: ${telemetry.syntheticClockEnabled ? 'YES' : 'NO'}<br>
                         Soft Sync Mode: ${telemetry.softSyncMode ? 'YES' : 'NO'}<br>
+                        Last Applied Seek: ${lastAppliedSeek}<br>
+                        Last Remote Snapshot: ${lastAppliedRemoteSnapshot}<br>
+                        Last Verified Playback Time: ${lastVerifiedPlaybackTime}<br>
+                        Provider Command Success Rate: ${commandSuccessRate} (${commandVerification.success}/${commandVerification.total})<br>
                         Capabilities: ${capabilityMatrix}<br>
                         Heartbeat Age: ${age}<br>
                         Tab Visibility: ${vis}<br>
@@ -124,8 +142,17 @@ export class HudRenderer {
                         Recovery Seeks: ${metrics.recoveryAttempts}<br>
                         Iframe Reloads: ${metrics.providerReloads}<br>
                         Socket Reconnects: ${metrics.reconnectCount}<br>
-                        Heartbeat Misses: ${metrics.heartbeatMisses}
+                        Heartbeat Misses: ${metrics.heartbeatMisses}<br>
+                        <button id="vailismForceSyncBtn" style="margin-top:6px;padding:4px 8px;background:#00e5ff;color:#001014;border:0;border-radius:4px;cursor:pointer;font-weight:600;">Force Sync Now</button>
                     `;
+
+                    const forceSyncBtn = document.getElementById('vailismForceSyncBtn');
+                    if (forceSyncBtn && !forceSyncBtn.dataset.bound) {
+                        forceSyncBtn.dataset.bound = '1';
+                        forceSyncBtn.addEventListener('click', () => {
+                            this.eventBus.emit('FORCE_SYNC_NOW', { source: 'hud' });
+                        });
+                    }
                 });
             });
         }, 200);

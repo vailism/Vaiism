@@ -6,6 +6,7 @@ export class ProviderAdapter {
         this.pollTimer = null;
         this.pollingActive = false;
         this.telemetryListener = null;
+        this.commandResultListener = null;
         this.messageListener = null;
         this.visibilityListener = null;
         this.pollCount = 0;
@@ -28,6 +29,12 @@ export class ProviderAdapter {
             supportsSeeking: true,
             supportsPlaybackRate: true
         };
+        this.commandVerificationDelayMs = 500;
+        this.commandStats = {
+            total: 0,
+            success: 0,
+            failed: 0
+        };
     }
     play() { return this.sendCommand('play'); }
     pause() { return this.sendCommand('pause'); }
@@ -48,6 +55,14 @@ export class ProviderAdapter {
 
     setTelemetryListener(listener) {
         this.telemetryListener = typeof listener === 'function' ? listener : null;
+    }
+
+    setCommandResultListener(listener) {
+        this.commandResultListener = typeof listener === 'function' ? listener : null;
+    }
+
+    getCommandStats() {
+        return { ...this.commandStats };
     }
 
     startPolling() {
@@ -268,11 +283,126 @@ export class ProviderAdapter {
         }, true);
     }
 
+    scheduleCommandVerification(command, details, beforeState) {
+        if (!this.pollingActive) return;
+
+        setTimeout(() => {
+            this.pollPlaybackState();
+
+            setTimeout(() => {
+                const afterState = { ...this.lastKnownState };
+                const result = this.verifyCommandResult(command, details, beforeState, afterState);
+
+                this.commandStats.total += 1;
+                if (result.success) {
+                    this.commandStats.success += 1;
+                } else {
+                    this.commandStats.failed += 1;
+                    console.warn('[VAILISM COMMAND FAILED]', {
+                        command,
+                        reason: result.reason,
+                        expected: result.expected,
+                        before: beforeState,
+                        after: afterState
+                    });
+                }
+
+                if (command === 'seek') {
+                    console.log('[VAILISM SEEK VERIFY]', {
+                        success: result.success,
+                        reason: result.reason,
+                        expected: result.expected,
+                        beforeTime: beforeState.currentTime,
+                        afterTime: afterState.currentTime
+                    });
+                } else if (command === 'play' || command === 'pause') {
+                    console.log('[VAILISM PLAY VERIFY]', {
+                        command,
+                        success: result.success,
+                        reason: result.reason,
+                        beforePaused: beforeState.paused,
+                        afterPaused: afterState.paused
+                    });
+                }
+
+                if (this.commandResultListener) {
+                    this.commandResultListener({
+                        command,
+                        success: result.success,
+                        reason: result.reason,
+                        expected: result.expected,
+                        before: beforeState,
+                        after: afterState,
+                        stats: this.getCommandStats(),
+                        ts: Date.now()
+                    });
+                }
+            }, 120);
+        }, this.commandVerificationDelayMs);
+    }
+
+    verifyCommandResult(command, details, beforeState, afterState) {
+        const telemetryAge = Date.now() - this.lastTelemetryAt;
+        if (telemetryAge > 3000) {
+            return {
+                success: false,
+                reason: 'stale-telemetry',
+                expected: { command, telemetryAgeMs: telemetryAge }
+            };
+        }
+
+        if (command === 'seek') {
+            const expectedTime = Number.isFinite(parseFloat(details.time))
+                ? parseFloat(details.time)
+                : null;
+            const moved = Math.abs((afterState.currentTime || 0) - (beforeState.currentTime || 0));
+            const nearTarget = expectedTime !== null
+                ? Math.abs((afterState.currentTime || 0) - expectedTime) <= 2.0
+                : false;
+
+            return {
+                success: moved > 0.25 || nearTarget,
+                reason: moved > 0.25 || nearTarget ? 'ok' : 'seek-not-applied',
+                expected: {
+                    expectedTime,
+                    minMovement: 0.25,
+                    maxDistanceToTarget: 2.0
+                }
+            };
+        }
+
+        if (command === 'play') {
+            const success = afterState.paused === false;
+            return {
+                success,
+                reason: success ? 'ok' : 'play-not-applied',
+                expected: { paused: false }
+            };
+        }
+
+        if (command === 'pause') {
+            const success = afterState.paused === true;
+            return {
+                success,
+                reason: success ? 'ok' : 'pause-not-applied',
+                expected: { paused: true }
+            };
+        }
+
+        return {
+            success: true,
+            reason: 'no-verification-required',
+            expected: { command }
+        };
+    }
+
     sendCommand(command, details = {}) {
         if (!this.iframe || !this.iframe.contentWindow) {
             console.warn(`[VAILISM PROVIDER] Unable to send ${command.toUpperCase()} command: iframe not ready`);
             return false;
         }
+
+        const beforeState = { ...this.lastKnownState };
 
         const payload = {
             event: 'command',
@@ -288,19 +418,12 @@ export class ProviderAdapter {
             console.log(`[VAILISM PROVIDER] Sending ${command.toUpperCase()} command`, payload);
             this.iframe.contentWindow.postMessage(payload, '*');
 
-            if (command === 'play') {
-                this.lastKnownState.paused = false;
-                this.lastKnownState.playing = true;
-            } else if (command === 'pause') {
-                this.lastKnownState.paused = true;
-                this.lastKnownState.playing = false;
-            } else if (command === 'seek') {
-                const time = Number.isFinite(parseFloat(details.time)) ? parseFloat(details.time) : this.lastKnownState.currentTime;
-                this.lastKnownState.currentTime = time;
-            } else if (command === 'setPlaybackRate') {
+            if (command === 'setPlaybackRate') {
                 const rate = Number.isFinite(parseFloat(details.rate)) ? parseFloat(details.rate) : this.lastKnownState.playbackRate;
                 this.lastKnownState.playbackRate = rate;
             }
+
+            this.scheduleCommandVerification(command, details, beforeState);
 
             return true;
         } catch (error) {

@@ -37,6 +37,17 @@ export class SyncEngine {
         this.lastSnapshotBroadcast = 0;
         this.periodicSnapshotIntervalMs = 2500;
         this.maxDriftSeconds = 0.75;
+        this.forceHardSync = false;
+        this.lastAppliedSeek = null;
+        this.lastAppliedRemoteSnapshot = null;
+        this.lastVerifiedPlaybackTime = null;
+        this.commandVerification = {
+            total: 0,
+            success: 0,
+            failed: 0,
+            rate: 0
+        };
+        this.pendingRestoreAfterReload = null;
     }
 
     injectKernel(kernel) {
@@ -53,12 +64,16 @@ export class SyncEngine {
         this.lastLocalTime = 0;
         this.lastTimeProgression = Date.now();
         this.lastSnapshotBroadcast = 0;
+        this.forceHardSync = this.readForceHardSyncFlag();
 
         this.refreshAdapter(true);
 
         // Bind incoming sync listener
         this.eventBus.on("REMOTE_SYNC_RECEIVED", (payload) => {
             this.handleRemoteSync(payload);
+        });
+        this.eventBus.on('FORCE_SYNC_NOW', () => {
+            this.forceSyncNow();
         });
 
         // Start heartbeat transmit loops on host
@@ -128,6 +143,11 @@ export class SyncEngine {
                     this.handleProviderTelemetry(snapshot);
                 });
             }
+            if (typeof adapter.setCommandResultListener === 'function') {
+                adapter.setCommandResultListener((result) => {
+                    this.handleProviderCommandResult(result);
+                });
+            }
             if (typeof adapter.startPolling === 'function') {
                 adapter.startPolling();
             }
@@ -179,6 +199,11 @@ export class SyncEngine {
                     this.handleProviderTelemetry(snapshot);
                 });
             }
+            if (typeof nextAdapter.setCommandResultListener === 'function') {
+                nextAdapter.setCommandResultListener((result) => {
+                    this.handleProviderCommandResult(result);
+                });
+            }
             if (typeof nextAdapter.startPolling === 'function') {
                 nextAdapter.startPolling();
             }
@@ -195,6 +220,23 @@ export class SyncEngine {
     getAdapterType() {
         const adapter = this.getAdapter();
         return adapter ? adapter.constructor.name : 'None';
+    }
+
+    readForceHardSyncFlag() {
+        try {
+            const urlValue = new URLSearchParams(window.location.search).get('forceHardSync');
+            if (urlValue === '1' || urlValue === 'true') return true;
+            if (window.FORCE_HARD_SYNC === true) return true;
+            if (window.localStorage && window.localStorage.getItem('FORCE_HARD_SYNC') === 'true') return true;
+        } catch (error) {
+            console.warn('[VAILISM RECONCILE] Failed reading FORCE_HARD_SYNC flag', error);
+        }
+        return false;
+    }
+
+    getCommandSuccessRate() {
+        if (!this.commandVerification.total) return 0;
+        return (this.commandVerification.success / this.commandVerification.total) * 100;
     }
 
     recordProviderCommand(command, success, details = {}) {
@@ -220,14 +262,175 @@ export class SyncEngine {
     }
 
     getTelemetryStatus() {
+        const commandRate = this.getCommandSuccessRate();
         return {
             source: this.telemetrySource,
             pollingActive: this.pollingActive,
             syntheticClockEnabled: this.syntheticClockEnabled,
             capabilities: { ...this.providerCapabilities },
             softSyncMode: this.softSyncMode,
-            lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null
+            lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null,
+            forceHardSync: this.forceHardSync,
+            lastAppliedSeek: this.lastAppliedSeek,
+            lastAppliedRemoteSnapshot: this.lastAppliedRemoteSnapshot,
+            lastVerifiedPlaybackTime: this.lastVerifiedPlaybackTime,
+            commandVerification: {
+                ...this.commandVerification,
+                rate: Number.isFinite(commandRate) ? commandRate : 0
+            }
         };
+    }
+
+    handleProviderCommandResult(result) {
+        if (!result) return;
+
+        this.commandVerification.total += 1;
+        if (result.success) {
+            this.commandVerification.success += 1;
+        } else {
+            this.commandVerification.failed += 1;
+        }
+        this.commandVerification.rate = this.getCommandSuccessRate();
+        this.lastVerifiedPlaybackTime = Number.isFinite(result.after && result.after.currentTime)
+            ? result.after.currentTime
+            : this.lastVerifiedPlaybackTime;
+
+        this.eventBus.emit('PROVIDER_COMMAND_VERIFIED', {
+            ...result,
+            aggregate: { ...this.commandVerification },
+            rate: this.commandVerification.rate,
+            ts: Date.now()
+        });
+
+        if (!result.success && result.command === 'seek') {
+            this.handleSeekCommandFailure(result);
+        }
+    }
+
+    handleSeekCommandFailure(result) {
+        const adapter = this.getAdapter();
+        if (!adapter || !adapter.iframe) return;
+        if (!this.lastAppliedRemoteSnapshot) return;
+
+        const metrics = this.kernel.get('metrics');
+        if (metrics) metrics.increment('providerReloads');
+
+        this.pendingRestoreAfterReload = { ...this.lastAppliedRemoteSnapshot, ts: Date.now() };
+        console.warn('[VAILISM COMMAND FAILED] Seek verification failed. Reloading iframe for forced recovery.', {
+            reason: result.reason,
+            snapshot: this.pendingRestoreAfterReload
+        });
+
+        try {
+            const frame = adapter.iframe;
+            const onLoad = () => {
+                frame.removeEventListener('load', onLoad);
+                setTimeout(() => {
+                    const snapshot = this.pendingRestoreAfterReload;
+                    this.pendingRestoreAfterReload = null;
+                    if (snapshot) {
+                        this.applyHardSnapshot(snapshot, 'reload-restore');
+                    }
+                }, 220);
+            };
+            frame.addEventListener('load', onLoad);
+            if (frame.contentWindow && frame.contentWindow.location) {
+                frame.contentWindow.location.reload();
+            } else {
+                frame.src = frame.src;
+            }
+        } catch (error) {
+            console.error('[VAILISM COMMAND FAILED] Iframe reload fallback failed', error);
+        }
+    }
+
+    applyHardSnapshot(snapshot, reason = 'forced') {
+        const adapter = this.getAdapter();
+        if (!adapter) return;
+
+        const safeSnapshot = snapshot || {};
+        const snapshotTs = Number.isFinite(safeSnapshot.ts) ? safeSnapshot.ts : Date.now();
+        const currentTime = Number.isFinite(safeSnapshot.currentTime) ? safeSnapshot.currentTime : 0;
+        const playing = typeof safeSnapshot.playing === 'boolean' ? safeSnapshot.playing : !safeSnapshot.paused;
+        const lagSeconds = Math.max(0, (Date.now() - snapshotTs) / 1000);
+        const targetTime = currentTime + (playing ? lagSeconds : 0);
+
+        this.lastAppliedSeek = targetTime;
+        this.lastAppliedRemoteSnapshot = {
+            action: safeSnapshot.action || 'SNAPSHOT',
+            currentTime,
+            targetTime,
+            playing,
+            paused: !playing,
+            ts: snapshotTs,
+            reason,
+            appliedAt: Date.now()
+        };
+
+        const localTime = Number.isFinite(this.lastLocalTime) ? this.lastLocalTime : 0;
+        const drift = localTime - targetTime;
+        console.log('[VAILISM RECONCILE] Hard snapshot apply', {
+            reason,
+            hostTime: currentTime,
+            localTime,
+            calculatedDrift: drift,
+            targetTime,
+            forceHardSync: this.forceHardSync,
+            reconciliationResult: 'hard-applied'
+        });
+
+        this.sendProviderCommand(adapter, 'seek', { time: targetTime, reason: `hard-sync:${reason}` });
+        if (playing) {
+            this.isPlaying = true;
+            this.sendProviderCommand(adapter, 'play', { reason: `hard-sync:${reason}` });
+        } else {
+            this.isPlaying = false;
+            this.sendProviderCommand(adapter, 'pause', { reason: `hard-sync:${reason}` });
+        }
+
+        this.eventBus.emit('FORCED_RECONCILIATION_APPLIED', {
+            ...this.lastAppliedRemoteSnapshot,
+            localTime,
+            calculatedDrift: drift,
+            reconciliationResult: 'hard-applied'
+        });
+    }
+
+    forceSyncNow() {
+        const socket = this.kernel.get('socket');
+        const reconnectManager = this.kernel.get('recovery.reconnect');
+        if (socket && reconnectManager && reconnectManager.roomId && reconnectManager.username) {
+            socket.joinRoom(reconnectManager.roomId, reconnectManager.username, (res) => {
+                const latest = res && res.lastSync ? res.lastSync : null;
+                if (latest) {
+                    this.applyHardSnapshot(latest, 'manual-button-fresh');
+                    return;
+                }
+
+                const snapshots = this.kernel.get('sync.snapshots');
+                const snapshot = snapshots && typeof snapshots.getSnapshot === 'function'
+                    ? snapshots.getSnapshot()
+                    : null;
+                if (snapshot) {
+                    this.applyHardSnapshot(snapshot, 'manual-button-cached');
+                } else {
+                    console.warn('[VAILISM RECONCILE] Force Sync Now requested, but no snapshot is available');
+                }
+            });
+            return true;
+        }
+
+        const snapshots = this.kernel.get('sync.snapshots');
+        const snapshot = snapshots && typeof snapshots.getSnapshot === 'function'
+            ? snapshots.getSnapshot()
+            : null;
+        if (snapshot) {
+            this.applyHardSnapshot(snapshot, 'manual-button-cached');
+            return true;
+        }
+
+        console.warn('[VAILISM RECONCILE] Force Sync Now requested, but no snapshot is available');
+        return false;
     }
 
     getSyncSnapshot() {
@@ -397,11 +600,35 @@ export class SyncEngine {
         this.isSyncingLocal = true;
         const networkLag = (Date.now() - ts) / 1000;
         const targetTime = currentTime + (playing ? networkLag : 0);
+        const localTime = Number.isFinite(this.lastLocalTime) ? this.lastLocalTime : 0;
+        const calculatedDrift = localTime - targetTime;
+
+        console.log('[VAILISM RECONCILE] Snapshot received', {
+            action: action || 'SYNC',
+            hostTime: currentTime,
+            localTime,
+            calculatedDrift,
+            targetTime,
+            forceHardSync: this.forceHardSync,
+            reconciliationResult: this.forceHardSync ? 'hard-sync' : 'drift-controller'
+        });
 
         console.log(`[SyncEngine] Remote sync: ${action} at ${targetTime.toFixed(1)}s (lag=${networkLag.toFixed(2)}s)`);
 
         const adapter = this.getAdapter();
         if (adapter) {
+            if (this.forceHardSync) {
+                this.applyHardSnapshot(payload, 'remote-sync');
+                const confidenceManager = this.kernel.get('sync.confidence');
+                if (confidenceManager) {
+                    confidenceManager.setConfidence('stabilizing');
+                }
+                setTimeout(() => {
+                    this.isSyncingLocal = false;
+                }, 500);
+                return;
+            }
+
             if (playing !== this.isPlaying) {
                 this.isPlaying = playing;
                 const fsm = this.kernel.get("fsm");
