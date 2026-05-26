@@ -1,0 +1,19 @@
+{
+  "name": "vailism-sync-server",
+  "version": "1.0.0",
+  "description": "Lightweight realtime synchronization server for Vailism Watch Together rooms",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Vailism Realtime Systems Team",
+  "license": "MIT"
+}
