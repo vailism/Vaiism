@@ -24,7 +24,7 @@ import { HudRenderer } from '../ui/HudRenderer.js';
 import { JitsiManager } from '../integrations/JitsiManager.js';
 
 window.startModularWatchTogether = async function (isHost, inputPartyId, userName, videoId, videoType, playerWrapper) {
-    console.log("[Bootstrap] Initializing modular Watch Together runtime...");
+    console.log("[Bootstrap] Initializing modular Watch Together (beta) runtime...");
     const kernel = new RuntimeKernel();
     
     // Core Services

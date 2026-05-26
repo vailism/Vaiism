@@ -3735,7 +3735,7 @@
                     var reconnect = self.kernel.get("recovery.reconnect");
 
                     if (!socket || !socket.isConnected()) {
-                        hud.innerHTML = '<strong>Watch Together Debug HUD</strong><br>' +
+                        hud.innerHTML = '<strong>Watch Together (beta) Debug HUD</strong><br>' +
                             'Socket: <span style="color:#ff4444">OFFLINE</span><br>' +
                             'Room: ' + (reconnect && reconnect.roomId ? reconnect.roomId : 'N/A') + '<br>' +
                             'Host: ' + (presence && presence.hostId ? presence.hostId : 'N/A');
@@ -3811,7 +3811,7 @@
                         var avgRtt = metricsStore.getAverageRtt(socket.rtt) + "ms";
                         
                         hud.innerHTML =
-                            '<strong>Watch Together Debug HUD</strong><br>' +
+                            '<strong>Watch Together (beta) Debug HUD</strong><br>' +
                             'Status: <span style="color: ' + (socket.isConnected() ? '#00ff66' : '#ff4444') + '">' + statusText + '</span><br>' +
                             'Room: ' + roomId + '<br>' +
                             'Host: ' + hostId + '<br>' +
@@ -4121,7 +4121,7 @@
     // ═══════════════════════════════════════════════════════════════════════
     window.startModularWatchTogether = function (isHost, inputPartyId, userName, videoId, videoType, playerWrapper) {
         console.log("[VAILISM BOOT] Runtime bootstrap initialized");
-        console.log("[VAILISM BOOT] Initializing modular Watch Together runtime...");
+        console.log("[VAILISM BOOT] Initializing modular Watch Together (beta) runtime...");
         console.log("[VAILISM BOOT] isHost=" + isHost + " userName=" + userName + " videoId=" + videoId);
 
         var kernel = new RuntimeKernel();

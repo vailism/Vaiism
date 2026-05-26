@@ -567,7 +567,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                         <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                         <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                     </svg>
-                    Watch Together
+                    Watch Together (beta)
                 </button>
                 <button class="vailism-server-btn" id="modal-next-ep-btn" style="display:none; margin-right: 12px; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
                     Next Ep

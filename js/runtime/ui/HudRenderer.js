@@ -39,9 +39,9 @@ export class HudRenderer {
                 const presence = this.kernel.get("network.presence");
                 const reconnect = this.kernel.get("recovery.reconnect");
 
-                if (!socket || !socket.isConnected()) {
+                    if (!socket || !socket.isConnected()) {
                     hud.innerHTML = `
-                        <strong>Watch Together Debug HUD</strong><br>
+                        <strong>Watch Together (beta) Debug HUD</strong><br>
                         Socket: <span style="color:#ff4444">OFFLINE</span><br>
                         Room: ${reconnect && reconnect.roomId ? reconnect.roomId : 'N/A'}<br>
                         Host: ${presence && presence.hostId ? presence.hostId : 'N/A'}
@@ -126,7 +126,7 @@ export class HudRenderer {
                     const syncFreezeState = syncEngine.isSyncFrozen() ? "FROZEN" : "ACTIVE";
 
                     hud.innerHTML = `
-                        <strong>Watch Together Debug HUD</strong><br>
+                        <strong>Watch Together (beta) Debug HUD</strong><br>
                         Status: <span style="color: ${socket.isConnected() ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
                         Room: ${roomId}<br>
                         Host: ${hostId}<br>
