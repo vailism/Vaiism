@@ -15,5 +15,8 @@
     "node": ">=18.0.0"
   },
   "author": "Vailism Realtime Systems Team",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
 }

@@ -394,7 +394,10 @@
         <!-- Collapsible Watch Together Sidebar -->
         <div class="vailism-party-sidebar collapsed" id="partySidebar" role="region" aria-label="Watch Party Control Panel">
             <div class="party-sidebar-header">
-                <h3>Party Mode</h3>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <h3>Party Mode</h3>
+                    <span id="partyConnectionBadge" class="party-badge connecting" title="Connection Status"></span>
+                </div>
                 <button class="close-sidebar-btn" id="closeSidebarBtn" aria-label="Close watch party sidebar panel">&times;</button>
             </div>
             <div class="party-sidebar-content">
@@ -423,20 +426,41 @@
                 </div>
 
                 <!-- Active Participants -->
-                <div class="party-settings-title" style="margin-left: 20px; margin-bottom: 8px;">Participants</div>
+                <div class="party-settings-title" style="margin-left: 20px; margin-bottom: 8px;">Participants (<span id="partyUserCount">1</span>)</div>
                 <div class="party-members-list" id="partyParticipantsList">
                     <!-- Injected dynamically -->
                 </div>
 
-                <!-- Watch Together Sync Status Card -->
+                <!-- Watch Together Sync Status Card & Premium Chat -->
                 <div class="party-chat-container">
                     <div class="party-settings-title" id="partyStatusTitle" style="margin-bottom: 8px;">Sync Connection</div>
-                    <div id="jaas-chat-iframe-container">
+                    <div id="jaas-chat-iframe-container" style="margin-bottom: 12px;">
                         <!-- Socket.io connection state card will be loaded here -->
+                    </div>
+
+                    <div class="party-chat-section" style="display:flex; flex-direction:column; flex-grow:1; min-height:0;">
+                        <div class="party-settings-title" style="margin-bottom: 8px;">Room Chat</div>
+                        <div class="party-chat-messages" id="partyChatMessages" style="flex-grow:1; overflow-y:auto; margin-bottom: 8px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); padding:10px; min-height:160px; max-height:300px;"></div>
+                        <div class="party-chat-typing" id="partyTypingIndicator" style="font-size:11px; color:rgba(255,255,255,0.5); min-height:16px; margin-bottom:4px; font-style:italic;"></div>
+                        <div class="party-chat-input-wrapper" style="display:flex; gap:8px;">
+                            <input type="text" id="partyChatInput" placeholder="Message friends..." maxlength="150" style="flex-grow:1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff; padding:8px 12px; font-size:13px; outline:none;" disabled>
+                            <button id="sendChatBtn" aria-label="Send message" style="background:#e50914; border:none; border-radius:6px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; color:#fff; cursor:pointer;" disabled>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Toast Notification Container -->
+        <div id="partyToastContainer" class="party-toast-container"></div>
+
+        <!-- Monospace Debug HUD Overlay -->
+        <div id="partyDebugOverlay" class="party-debug-overlay" style="display: none;"></div>
 
         <!-- Floating Sidebar Toggle Bubble -->
         <button class="party-panel-toggle hidden" id="partyPanelToggle" aria-label="Toggle Watch Party Settings Panel" aria-expanded="false">
@@ -454,6 +478,30 @@
         'use strict';
 
         // ── Watch Together Helpers & Classes ────────────────────────────────
+        function escapeHTML(str) {
+            if (!str) return "";
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Toast Notification System
+        function showToast(msg) {
+            const container = document.getElementById("partyToastContainer");
+            if (!container) return;
+            const toast = document.createElement("div");
+            toast.className = "party-toast";
+            toast.textContent = msg;
+            container.appendChild(toast);
+            
+            // Auto remove after 3s (matches CSS transition)
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 3000);
+        }
+
         class RoomManager {
             constructor() {
                 this.socket = null;
@@ -463,6 +511,19 @@
                 this.roomId = null;
                 this.username = null;
                 this.localSessionId = null;
+                this.hostId = null;
+                this.rtt = 0;
+                
+                // Typing indicators tracking
+                this.activeTypers = new Map();
+                this.isLocallyTyping = false;
+                this.localTypingTimeout = null;
+
+                // Timers
+                this.rttPingInterval = null;
+                this.reconnectInterval = null;
+                this.reconnectCountdown = 5;
+
                 // Render Sync Server endpoints configuration
                 this.serverUrl = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
                     ? 'http://localhost:3000'
@@ -485,6 +546,7 @@
                 console.log(`[RoomManager] Connecting to sync server: ${this.serverUrl}`);
                 
                 this.updateStatusUI('Connecting...', 'connecting');
+                this.updateConnectionQualityBadge('connecting');
 
                 this.socket = io(this.serverUrl, {
                     transports: ['websocket'],
@@ -497,32 +559,76 @@
                 this.socket.on('connect', () => {
                     this.localSessionId = this.socket.id;
                     console.log(`[RoomManager] Connected! Socket ID: ${this.socket.id}`);
+                    
+                    if (this.reconnectInterval) {
+                        clearInterval(this.reconnectInterval);
+                        this.reconnectInterval = null;
+                    }
+
                     this.updateStatusUI('Connected to Server', 'connected');
+                    this.updateConnectionQualityBadge('connected');
+                    this.toggleChatInputs(true);
+                    showToast("Connected to sync server");
 
                     if (this.roomId) {
                         console.log(`[RoomManager] Rejoining room: ${this.roomId}`);
                         this.joinRoom(this.roomId, this.username);
                     }
                     if (connectionCallback) connectionCallback();
+                    
+                    this.startRttPingLoop();
+                    this.setupChatInputListeners();
                 });
 
                 this.socket.on('disconnect', (reason) => {
                     console.warn(`[RoomManager] Disconnected. Reason: ${reason}`);
-                    this.updateStatusUI('Reconnecting...', 'reconnecting');
+                    this.updateStatusUI('Reconnecting in 5s...', 'reconnecting');
+                    this.updateConnectionQualityBadge('reconnecting');
+                    this.toggleChatInputs(false);
+                    showToast("Disconnected. Reconnecting...");
+                    this.stopRttPingLoop();
+                    
+                    // Clear typers
+                    this.activeTypers.clear();
+                    this.updateTypingIndicatorUI();
+
+                    // Start reconnect countdown
+                    if (this.reconnectInterval) clearInterval(this.reconnectInterval);
+                    this.reconnectCountdown = 5;
+                    this.reconnectInterval = setInterval(() => {
+                        this.reconnectCountdown--;
+                        if (this.reconnectCountdown <= 0) {
+                            this.reconnectCountdown = 5;
+                            this.updateStatusUI('Attempting reconnect...', 'reconnecting');
+                        } else {
+                            this.updateStatusUI(`Reconnecting in ${this.reconnectCountdown}s...`, 'reconnecting');
+                        }
+                    }, 1000);
                 });
 
                 this.socket.on('connect_error', (error) => {
                     console.error('[RoomManager] Connection error:', error);
                     this.updateStatusUI('Connection error. Retrying...', 'error');
+                    this.updateConnectionQualityBadge('disconnected');
+                    this.toggleChatInputs(false);
                 });
 
                 this.socket.on('sync-state', (data) => {
                     this.trigger('syncCommand', data);
                 });
 
+                this.socket.on('chat-message', (data) => {
+                    this.appendChatMessage(data);
+                });
+
+                this.socket.on('typing', (data) => {
+                    this.handleRemoteTyping(data);
+                });
+
                 this.socket.on('host-changed', (data) => {
                     console.log(`[RoomManager] Host changed: ${data.hostName} (${data.hostId})`);
                     this.isHost = (data.hostId === this.socket.id);
+                    this.hostId = data.hostId;
                     
                     const hostControls = document.getElementById("partyHostControls");
                     if (hostControls) {
@@ -538,9 +644,20 @@
                     
                     if (this.isHost) {
                         this.updateStatusUI('You are the Host', 'host');
+                        this.updateConnectionQualityBadge('host');
                     } else {
                         this.updateStatusUI(`Host: ${data.hostName}`, 'guest');
+                        this.updateConnectionQualityBadge('connected');
                     }
+
+                    showToast(`Host migrated: ${data.hostName} is now room controller`);
+                    
+                    // Insert system message in chat
+                    this.appendChatMessage({
+                        system: true,
+                        text: `Host migrated to ${data.hostName}`,
+                        ts: Date.now()
+                    });
                 });
 
                 this.socket.on('user-joined', (data) => {
@@ -550,6 +667,14 @@
                         this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
                     });
                     this.updateParticipantsListUI();
+                    showToast(`${data.name} joined the watch party`);
+                    
+                    // Insert system message in chat
+                    this.appendChatMessage({
+                        system: true,
+                        text: `${data.name} joined the room`,
+                        ts: Date.now()
+                    });
                 });
 
                 this.socket.on('user-left', (data) => {
@@ -559,11 +684,27 @@
                         this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
                     });
                     this.updateParticipantsListUI();
+                    showToast(`${data.name} left the watch party`);
+
+                    // Remove from active typers if present
+                    if (this.activeTypers.has(data.socketId)) {
+                        clearTimeout(this.activeTypers.get(data.socketId).timeout);
+                        this.activeTypers.delete(data.socketId);
+                        this.updateTypingIndicatorUI();
+                    }
+
+                    // Insert system message in chat
+                    this.appendChatMessage({
+                        system: true,
+                        text: `${data.name} left the room`,
+                        ts: Date.now()
+                    });
                 });
 
                 this.socket.on('error-msg', (data) => {
                     console.error('[RoomManager] Error:', data.message);
                     this.updateStatusUI(`Error: ${data.message}`, 'error');
+                    showToast(`Error: ${data.message}`);
                 });
             }
 
@@ -577,8 +718,10 @@
                     }
                     this.roomId = res.roomId;
                     this.isHost = true;
+                    this.hostId = res.hostId;
                     console.log(`[RoomManager] Room created: ${this.roomId}`);
                     this.updateStatusUI('Joined Room (Host)', 'host');
+                    this.updateConnectionQualityBadge('host');
                     
                     this.participants.clear();
                     res.participants.forEach(p => {
@@ -587,6 +730,7 @@
                     this.updateParticipantsListUI();
                     
                     setupShareLink(this.roomId);
+                    showToast(`Watch Together Room Created: ${this.roomId}`);
                 });
             }
 
@@ -596,12 +740,15 @@
                     if (res.error) {
                         console.error('[RoomManager] Join room failed:', res.error);
                         this.updateStatusUI(`Join failed: ${res.error}`, 'error');
+                        showToast(`Join failed: ${res.error}`);
                         return;
                     }
                     this.roomId = roomId;
                     this.isHost = (res.hostId === this.socket.id);
+                    this.hostId = res.hostId;
                     console.log(`[RoomManager] Joined room: ${this.roomId}, isHost: ${this.isHost}`);
                     this.updateStatusUI(this.isHost ? 'Joined Room (Host)' : `Joined Room`, this.isHost ? 'host' : 'guest');
+                    this.updateConnectionQualityBadge(this.isHost ? 'host' : 'connected');
                     
                     this.participants.clear();
                     res.participants.forEach(p => {
@@ -615,6 +762,7 @@
                     }
 
                     setupShareLink(this.roomId);
+                    showToast(`Joined Room: ${this.roomId}`);
 
                     if (!this.isHost && res.lastSync) {
                         this.trigger('syncCommand', {
@@ -652,40 +800,260 @@
 
             updateParticipantsListUI() {
                 const listContainer = document.getElementById("partyParticipantsList");
+                const countContainer = document.getElementById("partyUserCount");
                 if (!listContainer) return;
 
-                listContainer.innerHTML = "";
+                if (countContainer) {
+                    countContainer.textContent = this.participants.size + 1; // Include self
+                }
+
+                // Batch updates using DocumentFragment to prevent layout thrashing
+                const fragment = document.createDocumentFragment();
                 
+                // Add local user
                 const localName = this.username || 'You';
                 const meRow = document.createElement("div");
                 meRow.className = "party-member-row";
+                const isLocalHost = this.isHost;
+                const escapedLocalName = escapeHTML(localName);
+                const firstCharLocal = escapeHTML(localName.charAt(0).toUpperCase());
                 meRow.innerHTML = `
-                    <div class="party-member-avatar" style="background:#e50914;">${localName.charAt(0).toUpperCase()}</div>
+                    <div class="party-member-avatar" style="background:#e50914;">${firstCharLocal}</div>
                     <div class="party-member-info">
-                        <span class="party-member-name">${localName} (You)</span>
-                        <span class="party-member-role">${this.isHost ? 'Host' : 'Viewer'}</span>
+                        <span class="party-member-name">${escapedLocalName} (You) ${isLocalHost ? '👑' : ''}</span>
+                        <span class="party-member-role">${isLocalHost ? 'Host' : 'Viewer'}</span>
                     </div>
                 `;
-                listContainer.appendChild(meRow);
+                fragment.appendChild(meRow);
 
+                // Add other participants
                 this.participants.forEach((p, sId) => {
                     if (sId === this.socket?.id) return;
                     const pRow = document.createElement("div");
                     pRow.className = "party-member-row";
+                    const isPHost = (sId === this.hostId);
+                    const escapedDisplayName = escapeHTML(p.displayName);
+                    const firstCharDisplay = escapeHTML(p.displayName.charAt(0).toUpperCase());
                     pRow.innerHTML = `
-                        <div class="party-member-avatar" style="background:#333;">${p.displayName.charAt(0).toUpperCase()}</div>
+                        <div class="party-member-avatar" style="background:#333;">${firstCharDisplay}</div>
                         <div class="party-member-info">
-                            <span class="party-member-name">${p.displayName}</span>
-                            <span class="party-member-role">Viewer</span>
+                            <span class="party-member-name">${escapedDisplayName} ${isPHost ? '👑' : ''}</span>
+                            <span class="party-member-role">${isPHost ? 'Host' : 'Viewer'}</span>
                         </div>
                     `;
-                    listContainer.appendChild(pRow);
+                    fragment.appendChild(pRow);
                 });
+
+                // Single DOM write
+                listContainer.innerHTML = "";
+                listContainer.appendChild(fragment);
+            }
+
+            appendChatMessage(data) {
+                const chatMessages = document.getElementById("partyChatMessages");
+                if (!chatMessages) return;
+
+                // XSS Mitigation: Sanitize messages by treating content as pure text
+                const sanitizedText = escapeHTML(data.text);
+                const sanitizedSenderName = escapeHTML(data.senderName);
+
+                const isMe = data.senderId === this.socket?.id;
+                const isSenderHost = data.senderId === this.hostId || (this.isHost && isMe);
+
+                const row = document.createElement("div");
+                row.className = `party-message-row ${isMe ? 'me' : ''} ${data.system ? 'system' : ''}`;
+                
+                const timeStr = new Date(data.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                if (data.system) {
+                    row.innerHTML = `<div class="party-message-bubble">${sanitizedText}</div>`;
+                } else {
+                    const hostLabel = isSenderHost ? `<span class="party-badge-host">Host</span>` : '';
+                    row.innerHTML = `
+                        <div class="party-message-meta">
+                            <span class="sender-name">${sanitizedSenderName}</span>
+                            ${hostLabel}
+                            <span class="message-time">${timeStr}</span>
+                        </div>
+                        <div class="party-message-bubble">${sanitizedText}</div>
+                    `;
+                }
+
+                chatMessages.appendChild(row);
+
+                // Auto-scroll logic: only scroll if the viewer is already reading near the bottom
+                const threshold = 60;
+                const isAtBottom = (chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight) <= threshold;
+                if (isAtBottom || isMe) {
+                    // Batch scroll with requestAnimationFrame to prevent layout reflow blocking
+                    requestAnimationFrame(() => {
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    });
+                }
+
+                // Buffer capping to protect memory leak on long streaming views
+                if (chatMessages.children.length > 100) {
+                    chatMessages.removeChild(chatMessages.firstChild);
+                }
+            }
+
+            handleRemoteTyping(data) {
+                const { senderId, senderName, isTyping } = data;
+                
+                // Clear previous timeout for this user
+                if (this.activeTypers.has(senderId)) {
+                    clearTimeout(this.activeTypers.get(senderId).timeout);
+                    this.activeTypers.delete(senderId);
+                }
+
+                if (isTyping) {
+                    // Fail-safe auto-clear: if remote user disconnects, typing label will clear in 4s
+                    const timeout = setTimeout(() => {
+                        this.activeTypers.delete(senderId);
+                        this.updateTypingIndicatorUI();
+                    }, 4000);
+
+                    this.activeTypers.set(senderId, { name: senderName, timeout });
+                }
+
+                this.updateTypingIndicatorUI();
+            }
+
+            updateTypingIndicatorUI() {
+                const indicator = document.getElementById("partyTypingIndicator");
+                if (!indicator) return;
+
+                const typers = Array.from(this.activeTypers.values());
+                if (typers.length === 0) {
+                    indicator.innerHTML = "";
+                } else if (typers.length === 1) {
+                    indicator.innerHTML = `${escapeHTML(typers[0].name)} is typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                } else if (typers.length === 2) {
+                    indicator.innerHTML = `${escapeHTML(typers[0].name)} and ${escapeHTML(typers[1].name)} are typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                } else {
+                    indicator.innerHTML = `Multiple people are typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                }
+            }
+
+            setupChatInputListeners() {
+                const chatInput = document.getElementById("partyChatInput");
+                const sendBtn = document.getElementById("sendChatBtn");
+                if (!chatInput || !sendBtn) return;
+
+                // Typing indicator keyboard listener
+                chatInput.oninput = () => {
+                    if (!this.socket || !this.socket.connected) return;
+
+                    if (!this.isLocallyTyping) {
+                        this.isLocallyTyping = true;
+                        this.socket.emit('typing', { isTyping: true });
+                    }
+
+                    if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
+                    this.localTypingTimeout = setTimeout(() => {
+                        this.isLocallyTyping = false;
+                        if (this.socket && this.socket.connected) {
+                            this.socket.emit('typing', { isTyping: false });
+                        }
+                    }, 2000);
+                };
+
+                const sendMessage = () => {
+                    const text = chatInput.value.trim();
+                    if (!text) return;
+
+                    if (this.socket && this.socket.connected) {
+                        this.socket.emit('chat-message', { text });
+                        chatInput.value = "";
+
+                        // Immediately clear typing state on message emit
+                        this.isLocallyTyping = false;
+                        if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
+                        this.socket.emit('typing', { isTyping: false });
+                    }
+                };
+
+                sendBtn.onclick = sendMessage;
+                chatInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                };
+            }
+
+            toggleChatInputs(enabled) {
+                const chatInput = document.getElementById("partyChatInput");
+                const sendBtn = document.getElementById("sendChatBtn");
+                if (chatInput) chatInput.disabled = !enabled;
+                if (sendBtn) sendBtn.disabled = !enabled;
+            }
+
+            updateConnectionQualityBadge(state = null) {
+                const badge = document.getElementById("partyConnectionBadge");
+                if (!badge) return;
+
+                badge.className = "party-badge"; // Reset classes
+                let statusText = "Connected";
+                let stateClass = "connected";
+
+                if (state) {
+                    stateClass = state;
+                    if (state === 'connecting') statusText = 'Connecting to Sync Server...';
+                    else if (state === 'reconnecting') statusText = 'Reconnecting to Sync Server...';
+                    else if (state === 'disconnected') statusText = 'Disconnected from Server';
+                    else if (state === 'error') statusText = 'Sync Connection Error';
+                    else if (state === 'host') statusText = 'Connected (Host Controller)';
+                } else if (this.rtt > 300) {
+                    stateClass = "poor";
+                    statusText = `Poor Connection Latency (${this.rtt}ms RTT)`;
+                } else {
+                    stateClass = this.isHost ? 'host' : 'connected';
+                    statusText = `Connected (${this.rtt}ms RTT)`;
+                }
+
+                badge.classList.add(stateClass);
+                badge.title = statusText;
+            }
+
+            startRttPingLoop() {
+                this.stopRttPingLoop();
+                this.rttPingInterval = setInterval(() => {
+                    if (!this.socket || !this.socket.connected) return;
+                    const pingStart = Date.now();
+                    
+                    // Measure socket latency
+                    this.socket.once('heartbeat-ack', () => {
+                        this.rtt = Date.now() - pingStart;
+                        this.updateConnectionQualityBadge();
+                    });
+                    this.socket.emit('heartbeat');
+                }, 5000);
+            }
+
+            stopRttPingLoop() {
+                if (this.rttPingInterval) {
+                    clearInterval(this.rttPingInterval);
+                    this.rttPingInterval = null;
+                }
             }
 
             destroy() {
                 console.log("[RoomManager] Tearing down connection...");
                 this.updateStatusUI('Disconnected', 'error');
+                this.updateConnectionQualityBadge('disconnected');
+                this.toggleChatInputs(false);
+                this.stopRttPingLoop();
+                
+                if (this.reconnectInterval) {
+                    clearInterval(this.reconnectInterval);
+                    this.reconnectInterval = null;
+                }
+
+                if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
+                this.activeTypers.forEach(typer => clearTimeout(typer.timeout));
+                this.activeTypers.clear();
+                
                 if (this.socket) {
                     this.socket.disconnect();
                     this.socket = null;
@@ -695,6 +1063,7 @@
                 this.roomId = null;
                 this.username = null;
                 this.isHost = false;
+                this.hostId = null;
             }
         }
 
@@ -707,9 +1076,16 @@
                 this.isPlaying = false; // Track local playing state
                 this.seekDebounceTimeout = null;
                 this.syncHeartbeatInterval = null;
+                this.debugHudInterval = null;
+                
+                // Drift HUD properties
+                this.lastHostTime = 0;
+                this.lastHostReceivedTs = 0;
+                this.lastHostPlaying = false;
 
                 this._setupListeners();
                 this._startSyncHeartbeat();
+                this._startDebugHud();
             }
 
             _setupListeners() {
@@ -726,6 +1102,11 @@
 
                 const networkLag = (Date.now() - ts) / 1000;
                 const targetTime = currentTime + (playing ? networkLag : 0);
+
+                // Save playhead alignment parameters for debug HUD
+                this.lastHostTime = currentTime;
+                this.lastHostReceivedTs = Date.now();
+                this.lastHostPlaying = playing;
 
                 console.log(`[PlaybackSyncer] Remote sync: ${action} at ${targetTime.toFixed(1)}s (lag=${networkLag.toFixed(2)}s)`);
 
@@ -766,6 +1147,56 @@
                         }
                     });
                 }, 5000);
+            }
+
+            _startDebugHud() {
+                const isDebug = params.get('debug') === 'true' || 
+                                window.location.hostname === 'localhost' || 
+                                window.location.hostname === '127.0.0.1';
+                
+                const hud = document.getElementById("partyDebugOverlay");
+                if (!hud) return;
+
+                if (!isDebug) {
+                    hud.style.display = "none";
+                    return;
+                }
+
+                hud.style.display = "block";
+
+                this.debugHudInterval = setInterval(() => {
+                    if (!this.room || !this.room.socket) {
+                        hud.innerHTML = "HUD Status: Offline";
+                        return;
+                    }
+
+                    this.getPlayerTime().then(localTime => {
+                        let hostTime = localTime;
+                        let drift = 0;
+
+                        if (!this.room.isHost) {
+                            if (this.lastHostReceivedTs > 0) {
+                                const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
+                                hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
+                                drift = localTime - hostTime;
+                            }
+                        }
+
+                        const statusText = this.room.socket.connected ? "CONNECTED" : "DISCONNECTED";
+                        const rtt = this.room.rtt;
+                        
+                        hud.innerHTML = `
+                            <strong>Watch Together Debug HUD</strong><br>
+                            Status: <span style="color: ${this.room.socket.connected ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
+                            Role: ${this.room.isHost ? "HOST" : "GUEST"}<br>
+                            RTT: ${rtt}ms<br>
+                            Local Playhead: ${localTime.toFixed(2)}s<br>
+                            Host Playhead: ${hostTime.toFixed(2)}s<br>
+                            Drift: <span style="color: ${Math.abs(drift) > this.maxDriftSeconds ? '#ff4444' : '#00ff66'}">${drift.toFixed(3)}s</span><br>
+                            Max Allowed Drift: ${this.maxDriftSeconds}s
+                        `;
+                    });
+                }, 200);
             }
 
             sendToPlayer(data) {
@@ -835,6 +1266,7 @@
             destroy() {
                 if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
                 if (this.syncHeartbeatInterval) clearInterval(this.syncHeartbeatInterval);
+                if (this.debugHudInterval) clearInterval(this.debugHudInterval);
                 this.room = null;
                 this.wrapper = null;
             }
