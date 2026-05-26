@@ -499,6 +499,7 @@
 
             self.socket.on('connect', function() {
                 console.log("[VAILISM SOCKET] Connected! Socket ID: " + self.socket.id);
+                console.log('[VAILISM SOCKET] Connected');
                 self.eventBus.emit("SOCKET_CONNECTED", { socketId: self.socket.id });
                 if (connectionCallback) {
                     try { connectionCallback(); } catch (e) {
@@ -557,29 +558,41 @@
 
         createRoom(videoId, videoType, hostName, callback) {
             if (!this.socket) return;
+            var self = this;
             this.socket.emit('create-room', { videoId: videoId, videoType: videoType, hostName: hostName }, function(res) {
                 if (callback) {
                     try { callback(res); } catch (e) {
                         console.error("[SocketManager] Error in createRoom callback:", e);
                     }
                 }
+                if (res && !res.error) {
+                    console.log('[VAILISM ROOM] Created room ' + res.roomId);
+                    self.eventBus.emit('ROOM_CREATED', { roomId: res.roomId, hostName: hostName, videoId: videoId, videoType: videoType });
+                }
             });
         }
 
         joinRoom(roomId, userName, callback) {
             if (!this.socket) return;
+            var self = this;
             this.socket.emit('join-room', { roomId: roomId, userName: userName }, function(res) {
                 if (callback) {
                     try { callback(res); } catch (e) {
                         console.error("[SocketManager] Error in joinRoom callback:", e);
                     }
                 }
+                if (res && !res.error) {
+                    console.log('[VAILISM ROOM] Joined room ' + roomId);
+                    self.eventBus.emit('ROOM_JOINED', { roomId: roomId, userName: userName, room: res.room || null });
+                }
             });
         }
 
         emitSyncEvent(data) {
             if (!this.socket) return;
+            console.log('[VAILISM SYNC] Emitting ' + String(data && data.action ? data.action : 'SYNC').toUpperCase(), data);
             this.socket.emit('sync-event', data);
+            this.eventBus.emit('SYNC_EVENT_EMITTED', data);
         }
 
         emitChatMessage(text) {
@@ -594,6 +607,7 @@
 
         emitHeartbeat() {
             if (!this.socket) return;
+            console.log('[VAILISM HEARTBEAT] Emitting heartbeat');
             this.socket.emit('heartbeat');
         }
 
@@ -821,10 +835,36 @@
         constructor(iframe) {
             this.iframe = iframe;
         }
-        play() {}
-        pause() {}
-        seek(time) {}
-        setPlaybackRate(rate) {}
+        play() { return this.sendCommand('play'); }
+        pause() { return this.sendCommand('pause'); }
+        seek(time) { return this.sendCommand('seek', { time: time, currentTime: time, position: time }); }
+        setPlaybackRate(rate) { return this.sendCommand('setPlaybackRate', { rate: rate, playbackRate: rate }); }
+        sendCommand(command, details) {
+            details = details || {};
+            if (!this.iframe || !this.iframe.contentWindow) {
+                console.warn('[VAILISM PROVIDER] Unable to send ' + command.toUpperCase() + ' command: iframe not ready');
+                return false;
+            }
+
+            var payload = {
+                event: 'command',
+                type: command,
+                action: command,
+                command: command,
+                method: command,
+                timestamp: Date.now()
+            };
+            for (var key in details) payload[key] = details[key];
+
+            try {
+                console.log('[VAILISM PROVIDER] Sending ' + command.toUpperCase() + ' command', payload);
+                this.iframe.contentWindow.postMessage(payload, '*');
+                return true;
+            } catch (error) {
+                console.warn('[VAILISM PROVIDER] ' + command.toUpperCase() + ' command failed', error);
+                return false;
+            }
+        }
         normalizeMessage(payload) { return null; }
     }
 
@@ -833,24 +873,16 @@
     // ═══════════════════════════════════════════════════════════════════════
     class VidlinkAdapter extends ProviderAdapter {
         play() {
-            this.send({ command: "play" });
-            this.send("play");
+            return this.sendCommand("play");
         }
         pause() {
-            this.send({ command: "pause" });
-            this.send("pause");
+            return this.sendCommand("pause");
         }
         seek(time) {
-            this.send({ command: "seek", time: time });
+            return this.sendCommand("seek", { time: time, currentTime: time, position: time });
         }
         setPlaybackRate(rate) {
-            this.send({ command: "setPlaybackRate", rate: rate });
-        }
-        send(data) {
-            if (this.iframe && this.iframe.contentWindow) {
-                var msg = typeof data === "string" ? data : JSON.stringify(data);
-                this.iframe.contentWindow.postMessage(msg, "*");
-            }
+            return this.sendCommand("setPlaybackRate", { rate: rate, playbackRate: rate });
         }
         normalizeMessage(payload) {
             var data = payload;
@@ -861,7 +893,7 @@
             }
             if (!data || typeof data !== 'object') return null;
 
-            var rawEvent = (data.event || data.type || '').toLowerCase();
+            var rawEvent = String(data.event || data.type || data.action || data.command || '').toLowerCase();
             var type = null;
             if (rawEvent.includes('play') || rawEvent.includes('playing')) type = 'play';
             else if (rawEvent.includes('pause')) type = 'pause';
@@ -884,29 +916,21 @@
     // ═══════════════════════════════════════════════════════════════════════
     class VidsrcAdapter extends ProviderAdapter {
         play() {
-            this.send({ command: "play" });
-            this.send("play");
+            return this.sendCommand("play");
         }
         pause() {
-            this.send({ command: "pause" });
-            this.send("pause");
+            return this.sendCommand("pause");
         }
         seek(time) {
-            this.send({ command: "seek", time: time });
+            return this.sendCommand("seek", { time: time, currentTime: time, position: time });
         }
         setPlaybackRate(rate) {
-            this.send({ command: "setPlaybackRate", rate: rate });
-        }
-        send(data) {
-            if (this.iframe && this.iframe.contentWindow) {
-                var msg = typeof data === "string" ? data : JSON.stringify(data);
-                this.iframe.contentWindow.postMessage(msg, "*");
-            }
+            return this.sendCommand("setPlaybackRate", { rate: rate, playbackRate: rate });
         }
         normalizeMessage(payload) {
             var data = payload;
             if (!data || typeof data !== 'object') return null;
-            var rawEvent = (data.event || data.type || '').toLowerCase();
+            var rawEvent = String(data.event || data.type || data.action || data.command || '').toLowerCase();
             var type = null;
             if (rawEvent.includes('play')) type = 'play';
             else if (rawEvent.includes('pause')) type = 'pause';
@@ -918,33 +942,60 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // PROVIDER: VideasyAdapter
+    // ═══════════════════════════════════════════════════════════════════════
+    class VideasyAdapter extends ProviderAdapter {
+        play() { return this.sendCommand('play'); }
+        pause() { return this.sendCommand('pause'); }
+        seek(time) { return this.sendCommand('seek', { time: time, currentTime: time, position: time }); }
+        setPlaybackRate(rate) { return this.sendCommand('setPlaybackRate', { rate: rate, playbackRate: rate }); }
+        normalizeMessage(payload) {
+            var data = payload;
+            if (!data || typeof data !== 'object') return null;
+            if (data.data) data = data.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch(error) { return null; }
+            }
+            if (!data || typeof data !== 'object') return null;
+
+            var rawEvent = String(data.event || data.type || data.action || data.command || '').toLowerCase();
+            var type = null;
+            if (rawEvent.includes('play')) type = 'play';
+            else if (rawEvent.includes('pause')) type = 'pause';
+            else if (rawEvent.includes('timeupdate') || rawEvent.includes('progress') || rawEvent.includes('tick')) type = 'timeupdate';
+            else if (rawEvent.includes('ended') || rawEvent.includes('complete')) type = 'ended';
+            else if (rawEvent.includes('waiting') || rawEvent.includes('buffering')) type = 'buffering';
+            else if (rawEvent.includes('ready') || rawEvent.includes('loaded')) type = 'ready';
+
+            var currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
+            var duration = parseFloat(data.duration !== undefined ? data.duration : data.length) || 0;
+            var playbackRate = parseFloat(data.playbackRate !== undefined ? data.playbackRate : (data.rate !== undefined ? data.rate : 1.0)) || 1.0;
+            var buffering = !!(data.buffering || rawEvent.includes('buffering') || rawEvent.includes('waiting'));
+
+            return { type: type, currentTime: currentTime, duration: duration, playbackRate: playbackRate, buffering: buffering, raw: data };
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // PROVIDER: GenericIframeAdapter
     // ═══════════════════════════════════════════════════════════════════════
     class GenericIframeAdapter extends ProviderAdapter {
         play() {
-            this.send({ command: "play" });
-            this.send("play");
+            return this.sendCommand("play");
         }
         pause() {
-            this.send({ command: "pause" });
-            this.send("pause");
+            return this.sendCommand("pause");
         }
         seek(time) {
-            this.send({ command: "seek", time: time });
+            return this.sendCommand("seek", { time: time, currentTime: time, position: time });
         }
         setPlaybackRate(rate) {
-            this.send({ command: "setPlaybackRate", rate: rate });
-        }
-        send(data) {
-            if (this.iframe && this.iframe.contentWindow) {
-                var msg = typeof data === "string" ? data : JSON.stringify(data);
-                this.iframe.contentWindow.postMessage(msg, "*");
-            }
+            return this.sendCommand("setPlaybackRate", { rate: rate, playbackRate: rate });
         }
         normalizeMessage(payload) {
             var data = payload;
             if (!data || typeof data !== 'object') return null;
-            var rawEvent = (data.event || data.type || '').toLowerCase();
+            var rawEvent = String(data.event || data.type || data.action || data.command || '').toLowerCase();
             var type = null;
             if (rawEvent.includes('play')) type = 'play';
             else if (rawEvent.includes('pause')) type = 'pause';
@@ -1186,6 +1237,7 @@
 
             if (absDiff > this.maxDriftSeconds) {
                 console.log("[DriftController] Hard drift exceeded limit (" + absDiff.toFixed(2) + "s). Seeking to " + targetSeconds.toFixed(1) + "s");
+                console.log("[VAILISM SYNC] Applying SEEK", { targetTime: targetSeconds, difference: difference });
                 this.recordHardSeek(difference);
                 adapter.seek(targetSeconds);
                 adapter.setPlaybackRate(1.0);
@@ -1237,7 +1289,8 @@
             var self = this;
             self.lastHeartbeatTime = Date.now();
             
-            self.eventBus.on("REMOTE_SYNC_RECEIVED", function() {
+            self.eventBus.on("REMOTE_SYNC_RECEIVED", function(payload) {
+                console.log('[VAILISM HEARTBEAT] Received host heartbeat', payload);
                 self.lastHeartbeatTime = Date.now();
             });
 
@@ -1324,6 +1377,9 @@
             this.lastHostTime = 0;
             this.lastHostPlaying = false;
             this.maxDriftSeconds = 1.5;
+            this.lastPlaybackEvent = null;
+            this.lastProviderCommand = null;
+            this.lastSyncTimestamp = 0;
         }
 
         injectKernel(kernel) {
@@ -1388,9 +1444,40 @@
                 return new VidlinkAdapter(iframe);
             } else if (src.includes("vidsrc.to")) {
                 return new VidsrcAdapter(iframe);
+            } else if (src.includes("videasy.net")) {
+                return new VideasyAdapter(iframe);
             } else {
                 return new GenericIframeAdapter(iframe);
             }
+        }
+
+        getAdapterType() {
+            var adapter = this.getAdapter();
+            return adapter ? adapter.constructor.name : 'None';
+        }
+
+        recordProviderCommand(command, success, details) {
+            this.lastProviderCommand = {
+                command: command,
+                success: success,
+                adapter: this.getAdapterType(),
+                ts: Date.now()
+            };
+            details = details || {};
+            for (var key in details) this.lastProviderCommand[key] = details[key];
+            this.eventBus.emit("PROVIDER_COMMAND_ATTEMPTED", this.lastProviderCommand);
+        }
+
+        sendProviderCommand(adapter, command, details) {
+            details = details || {};
+            if (!adapter || typeof adapter.sendCommand !== 'function') {
+                this.recordProviderCommand(command, false, { reason: 'adapter-missing' });
+                return false;
+            }
+
+            var success = adapter.sendCommand(command, details);
+            this.recordProviderCommand(command, success, details);
+            return success;
         }
 
         normalizeMessage(payload) {
@@ -1438,6 +1525,10 @@
             var playing = payload.playing;
             var ts = payload.ts;
 
+            self.lastPlaybackEvent = { source: 'remote', action: action, currentTime: currentTime, playing: playing, ts: ts };
+            self.lastSyncTimestamp = Date.now();
+            console.log('[VAILISM SYNC] Received ' + String(action || 'SYNC').toUpperCase(), payload);
+
             self.lastHostTime = currentTime;
             self.lastHostPlaying = playing;
             
@@ -1460,9 +1551,9 @@
                     var fsm = self.kernel.get("fsm");
                     fsm.transitionTo(playing ? 'PLAYING' : 'PAUSED', "Remote command: " + action);
                     if (playing) {
-                        adapter.play();
+                        self.sendProviderCommand(adapter, 'play', { reason: 'remote-sync' });
                     } else {
-                        adapter.pause();
+                        self.sendProviderCommand(adapter, 'pause', { reason: 'remote-sync' });
                     }
                 }
                 
@@ -1559,7 +1650,10 @@
             if (evtName === 'timeupdate') return;
 
             console.log("[SyncEngine] Local Host Event: " + evtName + " at " + currentTime.toFixed(1) + "s");
+            console.log('[VAILISM SYNC] Emitting ' + String(evtName).toUpperCase(), { currentTime: currentTime, duration: duration, normalized: normalized });
             var adapter = self.getAdapter();
+            self.lastPlaybackEvent = { source: 'local', event: evtName, currentTime: currentTime, duration: duration, normalized: normalized, ts: Date.now() };
+            self.lastSyncTimestamp = Date.now();
 
             if (evtName === "play") {
                 self.isPlaying = true;
@@ -1572,6 +1666,7 @@
                     playbackRate: 1.0,
                     ts: Date.now()
                 });
+                self.eventBus.emit("SYNC_EVENT_EMITTED", { action: "PLAY", currentTime: currentTime, playing: true, ts: Date.now() });
                 self.eventBus.emit("LOCAL_SYNC_BROADCASTED", { action: "PLAY", currentTime: currentTime, playing: true, ts: Date.now() });
             } else if (evtName === "pause") {
                 self.isPlaying = false;
@@ -1584,6 +1679,7 @@
                     playbackRate: 1.0,
                     ts: Date.now()
                 });
+                self.eventBus.emit("SYNC_EVENT_EMITTED", { action: "PAUSE", currentTime: currentTime, playing: false, ts: Date.now() });
                 self.eventBus.emit("LOCAL_SYNC_BROADCASTED", { action: "PAUSE", currentTime: currentTime, playing: false, ts: Date.now() });
             } else if (evtName === "seek" || evtName === "seeked") {
                 fsm.transitionTo('SYNCING', 'Host local seek event');
@@ -1597,6 +1693,7 @@
                         playbackRate: 1.0,
                         ts: Date.now()
                     });
+                    self.eventBus.emit("SYNC_EVENT_EMITTED", { action: "SEEK", currentTime: currentTime, playing: self.isPlaying, ts: Date.now() });
                     self.eventBus.emit("LOCAL_SYNC_BROADCASTED", { action: "SEEK", currentTime: currentTime, playing: self.isPlaying, ts: Date.now() });
                     fsm.transitionTo(self.isPlaying ? 'PLAYING' : 'PAUSED', 'Resumed after local seek broadcast');
                 }, 250);
@@ -1916,6 +2013,25 @@
                 self.updateStatusUI();
                 self.updateConnectionQualityBadge();
             });
+            self.eventBus.on("SOCKET_CONNECTED", function() {
+                self.updateStatusUI();
+                self.updateConnectionQualityBadge();
+            });
+            self.eventBus.on("ROOM_CREATED", function() {
+                self.updateStatusUI();
+            });
+            self.eventBus.on("ROOM_JOINED", function() {
+                self.updateStatusUI();
+            });
+            self.eventBus.on("PRESENCE_UPDATED", function() {
+                self.updateStatusUI();
+            });
+            self.eventBus.on("REMOTE_SYNC_RECEIVED", function() {
+                self.updateStatusUI();
+            });
+            self.eventBus.on("SYNC_EVENT_EMITTED", function() {
+                self.updateStatusUI();
+            });
             self.eventBus.on("SYNC_CONFIDENCE_CHANGED", function() {
                 self.updateStatusUI();
                 self.updateConnectionQualityBadge();
@@ -1950,8 +2066,14 @@
                 var fsmState = fsm ? fsm.currentState : "IDLE";
                 var socket = self.kernel.get("socket");
                 var isHost = socket ? socket.isHost : false;
+                var roomManager = self.kernel.get("recovery.reconnect");
+                var roomId = roomManager ? roomManager.roomId : null;
+                var presence = self.kernel.get("network.presence");
+                var hostId = presence ? presence.hostId : null;
+                var socketId = socket ? socket.getSocketId() : null;
                 var confidenceManager = self.kernel.get("sync.confidence");
                 var confidence = confidenceManager ? confidenceManager.getConfidence() : "synced";
+                var syncEngine = self.kernel.get("sync");
                 
                 var stateMapping = {
                     "IDLE": { label: "Offline", dotClass: "error" },
@@ -1968,9 +2090,29 @@
                     "FAILED": { label: "Connection Failed", dotClass: "error" }
                 };
 
-                if (!displayStatus && stateMapping[fsmState]) {
-                    displayStatus = stateMapping[fsmState].label;
-                    stateDotClass = stateMapping[fsmState].dotClass;
+                if (!socket || !socket.isConnected()) {
+                    displayStatus = displayStatus || "Offline";
+                    stateDotClass = stateDotClass || "error";
+                } else if (!displayStatus) {
+                    if (fsmState === "JOINING") {
+                        displayStatus = "Joined Room";
+                        stateDotClass = "connecting";
+                    } else if (fsmState === "BUFFERING" || confidence === "buffering") {
+                        displayStatus = "Buffering Stream";
+                        stateDotClass = "connecting";
+                    } else if (isHost || hostId === socketId) {
+                        displayStatus = "Host Online";
+                        stateDotClass = "host";
+                    } else if (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "READY") {
+                        displayStatus = "Sync Active";
+                        stateDotClass = "connected";
+                    } else if (roomId) {
+                        displayStatus = "Connected";
+                        stateDotClass = "connected";
+                    } else if (stateMapping[fsmState]) {
+                        displayStatus = stateMapping[fsmState].label;
+                        stateDotClass = stateMapping[fsmState].dotClass;
+                    }
                 }
 
                 if (confidence === "stabilizing" && (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "SYNCING")) {
@@ -2323,16 +2465,21 @@
                 var failureIsolation = self.kernel.get("recovery.failureIsolation");
                 failureIsolation.runSafe("ui.hud", "renderHud", function() {
                     var socket = self.kernel.get("socket");
-                    if (!socket || !socket.isConnected()) {
-                        hud.innerHTML = "HUD Status: Offline";
-                        return;
-                    }
-
                     var syncEngine = self.kernel.get("sync");
                     var fsm = self.kernel.get("fsm");
                     var metricsStore = self.kernel.get("metrics");
                     var heartbeats = self.kernel.get("sync.heartbeats");
                     var confidenceManager = self.kernel.get("sync.confidence");
+                    var presence = self.kernel.get("network.presence");
+                    var reconnect = self.kernel.get("recovery.reconnect");
+
+                    if (!socket || !socket.isConnected()) {
+                        hud.innerHTML = '<strong>Watch Together Debug HUD</strong><br>' +
+                            'Socket: <span style="color:#ff4444">OFFLINE</span><br>' +
+                            'Room: ' + (reconnect && reconnect.roomId ? reconnect.roomId : 'N/A') + '<br>' +
+                            'Host: ' + (presence && presence.hostId ? presence.hostId : 'N/A');
+                        return;
+                    }
 
                     syncEngine.getPlayerTime().then(function(localTime) {
                         var hostTime = localTime;
@@ -2351,6 +2498,11 @@
                         var adapterType = adapter ? adapter.constructor.name : "None";
                         var confidence = confidenceManager.getConfidence().toUpperCase();
                         var fsmState = fsm ? fsm.currentState : "UNKNOWN";
+                        var roomId = reconnect && reconnect.roomId ? reconnect.roomId : "N/A";
+                        var hostId = presence && presence.hostId ? presence.hostId : "N/A";
+                        var lastPlaybackEvent = syncEngine.lastPlaybackEvent ? JSON.stringify(syncEngine.lastPlaybackEvent) : 'None';
+                        var lastProviderCommand = syncEngine.lastProviderCommand ? JSON.stringify(syncEngine.lastProviderCommand) : 'None';
+                        var lastSyncAge = syncEngine.lastSyncTimestamp ? ((Date.now() - syncEngine.lastSyncTimestamp) / 1000).toFixed(1) + 's' : 'N/A';
 
                         var metrics = metricsStore.metrics;
                         var avgDrift = metricsStore.getAverageDrift().toFixed(3) + "s";
@@ -2359,17 +2511,22 @@
                         hud.innerHTML =
                             '<strong>Watch Together Debug HUD</strong><br>' +
                             'Status: <span style="color: ' + (socket.isConnected() ? '#00ff66' : '#ff4444') + '">' + statusText + '</span><br>' +
+                            'Room: ' + roomId + '<br>' +
+                            'Host: ' + hostId + '<br>' +
                             'FSM State: <span style="color: #00e5ff">' + fsmState + '</span><br>' +
                             'Confidence: <span style="color: #f5a623">' + confidence + '</span><br>' +
                             'Role: ' + (socket.isHost ? "HOST" : "GUEST") + '<br>' +
                             'Adapter: ' + adapterType + '<br>' +
                             'RTT: ' + (socket.rtt || 0) + 'ms (Avg: ' + avgRtt + ')<br>' +
+                            'Last Sync: ' + lastSyncAge + '<br>' +
                             'Heartbeat Age: ' + age + '<br>' +
                             'Tab Visibility: ' + vis + '<br>' +
                             'Local Playhead: ' + localTime.toFixed(2) + 's<br>' +
                             'Host Playhead: ' + hostTime.toFixed(2) + 's<br>' +
                             'Drift: <span style="color: ' + (Math.abs(drift) > syncEngine.maxDriftSeconds ? '#ff4444' : '#00ff66') + '">' + drift.toFixed(3) + 's</span> (Avg: ' + avgDrift + ')<br>' +
                             'Max Allowed Drift: ' + syncEngine.maxDriftSeconds + 's<br>' +
+                            'Current Event: ' + lastPlaybackEvent + '<br>' +
+                            'Provider Cmd: ' + lastProviderCommand + '<br>' +
                             '<hr style="border:0;border-top:1px solid rgba(255,255,255,0.2);margin:4px 0;">' +
                             '<strong>Metrics:</strong><br>' +
                             'Hard Seeks: ' + metrics.hardSeeksCount + '<br>' +
@@ -2456,14 +2613,18 @@
             // Trigger Socket.io connect and rooms handshake
             var targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
             reconnect.setRoomContext(targetRoomId, userName);
+            var fsm = kernel.get("fsm");
+            fsm.transitionTo("CONNECTING", "Bootstrapping watch-together socket connection");
 
             socket.connect(userName, function() {
                 console.log("[VAILISM SOCKET] Connected successfully. Setting up room...");
+                fsm.transitionTo("JOINING", "Socket connected, joining room");
                 if (isHost) {
                     socket.createRoom(videoId, videoType, userName, function(res) {
                         if (res && !res.error) {
                             console.log("[VAILISM ROOM] Room created: " + res.roomId);
                             reconnect.setRoomContext(res.roomId, userName);
+                            fsm.transitionTo("BUFFERING", "Host room created, awaiting playback readiness");
                             if (typeof window.setupShareLink === "function") {
                                 window.setupShareLink(res.roomId);
                                 console.log("[VAILISM PARTY] Share link generated for room: " + res.roomId);
@@ -2476,6 +2637,7 @@
                     socket.joinRoom(targetRoomId, userName, function(res) {
                         if (res && !res.error) {
                             console.log("[VAILISM ROOM] Joined room: " + targetRoomId);
+                            fsm.transitionTo("BUFFERING", "Guest joined room, buffering stream");
                             if (typeof window.setupShareLink === "function") {
                                 window.setupShareLink(targetRoomId);
                                 console.log("[VAILISM PARTY] Share link generated for room: " + targetRoomId);

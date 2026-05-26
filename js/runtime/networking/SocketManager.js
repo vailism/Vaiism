@@ -47,6 +47,7 @@ export class SocketManager {
 
         this.socket.on('connect', () => {
             console.log(`[SocketManager] Connected! Socket ID: ${this.socket.id}`);
+            console.log('[VAILISM SOCKET] Connected');
             this.eventBus.emit("SOCKET_CONNECTED", { socketId: this.socket.id });
             if (connectionCallback) {
                 try {
@@ -113,6 +114,10 @@ export class SocketManager {
             if (callback) {
                 try {
                     callback(res);
+                    if (res && !res.error) {
+                        console.log(`[VAILISM ROOM] Created room ${res.roomId}`);
+                        this.eventBus.emit('ROOM_CREATED', { roomId: res.roomId, hostName, videoId, videoType });
+                    }
                 } catch (e) {
                     console.error("[SocketManager] Error in createRoom callback:", e);
                 }
@@ -126,6 +131,10 @@ export class SocketManager {
             if (callback) {
                 try {
                     callback(res);
+                    if (res && !res.error) {
+                        console.log(`[VAILISM ROOM] Joined room ${roomId}`);
+                        this.eventBus.emit('ROOM_JOINED', { roomId, userName, room: res.room || null });
+                    }
                 } catch (e) {
                     console.error("[SocketManager] Error in joinRoom callback:", e);
                 }
@@ -135,7 +144,9 @@ export class SocketManager {
 
     emitSyncEvent(data) {
         if (!this.socket) return;
+        console.log(`[VAILISM SYNC] Emitting ${String(data && data.action ? data.action : 'SYNC').toUpperCase()}`, data);
         this.socket.emit('sync-event', data);
+        this.eventBus.emit('SYNC_EVENT_EMITTED', data);
     }
 
     emitChatMessage(text) {
@@ -150,6 +161,7 @@ export class SocketManager {
 
     emitHeartbeat() {
         if (!this.socket) return;
+        console.log('[VAILISM HEARTBEAT] Emitting heartbeat');
         this.socket.emit('heartbeat');
     }
 

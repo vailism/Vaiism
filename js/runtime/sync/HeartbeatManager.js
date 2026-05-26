@@ -14,7 +14,8 @@ export class HeartbeatManager {
     onStart() {
         this.lastHeartbeatTime = Date.now();
         
-        this.eventBus.on("REMOTE_SYNC_RECEIVED", () => {
+        this.eventBus.on("REMOTE_SYNC_RECEIVED", (payload) => {
+            console.log('[VAILISM HEARTBEAT] Received host heartbeat', payload);
             this.lastHeartbeatTime = Date.now();
         });
 

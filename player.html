@@ -1157,6 +1157,7 @@
             // Feed to watch-party sync system
             if (window.VailRuntime) {
                 try {
+                    console.log('[VAILISM PROVIDER] Provider event received', normalized.raw || payload);
                     window.VailRuntime.get("eventBus").emit("PLAYER_MESSAGE_RECEIVED", payload);
                     const syncEngine = window.VailRuntime.get("sync");
                     if (syncEngine && typeof syncEngine.handleLocalPlayerEvent === 'function') {

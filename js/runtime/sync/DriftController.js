@@ -38,6 +38,7 @@ export class DriftController {
 
         if (absDiff > this.maxDriftSeconds) {
             console.log(`[DriftController] Hard drift exceeded limit (${absDiff.toFixed(2)}s). Seeking to ${targetSeconds.toFixed(1)}s`);
+                console.log(`[VAILISM SYNC] Applying SEEK`, { targetTime: targetSeconds, difference });
             
             this.recordHardSeek(difference);
 

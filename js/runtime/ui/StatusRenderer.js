@@ -16,6 +16,31 @@ export class StatusRenderer {
             this.updateStatusUI();
             this.updateConnectionQualityBadge();
         });
+
+        this.eventBus.on("SOCKET_CONNECTED", () => {
+            this.updateStatusUI();
+            this.updateConnectionQualityBadge();
+        });
+
+        this.eventBus.on("ROOM_CREATED", () => {
+            this.updateStatusUI();
+        });
+
+        this.eventBus.on("ROOM_JOINED", () => {
+            this.updateStatusUI();
+        });
+
+        this.eventBus.on("PRESENCE_UPDATED", () => {
+            this.updateStatusUI();
+        });
+
+        this.eventBus.on("REMOTE_SYNC_RECEIVED", () => {
+            this.updateStatusUI();
+        });
+
+        this.eventBus.on("SYNC_EVENT_EMITTED", () => {
+            this.updateStatusUI();
+        });
         
         this.eventBus.on("SYNC_CONFIDENCE_CHANGED", () => {
             this.updateStatusUI();
@@ -54,8 +79,15 @@ export class StatusRenderer {
             const fsmState = fsm ? fsm.currentState : "IDLE";
             const socket = this.kernel.get("socket");
             const isHost = socket ? socket.isHost : false;
+            const roomManager = this.kernel.get("recovery.reconnect");
+            const roomId = roomManager ? roomManager.roomId : null;
+            const presence = this.kernel.get("network.presence");
+            const hostId = presence ? presence.hostId : null;
+            const socketId = socket ? socket.getSocketId() : null;
             const confidenceManager = this.kernel.get("sync.confidence");
             const confidence = confidenceManager ? confidenceManager.getConfidence() : "synced";
+            const syncEngine = this.kernel.get("sync");
+            const lastPlaybackEvent = syncEngine ? syncEngine.lastPlaybackEvent : null;
             
             const stateMapping = {
                 "IDLE": { label: "Offline", dotClass: "error" },
@@ -72,9 +104,29 @@ export class StatusRenderer {
                 "FAILED": { label: "Connection Failed", dotClass: "error" }
             };
 
-            if (!displayStatus && stateMapping[fsmState]) {
-                displayStatus = stateMapping[fsmState].label;
-                stateDotClass = stateMapping[fsmState].dotClass;
+            if (!socket || !socket.isConnected()) {
+                displayStatus = displayStatus || "Offline";
+                stateDotClass = stateDotClass || "error";
+            } else if (!displayStatus) {
+                if (fsmState === "JOINING") {
+                    displayStatus = "Joined Room";
+                    stateDotClass = "connecting";
+                } else if (fsmState === "BUFFERING" || confidence === "buffering") {
+                    displayStatus = "Buffering Stream";
+                    stateDotClass = "connecting";
+                } else if (socket.isHost || hostId === socketId) {
+                    displayStatus = "Host Online";
+                    stateDotClass = "host";
+                } else if (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "READY") {
+                    displayStatus = "Sync Active";
+                    stateDotClass = "connected";
+                } else if (roomId) {
+                    displayStatus = "Connected";
+                    stateDotClass = "connected";
+                } else if (stateMapping[fsmState]) {
+                    displayStatus = stateMapping[fsmState].label;
+                    stateDotClass = stateMapping[fsmState].dotClass;
+                }
             }
 
             if (confidence === "stabilizing" && (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "SYNCING")) {

@@ -81,11 +81,16 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
     const targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
     reconnect.setRoomContext(targetRoomId, userName);
 
+    const fsm = kernel.get("fsm");
+    fsm.transitionTo("CONNECTING", "Bootstrapping watch-together socket connection");
+
     socket.connect(userName, () => {
+        fsm.transitionTo("JOINING", "Socket connected, joining room");
         if (isHost) {
             socket.createRoom(videoId, videoType, userName, (res) => {
                 if (res && !res.error) {
                     reconnect.setRoomContext(res.roomId, userName);
+                    fsm.transitionTo("BUFFERING", "Host room created, awaiting playback readiness");
                     if (typeof window.setupShareLink === "function") {
                         window.setupShareLink(res.roomId);
                     }
@@ -94,6 +99,7 @@ window.startModularWatchTogether = async function (isHost, inputPartyId, userNam
         } else {
             socket.joinRoom(targetRoomId, userName, (res) => {
                 if (res && !res.error) {
+                    fsm.transitionTo("BUFFERING", "Guest joined room, buffering stream");
                     if (typeof window.setupShareLink === "function") {
                         window.setupShareLink(targetRoomId);
                     }

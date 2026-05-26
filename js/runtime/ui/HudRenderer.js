@@ -31,16 +31,23 @@ export class HudRenderer {
             const failureIsolation = this.kernel.get("recovery.failureIsolation");
             failureIsolation.runSafe("ui.hud", "renderHud", () => {
                 const socket = this.kernel.get("socket");
-                if (!socket || !socket.isConnected()) {
-                    hud.innerHTML = "HUD Status: Offline";
-                    return;
-                }
-
                 const syncEngine = this.kernel.get("sync");
                 const fsm = this.kernel.get("fsm");
                 const metricsStore = this.kernel.get("metrics");
                 const heartbeats = this.kernel.get("sync.heartbeats");
                 const confidenceManager = this.kernel.get("sync.confidence");
+                const presence = this.kernel.get("network.presence");
+                const reconnect = this.kernel.get("recovery.reconnect");
+
+                if (!socket || !socket.isConnected()) {
+                    hud.innerHTML = `
+                        <strong>Watch Together Debug HUD</strong><br>
+                        Socket: <span style="color:#ff4444">OFFLINE</span><br>
+                        Room: ${reconnect && reconnect.roomId ? reconnect.roomId : 'N/A'}<br>
+                        Host: ${presence && presence.hostId ? presence.hostId : 'N/A'}
+                    `;
+                    return;
+                }
 
                 syncEngine.getPlayerTime().then(localTime => {
                     let hostTime = localTime;
@@ -59,6 +66,11 @@ export class HudRenderer {
                     const adapterType = adapter ? adapter.constructor.name : "None";
                     const confidence = confidenceManager.getConfidence().toUpperCase();
                     const fsmState = fsm ? fsm.currentState : "UNKNOWN";
+                    const roomId = reconnect && reconnect.roomId ? reconnect.roomId : "N/A";
+                    const hostId = presence && presence.hostId ? presence.hostId : "N/A";
+                    const lastPlaybackEvent = syncEngine.lastPlaybackEvent ? JSON.stringify(syncEngine.lastPlaybackEvent) : 'None';
+                    const lastProviderCommand = syncEngine.lastProviderCommand ? JSON.stringify(syncEngine.lastProviderCommand) : 'None';
+                    const lastSyncAge = syncEngine.lastSyncTimestamp ? ((Date.now() - syncEngine.lastSyncTimestamp) / 1000).toFixed(1) + "s" : "N/A";
 
                     const metrics = metricsStore.metrics;
                     const avgDrift = metricsStore.getAverageDrift().toFixed(3) + "s";
@@ -67,17 +79,22 @@ export class HudRenderer {
                     hud.innerHTML = `
                         <strong>Watch Together Debug HUD</strong><br>
                         Status: <span style="color: ${socket.isConnected() ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
+                        Room: ${roomId}<br>
+                        Host: ${hostId}<br>
                         FSM State: <span style="color: #00e5ff">${fsmState}</span><br>
                         Confidence: <span style="color: #f5a623">${confidence}</span><br>
                         Role: ${socket.isHost ? "HOST" : "GUEST"}<br>
                         Adapter: ${adapterType}<br>
                         RTT: ${socket.rtt || 0}ms (Avg: ${avgRtt})<br>
+                        Last Sync: ${lastSyncAge}<br>
                         Heartbeat Age: ${age}<br>
                         Tab Visibility: ${vis}<br>
                         Local Playhead: ${localTime.toFixed(2)}s<br>
                         Host Playhead: ${hostTime.toFixed(2)}s<br>
                         Drift: <span style="color: ${Math.abs(drift) > syncEngine.maxDriftSeconds ? '#ff4444' : '#00ff66'}">${drift.toFixed(3)}s</span> (Avg: ${avgDrift})<br>
                         Max Allowed Drift: ${syncEngine.maxDriftSeconds}s<br>
+                        Current Event: ${lastPlaybackEvent}<br>
+                        Provider Cmd: ${lastProviderCommand}<br>
                         <hr style="border:0;border-top:1px solid rgba(255,255,255,0.2);margin:4px 0;">
                         <strong>Metrics:</strong><br>
                         Hard Seeks: ${metrics.hardSeeksCount}<br>

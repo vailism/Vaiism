@@ -2,24 +2,16 @@ import { ProviderAdapter } from './ProviderAdapter.js';
 
 export class VidlinkAdapter extends ProviderAdapter {
     play() {
-        this.send({ command: "play" });
-        this.send("play");
+        return this.sendCommand("play");
     }
     pause() {
-        this.send({ command: "pause" });
-        this.send("pause");
+        return this.sendCommand("pause");
     }
     seek(time) {
-        this.send({ command: "seek", time: time });
+        return this.sendCommand("seek", { time: time, currentTime: time, position: time });
     }
     setPlaybackRate(rate) {
-        this.send({ command: "setPlaybackRate", rate: rate });
-    }
-    send(data) {
-        if (this.iframe && this.iframe.contentWindow) {
-            const msg = typeof data === "string" ? data : JSON.stringify(data);
-            this.iframe.contentWindow.postMessage(msg, "*");
-        }
+        return this.sendCommand("setPlaybackRate", { rate: rate, playbackRate: rate });
     }
     normalizeMessage(payload) {
         let data = payload;
@@ -30,7 +22,7 @@ export class VidlinkAdapter extends ProviderAdapter {
         }
         if (!data || typeof data !== 'object') return null;
 
-        const rawEvent = (data.event || data.type || '').toLowerCase();
+        const rawEvent = String(data.event || data.type || data.action || data.command || '').toLowerCase();
         let type = null;
         if (rawEvent.includes('play') || rawEvent.includes('playing')) type = 'play';
         else if (rawEvent.includes('pause')) type = 'pause';

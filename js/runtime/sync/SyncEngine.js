@@ -1,5 +1,6 @@
 import { VidlinkAdapter } from '../provider/VidlinkAdapter.js';
 import { VidsrcAdapter } from '../provider/VidsrcAdapter.js';
+import { VideasyAdapter } from '../provider/VideasyAdapter.js';
 import { GenericIframeAdapter } from '../provider/GenericIframeAdapter.js';
 
 export class SyncEngine {
@@ -14,6 +15,11 @@ export class SyncEngine {
         this.pendingHostPayload = null;
         this.lastLocalTime = 0;
         this.lastTimeProgression = Date.now();
+        this.lastPlaybackEvent = null;
+        this.lastProviderCommand = null;
+        this.lastSyncTimestamp = 0;
+        this.lastHostTime = 0;
+        this.lastHostPlaying = false;
     }
 
     injectKernel(kernel) {
@@ -79,9 +85,38 @@ export class SyncEngine {
             return new VidlinkAdapter(iframe);
         } else if (src.includes("vidsrc.to")) {
             return new VidsrcAdapter(iframe);
+        } else if (src.includes("videasy.net")) {
+            return new VideasyAdapter(iframe);
         } else {
             return new GenericIframeAdapter(iframe);
         }
+    }
+
+    getAdapterType() {
+        const adapter = this.getAdapter();
+        return adapter ? adapter.constructor.name : 'None';
+    }
+
+    recordProviderCommand(command, success, details = {}) {
+        this.lastProviderCommand = {
+            command,
+            success,
+            adapter: this.getAdapterType(),
+            ts: Date.now(),
+            ...details
+        };
+        this.eventBus.emit("PROVIDER_COMMAND_ATTEMPTED", this.lastProviderCommand);
+    }
+
+    sendProviderCommand(adapter, command, details = {}) {
+        if (!adapter || typeof adapter.sendCommand !== 'function') {
+            this.recordProviderCommand(command, false, { reason: 'adapter-missing' });
+            return false;
+        }
+
+        const success = adapter.sendCommand(command, details);
+        this.recordProviderCommand(command, success, details);
+        return success;
     }
 
     normalizeMessage(payload) {
@@ -124,6 +159,9 @@ export class SyncEngine {
         if (socket.isHost) return;
 
         const { action, currentTime, playing, ts } = payload;
+        this.lastPlaybackEvent = { source: 'remote', action, currentTime, playing, ts };
+        this.lastSyncTimestamp = Date.now();
+        console.log(`[VAILISM SYNC] Received ${String(action || 'SYNC').toUpperCase()}`, payload);
         
         if (this.isJoinBuffered) {
             this.pendingHostPayload = payload;
@@ -144,9 +182,9 @@ export class SyncEngine {
                 const fsm = this.kernel.get("fsm");
                 fsm.transitionTo(playing ? 'PLAYING' : 'PAUSED', `Remote command: ${action}`);
                 if (playing) {
-                    adapter.play();
+                    this.sendProviderCommand(adapter, 'play', { reason: 'remote-sync' });
                 } else {
-                    adapter.pause();
+                    this.sendProviderCommand(adapter, 'pause', { reason: 'remote-sync' });
                 }
             }
             
@@ -243,7 +281,10 @@ export class SyncEngine {
         if (evtName === 'timeupdate') return;
 
         console.log(`[SyncEngine] Local Host Event: ${evtName} at ${currentTime.toFixed(1)}s`);
+        console.log(`[VAILISM SYNC] Emitting ${String(evtName).toUpperCase()}`, { currentTime, duration, normalized });
         const adapter = this.getAdapter();
+        this.lastPlaybackEvent = { source: 'local', event: evtName, currentTime, duration, normalized, ts: Date.now() };
+        this.lastSyncTimestamp = Date.now();
 
         if (evtName === "play") {
             this.isPlaying = true;
@@ -256,6 +297,7 @@ export class SyncEngine {
                 playbackRate: 1.0,
                 ts: Date.now()
             });
+            this.eventBus.emit("SYNC_EVENT_EMITTED", { action: "PLAY", currentTime, playing: true, ts: Date.now() });
             this.eventBus.emit("LOCAL_SYNC_BROADCASTED", { action: "PLAY", currentTime, playing: true, ts: Date.now() });
         } else if (evtName === "pause") {
             this.isPlaying = false;
@@ -268,6 +310,7 @@ export class SyncEngine {
                 playbackRate: 1.0,
                 ts: Date.now()
             });
+            this.eventBus.emit("SYNC_EVENT_EMITTED", { action: "PAUSE", currentTime, playing: false, ts: Date.now() });
             this.eventBus.emit("LOCAL_SYNC_BROADCASTED", { action: "PAUSE", currentTime, playing: false, ts: Date.now() });
         } else if (evtName === "seek" || evtName === "seeked") {
             fsm.transitionTo('SYNCING', 'Host local seek event');
@@ -281,6 +324,7 @@ export class SyncEngine {
                     playbackRate: 1.0,
                     ts: Date.now()
                 });
+                this.eventBus.emit("SYNC_EVENT_EMITTED", { action: "SEEK", currentTime, playing: this.isPlaying, ts: Date.now() });
                 this.eventBus.emit("LOCAL_SYNC_BROADCASTED", { action: "SEEK", currentTime, playing: this.isPlaying, ts: Date.now() });
                 fsm.transitionTo(this.isPlaying ? 'PLAYING' : 'PAUSED', 'Resumed after local seek broadcast');
             }, 250);
