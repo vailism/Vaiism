@@ -8,14 +8,42 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const { rateLimit } = require('express-rate-limit');
 
 const app = express();
-app.use(cors());
 
-// Health endpoint designed for Uptime Kuma and Render keep-warm pings.
-// Render's free tier spins down servers after 15 minutes of silence. A ping interval
-// of 5-10 minutes from Uptime Kuma to this route keeps the service warm and responsive.
-app.get('/health', (req, res) => {
+// Trust reverse proxy for client IP rate limiting behind Render Load Balancers
+app.set('trust proxy', 1);
+
+// Add security headers (disables X-Powered-By, configures HSTS, etc.)
+app.use(helmet());
+
+// Compress JSON responses
+app.use(compression());
+
+// Set payload size limits
+app.use(express.json({ limit: '10kb' }));
+
+// Production CORS Origin validation
+const clientOrigin = process.env.CLIENT_ORIGIN || 'https://vaibhavanand.codes';
+app.use(cors({
+    origin: clientOrigin,
+    methods: ['GET', 'POST']
+}));
+
+// Apply request rate limit to health endpoint
+const healthLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes window
+    max: 100, // Limit each IP to 100 requests per 5 minutes
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Rate limit exceeded. Please try again later.' }
+});
+
+// Health endpoint for keep-warm pings and monitoring
+app.get('/health', healthLimiter, (req, res) => {
     res.status(200).json({
         status: 'ok',
         uptime: process.uptime(),
@@ -26,16 +54,16 @@ app.get('/health', (req, res) => {
 
 const server = http.createServer(app);
 
-// Initialize Socket.io server with CORS configurations.
-// On Render, we optimize connection configurations:
-// - pingTimeout: Increased to 20s to prevent disconnects on slow mobile networks.
-// - pingInterval: Set to 10s to continuously probe socket connections.
+// Production Socket.io config
+// - websocket-only transport to bypass slow HTTP polling connections
+// - pingTimeout / pingInterval custom values for slow networks
 const io = new Server(server, {
     cors: {
-        origin: '*', // In production, restrict this to specific Vercel app domains
+        origin: clientOrigin,
         methods: ['GET', 'POST']
     },
-    pingTimeout: 20000,
+    transports: ['websocket'],
+    pingTimeout: parseInt(process.env.HEARTBEAT_TIMEOUT_MS) || 20000,
     pingInterval: 10000
 });
 
@@ -358,5 +386,28 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`[Vailism Backend] Sync Server listening on port ${PORT}`);
+    console.log(`[Vailism Backend] Sync Server listening on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 });
+
+// Graceful shutdown handler
+function gracefulShutdown(signal) {
+    console.log(`[Vailism Backend] Received ${signal}. Shutting down gracefully...`);
+    
+    // Close HTTP server and Socket.io
+    io.close(() => {
+        console.log('[Vailism Backend] Socket.io closed.');
+        server.close(() => {
+            console.log('[Vailism Backend] Server closed.');
+            process.exit(0);
+        });
+    });
+
+    // Force shutdown after 10s to avoid hanging during container stops
+    setTimeout(() => {
+        console.error('[Vailism Backend] Force shutdown initiated after timeout.');
+        process.exit(1);
+    }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
