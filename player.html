@@ -462,6 +462,21 @@
         <!-- Monospace Debug HUD Overlay -->
         <div id="partyDebugOverlay" class="party-debug-overlay" style="display: none;"></div>
 
+        <!-- Party Join Overlay -->
+        <div id="partyJoinOverlay" class="party-join-overlay" style="display: none; opacity: 0;">
+            <div class="party-join-card">
+                <div class="netflix-spinner"></div>
+                <div class="party-join-status" id="partyJoinStatusText">Joining watch party...</div>
+            </div>
+        </div>
+
+        <!-- Autoplay Block Recovery Overlay -->
+        <div id="partyAutoplayBlockOverlay" class="party-autoplay-overlay" style="display: none;">
+            <button id="partyUnblockAutoplayBtn" class="party-unblock-btn">
+                <span>▶ Tap to Sync Playback</span>
+            </button>
+        </div>
+
         <!-- Floating Sidebar Toggle Bubble -->
         <button class="party-panel-toggle hidden" id="partyPanelToggle" aria-label="Toggle Watch Party Settings Panel" aria-expanded="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -483,6 +498,140 @@
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
+        }
+
+        // --- Provider Adapters ---
+        class ProviderAdapter {
+            constructor(iframe) {
+                this.iframe = iframe;
+            }
+            play() {}
+            pause() {}
+            seek(time) {}
+            setPlaybackRate(rate) {}
+            normalizeMessage(payload) { return null; }
+        }
+
+        class VidlinkAdapter extends ProviderAdapter {
+            play() {
+                this.send({ command: "play" });
+                this.send({ event: "command", func: "playVideo" });
+                this.send({ method: "play" });
+                this.send("play");
+            }
+            pause() {
+                this.send({ command: "pause" });
+                this.send({ event: "command", func: "pauseVideo" });
+                this.send({ method: "pause" });
+                this.send("pause");
+            }
+            seek(time) {
+                this.send({ command: "seek", time: time });
+                this.send({ event: "command", func: "seekTo", args: [time, true] });
+                this.send({ method: "seek", value: time });
+                this.send({ type: "seek", time: time });
+            }
+            setPlaybackRate(rate) {
+                this.send({ command: "setPlaybackRate", rate: rate });
+                this.send({ event: "command", func: "setPlaybackRate", args: [rate] });
+                this.send({ method: "setPlaybackRate", value: rate });
+            }
+            send(data) {
+                if (this.iframe && this.iframe.contentWindow) {
+                    const msg = typeof data === "string" ? data : JSON.stringify(data);
+                    this.iframe.contentWindow.postMessage(msg, "*");
+                }
+            }
+            normalizeMessage(payload) {
+                let data = (payload.type === 'PLAYER_EVENT' && payload.data) ? payload.data : payload;
+                if (!data || typeof data !== 'object') return null;
+
+                const rawEvent = (data.event || data.type || '').toLowerCase();
+                let type = null;
+                if (rawEvent.includes('play') || rawEvent.includes('playing')) type = 'play';
+                else if (rawEvent.includes('pause')) type = 'pause';
+                else if (rawEvent.includes('timeupdate') || rawEvent.includes('progress')) type = 'timeupdate';
+                else if (rawEvent.includes('ended') || rawEvent.includes('complete')) type = 'ended';
+                else if (rawEvent.includes('waiting') || rawEvent.includes('buffering')) type = 'buffering';
+                else if (rawEvent.includes('ready') || rawEvent.includes('loaded')) type = 'ready';
+
+                const currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
+                const duration = parseFloat(data.duration !== undefined ? data.duration : data.length) || 0;
+                const playbackRate = parseFloat(data.playbackRate !== undefined ? data.playbackRate : (data.rate !== undefined ? data.rate : 1.0)) || 1.0;
+                const buffering = !!(data.buffering || rawEvent.includes('buffering') || rawEvent.includes('waiting'));
+
+                return { type, currentTime, duration, playbackRate, buffering, raw: data };
+            }
+        }
+
+        class VidsrcAdapter extends ProviderAdapter {
+            play() {
+                this.send({ command: "play" });
+                this.send("play");
+            }
+            pause() {
+                this.send({ command: "pause" });
+                this.send("pause");
+            }
+            seek(time) {
+                this.send({ command: "seek", time: time });
+            }
+            setPlaybackRate(rate) {
+                this.send({ command: "setPlaybackRate", rate: rate });
+            }
+            send(data) {
+                if (this.iframe && this.iframe.contentWindow) {
+                    const msg = typeof data === "string" ? data : JSON.stringify(data);
+                    this.iframe.contentWindow.postMessage(msg, "*");
+                }
+            }
+            normalizeMessage(payload) {
+                let data = payload;
+                if (!data || typeof data !== 'object') return null;
+                const rawEvent = (data.event || data.type || '').toLowerCase();
+                let type = null;
+                if (rawEvent.includes('play')) type = 'play';
+                else if (rawEvent.includes('pause')) type = 'pause';
+                else if (rawEvent.includes('timeupdate')) type = 'timeupdate';
+                const currentTime = parseFloat(data.time || data.currentTime) || 0;
+                const duration = parseFloat(data.duration) || 0;
+                return { type, currentTime, duration, playbackRate: 1.0, buffering: false, raw: data };
+            }
+        }
+
+        class GenericIframeAdapter extends ProviderAdapter {
+            play() {
+                this.send({ command: "play" });
+                this.send("play");
+            }
+            pause() {
+                this.send({ command: "pause" });
+                this.send("pause");
+            }
+            seek(time) {
+                this.send({ command: "seek", time: time });
+            }
+            setPlaybackRate(rate) {
+                this.send({ command: "setPlaybackRate", rate: rate });
+            }
+            send(data) {
+                if (this.iframe && this.iframe.contentWindow) {
+                    const msg = typeof data === "string" ? data : JSON.stringify(data);
+                    this.iframe.contentWindow.postMessage(msg, "*");
+                }
+            }
+            normalizeMessage(payload) {
+                let data = payload;
+                if (!data || typeof data !== 'object') return null;
+                const rawEvent = (data.event || data.type || '').toLowerCase();
+                let type = null;
+                if (rawEvent.includes('play')) type = 'play';
+                else if (rawEvent.includes('pause')) type = 'pause';
+                else if (rawEvent.includes('timeupdate')) type = 'timeupdate';
+                const currentTime = parseFloat(data.currentTime || data.time) || 0;
+                const duration = parseFloat(data.duration) || 0;
+                return { type, currentTime, duration, playbackRate: 1.0, buffering: false, raw: data };
+            }
         }
 
         // Toast Notification System
@@ -779,7 +928,11 @@
                 if (!this.socket || !this.isHost) return;
                 this.socket.emit('sync-event', {
                     currentTime: data.currentTime,
-                    playing: data.playing
+                    playing: data.playing,
+                    paused: !data.playing,
+                    buffering: !!data.buffering,
+                    playbackRate: data.playbackRate || 1.0,
+                    ts: Date.now()
                 });
             }
 
@@ -787,12 +940,30 @@
                 const container = document.getElementById("jaas-chat-iframe-container");
                 if (!container) return;
                 
+                let displayStatus = text;
+                const confidence = window._playbackSyncer?.syncConfidence || "synced";
+                if (stateClass === 'connected' || stateClass === 'guest') {
+                    if (confidence === "stabilizing") {
+                        displayStatus = "Sync Stabilizing";
+                        stateClass = "connecting";
+                    } else if (confidence === "delayed") {
+                        displayStatus = "Playback Delayed";
+                        stateClass = "error";
+                    } else if (confidence === "buffering") {
+                        displayStatus = "Buffering Stream";
+                        stateClass = "connecting";
+                    } else {
+                        displayStatus = "Synced";
+                        stateClass = "connected";
+                    }
+                }
+
                 container.innerHTML = `
                     <div class="party-status-card ${stateClass}">
                         <div class="party-status-dot"></div>
                         <div class="party-status-details">
                             <span class="party-status-label">Room Status</span>
-                            <span class="party-status-value">${text}</span>
+                            <span class="party-status-value">${displayStatus}</span>
                         </div>
                     </div>
                 `;
@@ -1004,12 +1175,28 @@
                     else if (state === 'disconnected') statusText = 'Disconnected from Server';
                     else if (state === 'error') statusText = 'Sync Connection Error';
                     else if (state === 'host') statusText = 'Connected (Host Controller)';
-                } else if (this.rtt > 300) {
-                    stateClass = "poor";
-                    statusText = `Poor Connection Latency (${this.rtt}ms RTT)`;
                 } else {
-                    stateClass = this.isHost ? 'host' : 'connected';
-                    statusText = `Connected (${this.rtt}ms RTT)`;
+                    const confidence = window._playbackSyncer?.syncConfidence || "synced";
+                    
+                    if (confidence === "recovering") {
+                        stateClass = "reconnecting";
+                        statusText = "Sync recovering...";
+                    } else if (confidence === "buffering") {
+                        stateClass = "connecting";
+                        statusText = "Buffering stream...";
+                    } else if (confidence === "stabilizing") {
+                        stateClass = "poor";
+                        statusText = `Sync stabilizing... (${this.rtt}ms RTT)`;
+                    } else if (confidence === "delayed") {
+                        stateClass = "poor";
+                        statusText = "Playback delayed";
+                    } else if (this.rtt > 300) {
+                        stateClass = "poor";
+                        statusText = `Poor Connection Latency (${this.rtt}ms RTT)`;
+                    } else {
+                        stateClass = this.isHost ? 'host' : 'connected';
+                        statusText = `Connected (${this.rtt}ms RTT)`;
+                    }
                 }
 
                 badge.classList.add(stateClass);
@@ -1077,15 +1264,34 @@
                 this.seekDebounceTimeout = null;
                 this.syncHeartbeatInterval = null;
                 this.debugHudInterval = null;
+                this.stalledCheckInterval = null;
                 
+                // Buffered join flow properties
+                this.isJoinBuffered = !this.room.isHost; // Only guests buffer join
+                this.pendingHostPayload = null;
+
+                // Sync Confidence & Recovery
+                this.syncConfidence = this.room.isHost ? "synced" : "recovering";
+                this.retryCount = 0;
+                this.lastLocalTime = 0;
+                this.lastTimeProgression = Date.now();
+                this.autoplayBlocked = false;
+
                 // Drift HUD properties
                 this.lastHostTime = 0;
                 this.lastHostReceivedTs = 0;
                 this.lastHostPlaying = false;
 
+                window._playbackSyncer = this;
+
                 this._setupListeners();
                 this._startSyncHeartbeat();
                 this._startDebugHud();
+                this._startStalledCheck();
+
+                if (this.isJoinBuffered) {
+                    this.showJoinOverlay("Syncing playback...");
+                }
             }
 
             _setupListeners() {
@@ -1094,29 +1300,56 @@
                 });
             }
 
+            getAdapter() {
+                const iframe = this.wrapper.querySelector("iframe");
+                if (!iframe) return null;
+                const src = iframe.src || "";
+                if (src.includes("vidlink.pro")) {
+                    return new VidlinkAdapter(iframe);
+                } else if (src.includes("vidsrc.to")) {
+                    return new VidsrcAdapter(iframe);
+                } else {
+                    return new GenericIframeAdapter(iframe);
+                }
+            }
+
+            normalizeMessage(payload) {
+                const adapter = this.getAdapter();
+                return adapter ? adapter.normalizeMessage(payload) : null;
+            }
+
             _handleRemoteSync(payload) {
                 if (this.room.isHost) return;
 
-                this.isSyncingLocal = true;
                 const { action, currentTime, playing, ts } = payload;
-
-                const networkLag = (Date.now() - ts) / 1000;
-                const targetTime = currentTime + (playing ? networkLag : 0);
 
                 // Save playhead alignment parameters for debug HUD
                 this.lastHostTime = currentTime;
                 this.lastHostReceivedTs = Date.now();
                 this.lastHostPlaying = playing;
 
+                if (this.isJoinBuffered) {
+                    this.pendingHostPayload = payload;
+                    this.showJoinOverlay("Buffering stream...");
+                    return;
+                }
+
+                this.isSyncingLocal = true;
+                const networkLag = (Date.now() - ts) / 1000;
+                const targetTime = currentTime + (playing ? networkLag : 0);
+
                 console.log(`[PlaybackSyncer] Remote sync: ${action} at ${targetTime.toFixed(1)}s (lag=${networkLag.toFixed(2)}s)`);
 
-                if (action === "PLAY") {
-                    this.isPlaying = true;
-                    this.sendToPlayer({ command: "play" });
-                    this._correctDrift(targetTime);
-                } else if (action === "PAUSE") {
-                    this.isPlaying = false;
-                    this.sendToPlayer({ command: "pause" });
+                const adapter = this.getAdapter();
+                if (adapter) {
+                    if (playing !== this.isPlaying) {
+                        this.isPlaying = playing;
+                        if (playing) {
+                            adapter.play();
+                        } else {
+                            adapter.pause();
+                        }
+                    }
                     this._correctDrift(targetTime);
                 }
 
@@ -1127,26 +1360,82 @@
 
             _correctDrift(targetSeconds, forceImmediate = false) {
                 this.getPlayerTime().then((localSeconds) => {
-                    const difference = Math.abs(localSeconds - targetSeconds);
-                    if (forceImmediate || difference > this.maxDriftSeconds) {
+                    const difference = localSeconds - targetSeconds;
+                    const absDiff = Math.abs(difference);
+                    const adapter = this.getAdapter();
+
+                    if (!adapter) return;
+
+                    if (forceImmediate || absDiff > 3.0) {
                         console.log(`[PlaybackSyncer] Drift seek: local=${localSeconds.toFixed(1)}s, target=${targetSeconds.toFixed(1)}s`);
-                        this.sendToPlayer({ command: "seek", time: targetSeconds });
+                        adapter.seek(targetSeconds);
+                        adapter.setPlaybackRate(1.0);
+                        this.syncConfidence = "stabilizing";
+                    } else if (absDiff > 0.25) {
+                        const rate = difference > 0 ? 0.97 : 1.03;
+                        adapter.setPlaybackRate(rate);
+                        this.syncConfidence = "stabilizing";
+                    } else {
+                        adapter.setPlaybackRate(1.0);
+                        this.syncConfidence = "synced";
                     }
+                    this.room.updateConnectionQualityBadge();
+                    this.room.updateStatusUI(this.room.isHost ? 'You are the Host' : 'Synced', this.room.isHost ? 'host' : 'guest');
                 });
             }
 
-            _startSyncHeartbeat() {
+            _checkDriftProgress(localTime) {
+                if (this.isSyncingLocal || this.lastHostReceivedTs === 0) return;
+
+                const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
+                const hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
+                const difference = localTime - hostTime;
+                const absDiff = Math.abs(difference);
+                const adapter = this.getAdapter();
+
+                if (!adapter) return;
+
+                if (absDiff > 3.0) {
+                    console.log(`[PlaybackSyncer] Drift exceeded hard limit (${absDiff.toFixed(2)}s). Hard seeking to ${hostTime.toFixed(1)}s`);
+                    this.isSyncingLocal = true;
+                    adapter.seek(hostTime);
+                    adapter.setPlaybackRate(1.0);
+                    this.syncConfidence = "stabilizing";
+                    setTimeout(() => { this.isSyncingLocal = false; }, 500);
+                } else if (absDiff > 0.25) {
+                    const rate = difference > 0 ? 0.97 : 1.03;
+                    adapter.setPlaybackRate(rate);
+                    this.syncConfidence = "stabilizing";
+                } else {
+                    adapter.setPlaybackRate(1.0);
+                    this.syncConfidence = "synced";
+                }
+                this.room.updateConnectionQualityBadge();
+                this.room.updateStatusUI(this.room.isHost ? 'You are the Host' : 'Synced', this.room.isHost ? 'host' : 'guest');
+            }
+
+            _startSyncHeartbeat(intervalMs = 5000) {
+                this._stopSyncHeartbeat();
                 this.syncHeartbeatInterval = setInterval(() => {
                     if (!this.room || !this.room.isHost || this.isSyncingLocal) return;
                     this.getPlayerTime().then(currentTime => {
                         if (currentTime > 0) {
                             this.room.broadcastCommand("HEARTBEAT", {
                                 currentTime: currentTime,
-                                playing: this.isPlaying
+                                playing: this.isPlaying,
+                                buffering: false,
+                                playbackRate: 1.0
                             });
                         }
                     });
-                }, 5000);
+                }, intervalMs);
+            }
+
+            _stopSyncHeartbeat() {
+                if (this.syncHeartbeatInterval) {
+                    clearInterval(this.syncHeartbeatInterval);
+                    this.syncHeartbeatInterval = null;
+                }
             }
 
             _startDebugHud() {
@@ -1184,12 +1473,21 @@
 
                         const statusText = this.room.socket.connected ? "CONNECTED" : "DISCONNECTED";
                         const rtt = this.room.rtt;
+                        const age = this.lastHostReceivedTs > 0 ? ((Date.now() - this.lastHostReceivedTs) / 1000).toFixed(1) + "s" : "N/A";
+                        const vis = document.visibilityState || "visible";
+                        const adapter = this.getAdapter();
+                        const adapterType = adapter ? adapter.constructor.name : "None";
+                        const confidence = this.syncConfidence.toUpperCase();
                         
                         hud.innerHTML = `
                             <strong>Watch Together Debug HUD</strong><br>
                             Status: <span style="color: ${this.room.socket.connected ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
+                            Confidence: <span style="color: #f5a623">${confidence}</span><br>
                             Role: ${this.room.isHost ? "HOST" : "GUEST"}<br>
-                            RTT: ${rtt}ms<br>
+                            Adapter: ${adapterType}<br>
+                            RTT (Avg): ${rtt}ms<br>
+                            Heartbeat Age: ${age}<br>
+                            Tab Visibility: ${vis}<br>
                             Local Playhead: ${localTime.toFixed(2)}s<br>
                             Host Playhead: ${hostTime.toFixed(2)}s<br>
                             Drift: <span style="color: ${Math.abs(drift) > this.maxDriftSeconds ? '#ff4444' : '#00ff66'}">${drift.toFixed(3)}s</span><br>
@@ -1199,23 +1497,129 @@
                 }, 200);
             }
 
-            sendToPlayer(data) {
-                const iframe = this.wrapper.querySelector("iframe");
-                if (iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage(JSON.stringify(data), "*");
-                    // Compatibility bridges for other video sources
-                    if (data.command === "play") {
-                        iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "playVideo" }), "*");
-                        iframe.contentWindow.postMessage(JSON.stringify({ method: "play" }), "*");
-                        iframe.contentWindow.postMessage("play", "*");
-                    } else if (data.command === "pause") {
-                        iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "pauseVideo" }), "*");
-                        iframe.contentWindow.postMessage(JSON.stringify({ method: "pause" }), "*");
-                        iframe.contentWindow.postMessage("pause", "*");
-                    } else if (data.command === "seek") {
-                        iframe.contentWindow.postMessage(JSON.stringify({ event: "command", func: "seekTo", args: [data.time, true] }), "*");
-                        iframe.contentWindow.postMessage(JSON.stringify({ method: "seek", value: data.time }), "*");
-                        iframe.contentWindow.postMessage(JSON.stringify({ type: "seek", time: data.time }), "*");
+            _startStalledCheck() {
+                if (this.stalledCheckInterval) clearInterval(this.stalledCheckInterval);
+                this.stalledCheckInterval = setInterval(() => {
+                    if (!this.room || !this.isPlaying || this.isJoinBuffered) return;
+
+                    this.getPlayerTime().then(currentTime => {
+                        if (currentTime === this.lastLocalTime) {
+                            const timeSinceProgress = Date.now() - this.lastTimeProgression;
+                            
+                            if (timeSinceProgress > 4000) {
+                                console.warn(`[PlaybackSyncer] Playback stall detected at ${currentTime}s.`);
+                                this.syncConfidence = "delayed";
+                                this.room.updateConnectionQualityBadge();
+                                this.room.updateStatusUI("Playback Delayed", "error");
+                                
+                                if (this.retryCount < 3) {
+                                    this.retryCount++;
+                                    console.log(`[PlaybackSyncer] Attempting recovery retry #${this.retryCount}...`);
+                                    
+                                    const adapter = this.getAdapter();
+                                    if (adapter) {
+                                        adapter.seek(currentTime);
+                                        adapter.play();
+                                    }
+                                } else {
+                                    console.error("[PlaybackSyncer] Recovery retries exhausted. Autoplay blocked or iframe stalled.");
+                                    this.autoplayBlocked = true;
+                                    this.showBlockedAutoplayUI();
+                                }
+                            }
+                        } else {
+                            this.lastLocalTime = currentTime;
+                            this.lastTimeProgression = Date.now();
+                            this.retryCount = 0;
+                            if (this.autoplayBlocked) {
+                                this.autoplayBlocked = false;
+                                this.hideBlockedAutoplayUI();
+                            }
+                        }
+                    });
+                }, 1000);
+            }
+
+            showJoinOverlay(statusText) {
+                const overlay = document.getElementById("partyJoinOverlay");
+                const textEl = document.getElementById("partyJoinStatusText");
+                if (overlay && textEl) {
+                    textEl.textContent = statusText;
+                    overlay.style.display = "flex";
+                    overlay.style.opacity = "1";
+                }
+            }
+
+            hideJoinOverlay() {
+                const overlay = document.getElementById("partyJoinOverlay");
+                if (overlay) {
+                    overlay.style.opacity = "0";
+                    setTimeout(() => {
+                        overlay.style.display = "none";
+                    }, 400);
+                }
+            }
+
+            showBlockedAutoplayUI() {
+                const overlay = document.getElementById("partyAutoplayBlockOverlay");
+                if (overlay) {
+                    overlay.style.display = "flex";
+                    const btn = document.getElementById("partyUnblockAutoplayBtn");
+                    if (btn) {
+                        btn.onclick = () => {
+                            console.log("[PlaybackSyncer] User clicked unblock button. Resuming stream...");
+                            const adapter = this.getAdapter();
+                            if (adapter) {
+                                adapter.play();
+                                if (this.lastHostReceivedTs > 0) {
+                                    const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
+                                    const hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
+                                    adapter.seek(hostTime);
+                                }
+                            }
+                            this.autoplayBlocked = false;
+                            this.retryCount = 0;
+                            this.lastTimeProgression = Date.now();
+                            this.hideBlockedAutoplayUI();
+                        };
+                    }
+                }
+            }
+
+            hideBlockedAutoplayUI() {
+                const overlay = document.getElementById("partyAutoplayBlockOverlay");
+                if (overlay) {
+                    overlay.style.display = "none";
+                }
+            }
+
+            handleVisibilityChange(state) {
+                console.log(`[PlaybackSyncer] Tab visibility changed: ${state}`);
+                if (state === 'hidden') {
+                    this._stopSyncHeartbeat();
+                    this._startSyncHeartbeat(15000);
+                    if (this.debugHudInterval) {
+                        clearInterval(this.debugHudInterval);
+                        this.debugHudInterval = null;
+                    }
+                    if (this.stalledCheckInterval) {
+                        clearInterval(this.stalledCheckInterval);
+                        this.stalledCheckInterval = null;
+                    }
+                } else {
+                    this._stopSyncHeartbeat();
+                    this._startSyncHeartbeat(5000);
+                    this._startDebugHud();
+                    this._startStalledCheck();
+
+                    if (!this.room.isHost && this.room.socket && this.room.socket.connected) {
+                        console.log("[PlaybackSyncer] Tab visible. Requesting latest room snapshot...");
+                        this.syncConfidence = "recovering";
+                        this.room.socket.emit('join-room', { roomId: this.room.roomId, userName: this.room.username }, (res) => {
+                            if (res && res.lastSync) {
+                                this._handleRemoteSync(res.lastSync);
+                            }
+                        });
                     }
                 }
             }
@@ -1242,12 +1646,59 @@
                 });
             }
 
-            handleLocalPlayerEvent(evtName, currentTime, duration) {
+            handleLocalPlayerEvent(evtName, currentTime, duration, normalized) {
+                if (this.isJoinBuffered) {
+                    if (evtName === 'ready' || (evtName === 'timeupdate' && currentTime > 0)) {
+                        console.log("[PlaybackSyncer] Guest stream ready. Completing join sync...");
+                        this.isJoinBuffered = false;
+                        this.showJoinOverlay("Ready");
+                        
+                        setTimeout(() => {
+                            this.hideJoinOverlay();
+                        }, 500);
+
+                        if (this.pendingHostPayload) {
+                            const payload = this.pendingHostPayload;
+                            this.pendingHostPayload = null;
+                            
+                            const networkLag = (Date.now() - payload.ts) / 1000;
+                            const targetTime = payload.currentTime + (payload.playing ? networkLag : 0);
+                            
+                            this.isSyncingLocal = true;
+                            const adapter = this.getAdapter();
+                            if (adapter) {
+                                adapter.seek(targetTime);
+                                if (payload.playing) {
+                                    this.isPlaying = true;
+                                    adapter.play();
+                                } else {
+                                    this.isPlaying = false;
+                                    adapter.pause();
+                                }
+                            }
+                            
+                            setTimeout(() => {
+                                this.isSyncingLocal = false;
+                                this.syncConfidence = "synced";
+                            }, 500);
+                        } else {
+                            this.syncConfidence = "synced";
+                        }
+                    }
+                    return;
+                }
+
+                if (!this.room.isHost && evtName === 'timeupdate') {
+                    this._checkDriftProgress(currentTime);
+                    return;
+                }
+
                 if (!this.room || !this.room.isHost || this.isSyncingLocal) return;
 
                 if (evtName === 'timeupdate') return;
 
                 console.log(`[PlaybackSyncer] Local Event: ${evtName} at ${currentTime.toFixed(1)}s`);
+                const adapter = this.getAdapter();
 
                 if (evtName === "play") {
                     this.isPlaying = true;
@@ -1267,6 +1718,8 @@
                 if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
                 if (this.syncHeartbeatInterval) clearInterval(this.syncHeartbeatInterval);
                 if (this.debugHudInterval) clearInterval(this.debugHudInterval);
+                if (this.stalledCheckInterval) clearInterval(this.stalledCheckInterval);
+                window._playbackSyncer = null;
                 this.room = null;
                 this.wrapper = null;
             }
@@ -1865,22 +2318,27 @@
                 resetControlsTimer();
             }
 
-            // Generic Iframe Player Event parser
-            var data = null;
-            if (payload.type === 'PLAYER_EVENT' && payload.data) {
-                data = payload.data;
+            // Normalize using ProviderAdapter
+            var normalized = null;
+            if (playbackSyncer && typeof playbackSyncer.normalizeMessage === 'function') {
+                normalized = playbackSyncer.normalizeMessage(payload);
             } else {
-                data = payload;
+                const iframe = playerWrap.querySelector("iframe");
+                if (iframe) {
+                    const src = iframe.src || "";
+                    let adapter;
+                    if (src.includes("vidlink.pro")) adapter = new VidlinkAdapter(iframe);
+                    else if (src.includes("vidsrc.to")) adapter = new VidsrcAdapter(iframe);
+                    else adapter = new GenericIframeAdapter(iframe);
+                    normalized = adapter.normalizeMessage(payload);
+                }
             }
-            if (!data || typeof data !== 'object') return;
 
-            var rawEvent = (data.event || data.type || '').toLowerCase();
-            var evtName = rawEvent.includes('timeupdate') || rawEvent.includes('progress') ? 'timeupdate' : 
-                          rawEvent.includes('pause') ? 'pause' : 
-                          rawEvent.includes('ended') || rawEvent.includes('complete') ? 'ended' : rawEvent;
+            if (!normalized || !normalized.type) return;
 
-            var currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
-            var duration    = parseFloat(data.duration !== undefined ? data.duration : data.length) || 0;
+            var evtName = normalized.type;
+            var currentTime = normalized.currentTime;
+            var duration = normalized.duration;
 
             // Throttle debug logging to once every 30s to keep console clean
             if (evtName === 'timeupdate') {
@@ -1894,7 +2352,7 @@
 
             // Feed to watch-party sync system
             if (playbackSyncer && typeof playbackSyncer.handleLocalPlayerEvent === 'function') {
-                playbackSyncer.handleLocalPlayerEvent(evtName, currentTime, duration);
+                playbackSyncer.handleLocalPlayerEvent(evtName, currentTime, duration, normalized);
             }
 
             // Binge-Watch Auto-Skip Logic
@@ -2099,8 +2557,16 @@
 
         // ── Cleanup on page unload (prevents memory leaks / stacking on
         //    browsers that keep pages in bfcache) ────────────────────────
+        function onVisibilityChange() {
+            if (playbackSyncer && typeof playbackSyncer.handleVisibilityChange === 'function') {
+                playbackSyncer.handleVisibilityChange(document.visibilityState);
+            }
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
         function cleanup() {
             window.removeEventListener('message', onPlayerMessage);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
             if (roomManager) {
                 roomManager.destroy();
                 roomManager = null;

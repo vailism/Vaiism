@@ -194,7 +194,9 @@ io.on('connection', (socket) => {
         activeRoom.lastSync = {
             currentTime: payload.currentTime,
             playing: payload.playing,
-            ts: Date.now()
+            buffering: payload.buffering || false,
+            playbackRate: payload.playbackRate || 1.0,
+            ts: payload.ts || Date.now()
         };
 
         // Broadcast current alignment parameters to other guests in the namespace
@@ -202,7 +204,9 @@ io.on('connection', (socket) => {
             action: payload.playing ? 'PLAY' : 'PAUSE',
             currentTime: payload.currentTime,
             playing: payload.playing,
-            ts: Date.now()
+            buffering: payload.buffering || false,
+            playbackRate: payload.playbackRate || 1.0,
+            ts: payload.ts || Date.now()
         });
     });
 
