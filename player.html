@@ -20,7 +20,7 @@
     <!-- Watch Together Client Plane Dependencies -->
     <link rel="stylesheet" href="party.css">
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <script src="js/runtime/bootstrap/runtime-bootstrap.js" type="module"></script>
+    <script src="js/runtime/bootstrap/runtime-bundle.js"></script>
 
     <style>
         html, body {
@@ -1335,6 +1335,8 @@
                 };
             }
         }
+        // Expose setupShareLink globally so runtime-bundle.js can call it after room creation
+        window.setupShareLink = setupShareLink;
 
         function startPartySession(isHost, inputPartyId) {
             const targetRoomId = inputPartyId || ('vail-' + Math.random().toString(36).substr(2, 9));
