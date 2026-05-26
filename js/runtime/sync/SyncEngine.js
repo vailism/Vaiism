@@ -20,6 +20,23 @@ export class SyncEngine {
         this.lastSyncTimestamp = 0;
         this.lastHostTime = 0;
         this.lastHostPlaying = false;
+        this.adapter = null;
+        this.adapterIframe = null;
+        this.adapterSrc = '';
+        this.providerCapabilities = {
+            supportsCommands: false,
+            supportsTelemetry: false,
+            supportsSeeking: false,
+            supportsPlaybackRate: false
+        };
+        this.telemetrySource = 'none';
+        this.pollingActive = false;
+        this.syntheticClockEnabled = false;
+        this.softSyncMode = false;
+        this.lastTelemetryTimestamp = 0;
+        this.lastSnapshotBroadcast = 0;
+        this.periodicSnapshotIntervalMs = 2500;
+        this.maxDriftSeconds = 0.75;
     }
 
     injectKernel(kernel) {
@@ -35,6 +52,9 @@ export class SyncEngine {
         this.isPlaying = false;
         this.lastLocalTime = 0;
         this.lastTimeProgression = Date.now();
+        this.lastSnapshotBroadcast = 0;
+
+        this.refreshAdapter(true);
 
         // Bind incoming sync listener
         this.eventBus.on("REMOTE_SYNC_RECEIVED", (payload) => {
@@ -52,6 +72,11 @@ export class SyncEngine {
         }
 
         this.eventBus.on("VISIBILITY_CHANGED", (data) => {
+            const adapter = this.getAdapter();
+            if (adapter && typeof adapter.resetPollingInterval === 'function') {
+                adapter.resetPollingInterval();
+            }
+
             if (data.state === 'visible') {
                 const socket = this.kernel.get("socket");
                 if (socket && !socket.isHost && socket.isConnected()) {
@@ -74,22 +99,97 @@ export class SyncEngine {
         if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
         const heartbeats = this.kernel.get("sync.heartbeats");
         heartbeats.stopSending();
+        if (this.adapter && typeof this.adapter.stopPolling === 'function') {
+            this.adapter.stopPolling();
+        }
     }
 
-    getAdapter() {
+    refreshAdapter(force = false) {
+        const previousAdapter = this.adapter;
+        const adapter = this.getAdapter(force);
+        if (previousAdapter && previousAdapter !== adapter && typeof previousAdapter.stopPolling === 'function') {
+            previousAdapter.stopPolling();
+        }
+
+        if (adapter) {
+            const capabilities = typeof adapter.getCapabilities === 'function'
+                ? adapter.getCapabilities()
+                : {
+                    supportsCommands: false,
+                    supportsTelemetry: false,
+                    supportsSeeking: false,
+                    supportsPlaybackRate: false
+                };
+            this.providerCapabilities = capabilities;
+            this.softSyncMode = !capabilities.supportsTelemetry;
+
+            if (typeof adapter.setTelemetryListener === 'function') {
+                adapter.setTelemetryListener((snapshot) => {
+                    this.handleProviderTelemetry(snapshot);
+                });
+            }
+            if (typeof adapter.startPolling === 'function') {
+                adapter.startPolling();
+            }
+
+            this.pollingActive = !!adapter.pollingActive;
+            this.eventBus.emit('PROVIDER_CAPABILITIES_UPDATED', {
+                adapter: adapter.constructor.name,
+                capabilities,
+                softSyncMode: this.softSyncMode
+            });
+            console.log('[VAILISM PROVIDER] Adapter ready', {
+                adapter: adapter.constructor.name,
+                capabilities,
+                softSyncMode: this.softSyncMode
+            });
+        }
+
+        return adapter;
+    }
+
+    getAdapter(force = false) {
         if (!this.wrapper) return null;
         const iframe = this.wrapper.querySelector("iframe");
         if (!iframe) return null;
         const src = iframe.src || "";
-        if (src.includes("vidlink.pro")) {
-            return new VidlinkAdapter(iframe);
-        } else if (src.includes("vidsrc.to")) {
-            return new VidsrcAdapter(iframe);
-        } else if (src.includes("videasy.net")) {
-            return new VideasyAdapter(iframe);
-        } else {
-            return new GenericIframeAdapter(iframe);
+
+        if (!force && this.adapter && this.adapterIframe === iframe && this.adapterSrc === src) {
+            return this.adapter;
         }
+
+        let nextAdapter = null;
+        if (src.includes("vidlink.pro")) {
+            nextAdapter = new VidlinkAdapter(iframe);
+        } else if (src.includes("vidsrc.to")) {
+            nextAdapter = new VidsrcAdapter(iframe);
+        } else if (src.includes("videasy.net")) {
+            nextAdapter = new VideasyAdapter(iframe);
+        } else {
+            nextAdapter = new GenericIframeAdapter(iframe);
+        }
+
+        this.adapter = nextAdapter;
+        this.adapterIframe = iframe;
+        this.adapterSrc = src;
+
+        if (nextAdapter && this.eventBus) {
+            if (typeof nextAdapter.setTelemetryListener === 'function') {
+                nextAdapter.setTelemetryListener((snapshot) => {
+                    this.handleProviderTelemetry(snapshot);
+                });
+            }
+            if (typeof nextAdapter.startPolling === 'function') {
+                nextAdapter.startPolling();
+            }
+            if (typeof nextAdapter.getCapabilities === 'function') {
+                this.providerCapabilities = nextAdapter.getCapabilities();
+                this.softSyncMode = !this.providerCapabilities.supportsTelemetry;
+            }
+            this.pollingActive = !!nextAdapter.pollingActive;
+        }
+
+        return nextAdapter;
     }
 
     getAdapterType() {
@@ -117,6 +217,131 @@ export class SyncEngine {
         const success = adapter.sendCommand(command, details);
         this.recordProviderCommand(command, success, details);
         return success;
+    }
+
+    getTelemetryStatus() {
+        return {
+            source: this.telemetrySource,
+            pollingActive: this.pollingActive,
+            syntheticClockEnabled: this.syntheticClockEnabled,
+            capabilities: { ...this.providerCapabilities },
+            softSyncMode: this.softSyncMode,
+            lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null
+        };
+    }
+
+    getSyncSnapshot() {
+        const adapter = this.getAdapter();
+        const state = adapter && typeof adapter.getStateSnapshot === 'function'
+            ? adapter.getStateSnapshot()
+            : null;
+
+        if (state && Number.isFinite(state.currentTime)) {
+            return Promise.resolve({
+                currentTime: state.currentTime,
+                playing: typeof state.playing === 'boolean' ? state.playing : !state.paused,
+                paused: typeof state.paused === 'boolean' ? state.paused : !state.playing,
+                buffering: !!state.buffering,
+                playbackRate: Number.isFinite(state.playbackRate) ? state.playbackRate : 1.0,
+                duration: Number.isFinite(state.duration) ? state.duration : 0,
+                source: state.source || this.telemetrySource || 'adapter-state',
+                synthetic: !!state.synthetic,
+                ts: Date.now()
+            });
+        }
+
+        return this.getPlayerTime().then((currentTime) => ({
+            currentTime: Number.isFinite(currentTime) ? currentTime : 0,
+            playing: this.isPlaying,
+            paused: !this.isPlaying,
+            buffering: false,
+            playbackRate: 1.0,
+            duration: 0,
+            source: 'iframe-query',
+            synthetic: false,
+            ts: Date.now()
+        }));
+    }
+
+    maybeBroadcastSnapshot(snapshot) {
+        const socket = this.kernel.get('socket');
+        if (!socket || !socket.isHost || !socket.isConnected()) return;
+
+        const now = Date.now();
+        if (now - this.lastSnapshotBroadcast < this.periodicSnapshotIntervalMs) return;
+
+        this.lastSnapshotBroadcast = now;
+        socket.emitSyncEvent({
+            currentTime: snapshot.currentTime,
+            playing: !!snapshot.playing,
+            paused: !!snapshot.paused,
+            buffering: !!snapshot.buffering,
+            playbackRate: Number.isFinite(snapshot.playbackRate) ? snapshot.playbackRate : 1.0,
+            duration: Number.isFinite(snapshot.duration) ? snapshot.duration : 0,
+            telemetrySource: snapshot.source || this.telemetrySource,
+            synthetic: !!snapshot.synthetic,
+            ts: now
+        });
+
+        this.eventBus.emit('LOCAL_SYNC_BROADCASTED', {
+            action: 'SNAPSHOT',
+            currentTime: snapshot.currentTime,
+            playing: !!snapshot.playing,
+            source: snapshot.source || this.telemetrySource,
+            synthetic: !!snapshot.synthetic,
+            ts: now
+        });
+        console.log('[VAILISM HEARTBEAT] Broadcast periodic snapshot', {
+            currentTime: snapshot.currentTime,
+            playing: !!snapshot.playing,
+            source: snapshot.source || this.telemetrySource,
+            synthetic: !!snapshot.synthetic
+        });
+    }
+
+    handleProviderTelemetry(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return;
+
+        const adapter = this.getAdapter();
+        if (adapter && typeof adapter.getCapabilities === 'function') {
+            this.providerCapabilities = adapter.getCapabilities();
+            this.softSyncMode = !this.providerCapabilities.supportsTelemetry;
+            this.pollingActive = !!adapter.pollingActive;
+            this.syntheticClockEnabled = !!adapter.syntheticClockEnabled;
+        }
+
+        this.telemetrySource = snapshot.source || (snapshot.synthetic ? 'synthetic-clock' : 'provider-telemetry');
+        this.lastTelemetryTimestamp = Date.now();
+        if (Number.isFinite(snapshot.currentTime)) {
+            this.lastLocalTime = snapshot.currentTime;
+        }
+        if (typeof snapshot.playing === 'boolean') {
+            this.isPlaying = snapshot.playing;
+        } else if (typeof snapshot.paused === 'boolean') {
+            this.isPlaying = !snapshot.paused;
+        }
+
+        this.eventBus.emit('PROVIDER_TELEMETRY_UPDATED', {
+            ...snapshot,
+            source: this.telemetrySource,
+            capabilities: { ...this.providerCapabilities },
+            pollingActive: this.pollingActive,
+            syntheticClockEnabled: this.syntheticClockEnabled,
+            softSyncMode: this.softSyncMode,
+            ts: this.lastTelemetryTimestamp
+        });
+        console.log('[VAILISM TELEMETRY] Provider snapshot', {
+            type: snapshot.type,
+            currentTime: snapshot.currentTime,
+            paused: snapshot.paused,
+            playbackRate: snapshot.playbackRate,
+            source: this.telemetrySource,
+            synthetic: !!snapshot.synthetic
+        });
+
+        const evtName = snapshot.type || 'timeupdate';
+        this.handleLocalPlayerEvent(evtName, snapshot.currentTime || 0, snapshot.duration || 0, snapshot);
+        this.maybeBroadcastSnapshot(snapshot);
     }
 
     normalizeMessage(payload) {
@@ -222,16 +447,16 @@ export class SyncEngine {
                     this.isSyncingLocal = true;
                     const adapter = this.getAdapter();
                     if (adapter) {
-                        adapter.seek(targetTime);
+                        this.sendProviderCommand(adapter, 'seek', { time: targetTime, reason: 'join-sync' });
                         const fsm = this.kernel.get("fsm");
                         if (payload.playing) {
                             this.isPlaying = true;
                             fsm.transitionTo('PLAYING', 'Aligned with host playing on join');
-                            adapter.play();
+                            this.sendProviderCommand(adapter, 'play', { reason: 'join-sync' });
                         } else {
                             this.isPlaying = false;
                             fsm.transitionTo('PAUSED', 'Aligned with host paused on join');
-                            adapter.pause();
+                            this.sendProviderCommand(adapter, 'pause', { reason: 'join-sync' });
                         }
                     }
                     

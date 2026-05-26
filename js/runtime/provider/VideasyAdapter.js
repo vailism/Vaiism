@@ -1,6 +1,16 @@
 import { ProviderAdapter } from './ProviderAdapter.js';
 
 export class VideasyAdapter extends ProviderAdapter {
+    constructor(iframe) {
+        super(iframe);
+        this.setCapabilities({
+            supportsCommands: true,
+            supportsTelemetry: false,
+            supportsSeeking: true,
+            supportsPlaybackRate: true
+        });
+    }
+
     play() {
         return this.sendCommand('play');
     }

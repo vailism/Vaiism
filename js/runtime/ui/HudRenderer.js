@@ -71,6 +71,22 @@ export class HudRenderer {
                     const lastPlaybackEvent = syncEngine.lastPlaybackEvent ? JSON.stringify(syncEngine.lastPlaybackEvent) : 'None';
                     const lastProviderCommand = syncEngine.lastProviderCommand ? JSON.stringify(syncEngine.lastProviderCommand) : 'None';
                     const lastSyncAge = syncEngine.lastSyncTimestamp ? ((Date.now() - syncEngine.lastSyncTimestamp) / 1000).toFixed(1) + "s" : "N/A";
+                    const telemetry = typeof syncEngine.getTelemetryStatus === 'function'
+                        ? syncEngine.getTelemetryStatus()
+                        : {
+                            source: 'none',
+                            pollingActive: false,
+                            syntheticClockEnabled: false,
+                            capabilities: {},
+                            softSyncMode: false,
+                            lastTelemetryAgeMs: null
+                        };
+                    const telemetryAge = telemetry.lastTelemetryAgeMs !== null
+                        ? (telemetry.lastTelemetryAgeMs / 1000).toFixed(1) + 's'
+                        : 'N/A';
+                    const capabilityMatrix = telemetry.capabilities
+                        ? `cmd=${telemetry.capabilities.supportsCommands ? 'Y' : 'N'} telem=${telemetry.capabilities.supportsTelemetry ? 'Y' : 'N'} seek=${telemetry.capabilities.supportsSeeking ? 'Y' : 'N'} rate=${telemetry.capabilities.supportsPlaybackRate ? 'Y' : 'N'}`
+                        : 'N/A';
 
                     const metrics = metricsStore.metrics;
                     const avgDrift = metricsStore.getAverageDrift().toFixed(3) + "s";
@@ -87,6 +103,12 @@ export class HudRenderer {
                         Adapter: ${adapterType}<br>
                         RTT: ${socket.rtt || 0}ms (Avg: ${avgRtt})<br>
                         Last Sync: ${lastSyncAge}<br>
+                        Telemetry Source: ${telemetry.source || 'none'}<br>
+                        Telemetry Age: ${telemetryAge}<br>
+                        Polling Active: ${telemetry.pollingActive ? 'YES' : 'NO'}<br>
+                        Synthetic Clock: ${telemetry.syntheticClockEnabled ? 'YES' : 'NO'}<br>
+                        Soft Sync Mode: ${telemetry.softSyncMode ? 'YES' : 'NO'}<br>
+                        Capabilities: ${capabilityMatrix}<br>
                         Heartbeat Age: ${age}<br>
                         Tab Visibility: ${vis}<br>
                         Local Playhead: ${localTime.toFixed(2)}s<br>

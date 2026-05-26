@@ -834,11 +834,263 @@
     class ProviderAdapter {
         constructor(iframe) {
             this.iframe = iframe;
+            this.pollIntervalMs = 1000;
+            this.hiddenPollIntervalMs = 4000;
+            this.pollTimer = null;
+            this.pollingActive = false;
+            this.telemetryListener = null;
+            this.messageListener = null;
+            this.visibilityListener = null;
+            this.pollCount = 0;
+            this.telemetryCount = 0;
+            this.syntheticClockEnabled = false;
+            this.lastTelemetryAt = 0;
+            this.lastTickAt = Date.now();
+            this.lastKnownState = {
+                currentTime: 0,
+                paused: true,
+                playbackRate: 1.0,
+                duration: 0,
+                buffering: false,
+                ts: Date.now(),
+                source: 'initial'
+            };
+            this.capabilities = {
+                supportsCommands: true,
+                supportsTelemetry: false,
+                supportsSeeking: true,
+                supportsPlaybackRate: true
+            };
         }
         play() { return this.sendCommand('play'); }
         pause() { return this.sendCommand('pause'); }
         seek(time) { return this.sendCommand('seek', { time: time, currentTime: time, position: time }); }
         setPlaybackRate(rate) { return this.sendCommand('setPlaybackRate', { rate: rate, playbackRate: rate }); }
+        getCapabilities() {
+            return { ...this.capabilities };
+        }
+        setCapabilities(partial) {
+            partial = partial || {};
+            this.capabilities = { ...this.capabilities, ...partial };
+        }
+        getStateSnapshot() {
+            return { ...this.lastKnownState, source: this.lastKnownState.source || 'cache' };
+        }
+        setTelemetryListener(listener) {
+            this.telemetryListener = typeof listener === 'function' ? listener : null;
+        }
+        startPolling() {
+            var self = this;
+            if (self.pollingActive) return;
+            self.pollingActive = true;
+            self.pollCount = 0;
+            self.telemetryCount = 0;
+            self.lastTickAt = Date.now();
+
+            self.messageListener = function(event) { self.onWindowMessage(event); };
+            window.addEventListener('message', self.messageListener);
+
+            self.visibilityListener = function() {
+                self.resetPollingInterval();
+                console.log('[VAILISM POLLER] Visibility changed to ' + document.visibilityState + '; poll=' + self.getCurrentPollInterval() + 'ms');
+            };
+            document.addEventListener('visibilitychange', self.visibilityListener);
+
+            self.resetPollingInterval();
+            console.log('[VAILISM POLLER] Polling loop started');
+        }
+        stopPolling() {
+            this.pollingActive = false;
+            if (this.pollTimer) {
+                clearInterval(this.pollTimer);
+                this.pollTimer = null;
+            }
+            if (this.messageListener) {
+                window.removeEventListener('message', this.messageListener);
+                this.messageListener = null;
+            }
+            if (this.visibilityListener) {
+                document.removeEventListener('visibilitychange', this.visibilityListener);
+                this.visibilityListener = null;
+            }
+        }
+        getCurrentPollInterval() {
+            return document.visibilityState === 'hidden' ? this.hiddenPollIntervalMs : this.pollIntervalMs;
+        }
+        resetPollingInterval() {
+            var self = this;
+            if (!self.pollingActive) return;
+            if (self.pollTimer) clearInterval(self.pollTimer);
+            self.pollTimer = setInterval(function() {
+                self.pollPlaybackState();
+            }, self.getCurrentPollInterval());
+        }
+        pollPlaybackState() {
+            this.pollCount += 1;
+            if (!this.iframe || !this.iframe.contentWindow) {
+                return;
+            }
+
+            var queries = [
+                { command: 'getCurrentTime' },
+                { command: 'getPaused' },
+                { command: 'getPlaybackRate' },
+                { command: 'getDuration' },
+                { command: 'getBuffering' },
+                { type: 'getState' },
+                { event: 'getState' },
+                'getState'
+            ];
+
+            for (var i = 0; i < queries.length; i++) {
+                var query = queries[i];
+                try {
+                    var payload = typeof query === 'string'
+                        ? query
+                        : { ...query, source: 'vailism-poller', ts: Date.now() };
+                    this.iframe.contentWindow.postMessage(payload, '*');
+                } catch (error) {
+                    console.warn('[VAILISM POLLER] Failed to query playback state', error);
+                    break;
+                }
+            }
+
+            if (this.telemetryCount === 0 && this.pollCount >= 3) {
+                this.setCapabilities({ supportsTelemetry: false });
+            }
+
+            var telemetryAge = Date.now() - this.lastTelemetryAt;
+            if (telemetryAge > 1800) {
+                this.emitSyntheticTelemetry('poll-fallback');
+            }
+        }
+        onWindowMessage(event) {
+            if (!this.iframe || !this.iframe.contentWindow) return;
+            if (event.source !== this.iframe.contentWindow) return;
+
+            var snapshot = this.extractState(event.data);
+            if (!snapshot) return;
+
+            this.telemetryCount += 1;
+            this.syntheticClockEnabled = false;
+            this.setCapabilities({ supportsTelemetry: true });
+            this.emitTelemetry({ ...snapshot, source: snapshot.source || 'iframe' }, false);
+        }
+        extractState(payload) {
+            var data = payload;
+            if (!data) return null;
+
+            if (typeof data === 'string') {
+                try {
+                    data = JSON.parse(data);
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            if (data && typeof data === 'object' && data.data && typeof data.data === 'object') {
+                data = data.data;
+            }
+
+            if (!data || typeof data !== 'object') return null;
+
+            var currentTimeRaw = data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : (data.position !== undefined ? data.position : data.progress));
+            var durationRaw = data.duration !== undefined ? data.duration : (data.length !== undefined ? data.length : data.totalDuration);
+            var rateRaw = data.playbackRate !== undefined ? data.playbackRate : (data.rate !== undefined ? data.rate : data.speed);
+            var pausedRaw = data.paused;
+            var playingRaw = data.playing;
+            var bufferingRaw = data.buffering !== undefined ? data.buffering : (data.waiting !== undefined ? data.waiting : data.loading);
+            var eventTypeRaw = String(data.event || data.type || data.action || '').toLowerCase();
+
+            var hasTime = Number.isFinite(parseFloat(currentTimeRaw));
+            var hasDuration = Number.isFinite(parseFloat(durationRaw));
+            var hasRate = Number.isFinite(parseFloat(rateRaw));
+            var hasPaused = typeof pausedRaw === 'boolean' || typeof playingRaw === 'boolean';
+            var hasBuffering = typeof bufferingRaw === 'boolean';
+
+            if (!hasTime && !hasDuration && !hasRate && !hasPaused && !hasBuffering && !eventTypeRaw) {
+                return null;
+            }
+
+            var currentTime = hasTime ? parseFloat(currentTimeRaw) : this.lastKnownState.currentTime;
+            var duration = hasDuration ? parseFloat(durationRaw) : this.lastKnownState.duration;
+            var playbackRate = hasRate ? parseFloat(rateRaw) : this.lastKnownState.playbackRate;
+            var paused = typeof pausedRaw === 'boolean'
+                ? pausedRaw
+                : (typeof playingRaw === 'boolean' ? !playingRaw : this.lastKnownState.paused);
+            var buffering = typeof bufferingRaw === 'boolean' ? bufferingRaw : this.lastKnownState.buffering;
+
+            return {
+                type: eventTypeRaw || 'timeupdate',
+                currentTime: currentTime,
+                duration: duration,
+                playbackRate: playbackRate,
+                paused: paused,
+                playing: !paused,
+                buffering: buffering,
+                ts: Date.now(),
+                raw: data,
+                source: 'provider-telemetry'
+            };
+        }
+        emitTelemetry(snapshot, synthetic) {
+            synthetic = !!synthetic;
+            var now = Date.now();
+            var merged = {
+                ...this.lastKnownState,
+                ...snapshot,
+                ts: now,
+                synthetic: synthetic
+            };
+
+            merged.currentTime = Number.isFinite(merged.currentTime) ? merged.currentTime : this.lastKnownState.currentTime;
+            merged.duration = Number.isFinite(merged.duration) ? merged.duration : this.lastKnownState.duration;
+            merged.playbackRate = Number.isFinite(merged.playbackRate) ? merged.playbackRate : this.lastKnownState.playbackRate;
+            merged.paused = typeof merged.paused === 'boolean' ? merged.paused : this.lastKnownState.paused;
+            merged.playing = typeof merged.playing === 'boolean' ? merged.playing : !merged.paused;
+            merged.buffering = typeof merged.buffering === 'boolean' ? merged.buffering : this.lastKnownState.buffering;
+
+            this.lastKnownState = merged;
+            this.lastTickAt = now;
+            this.lastTelemetryAt = now;
+
+            if (this.telemetryListener) {
+                this.telemetryListener(merged);
+            }
+        }
+        emitSyntheticTelemetry(reason) {
+            reason = reason || 'synthetic';
+            var now = Date.now();
+            var elapsedSeconds = (now - this.lastTickAt) / 1000;
+            var rate = this.lastKnownState.playbackRate || 1.0;
+            var currentTime = this.lastKnownState.currentTime || 0;
+
+            if (!this.lastKnownState.paused && elapsedSeconds > 0) {
+                currentTime += elapsedSeconds * rate;
+                if (this.lastKnownState.duration > 0) {
+                    currentTime = Math.min(currentTime, this.lastKnownState.duration);
+                }
+            }
+
+            this.syntheticClockEnabled = true;
+            console.log('[VAILISM TELEMETRY] Using synthetic telemetry fallback', {
+                reason: reason,
+                currentTime: currentTime,
+                paused: this.lastKnownState.paused,
+                playbackRate: rate
+            });
+
+            this.emitTelemetry({
+                type: 'timeupdate',
+                currentTime: currentTime,
+                duration: this.lastKnownState.duration,
+                playbackRate: rate,
+                paused: this.lastKnownState.paused,
+                playing: !this.lastKnownState.paused,
+                buffering: this.lastKnownState.buffering,
+                source: 'synthetic-clock'
+            }, true);
+        }
         sendCommand(command, details) {
             details = details || {};
             if (!this.iframe || !this.iframe.contentWindow) {
@@ -859,6 +1111,21 @@
             try {
                 console.log('[VAILISM PROVIDER] Sending ' + command.toUpperCase() + ' command', payload);
                 this.iframe.contentWindow.postMessage(payload, '*');
+
+                if (command === 'play') {
+                    this.lastKnownState.paused = false;
+                    this.lastKnownState.playing = true;
+                } else if (command === 'pause') {
+                    this.lastKnownState.paused = true;
+                    this.lastKnownState.playing = false;
+                } else if (command === 'seek') {
+                    var time = Number.isFinite(parseFloat(details.time)) ? parseFloat(details.time) : this.lastKnownState.currentTime;
+                    this.lastKnownState.currentTime = time;
+                } else if (command === 'setPlaybackRate') {
+                    var rate = Number.isFinite(parseFloat(details.rate)) ? parseFloat(details.rate) : this.lastKnownState.playbackRate;
+                    this.lastKnownState.playbackRate = rate;
+                }
+
                 return true;
             } catch (error) {
                 console.warn('[VAILISM PROVIDER] ' + command.toUpperCase() + ' command failed', error);
@@ -872,6 +1139,15 @@
     // PROVIDER: VidlinkAdapter
     // ═══════════════════════════════════════════════════════════════════════
     class VidlinkAdapter extends ProviderAdapter {
+        constructor(iframe) {
+            super(iframe);
+            this.setCapabilities({
+                supportsCommands: true,
+                supportsTelemetry: false,
+                supportsSeeking: true,
+                supportsPlaybackRate: true
+            });
+        }
         play() {
             return this.sendCommand("play");
         }
@@ -915,6 +1191,15 @@
     // PROVIDER: VidsrcAdapter
     // ═══════════════════════════════════════════════════════════════════════
     class VidsrcAdapter extends ProviderAdapter {
+        constructor(iframe) {
+            super(iframe);
+            this.setCapabilities({
+                supportsCommands: true,
+                supportsTelemetry: false,
+                supportsSeeking: true,
+                supportsPlaybackRate: true
+            });
+        }
         play() {
             return this.sendCommand("play");
         }
@@ -945,6 +1230,15 @@
     // PROVIDER: VideasyAdapter
     // ═══════════════════════════════════════════════════════════════════════
     class VideasyAdapter extends ProviderAdapter {
+        constructor(iframe) {
+            super(iframe);
+            this.setCapabilities({
+                supportsCommands: true,
+                supportsTelemetry: false,
+                supportsSeeking: true,
+                supportsPlaybackRate: true
+            });
+        }
         play() { return this.sendCommand('play'); }
         pause() { return this.sendCommand('pause'); }
         seek(time) { return this.sendCommand('seek', { time: time, currentTime: time, position: time }); }
@@ -980,6 +1274,15 @@
     // PROVIDER: GenericIframeAdapter
     // ═══════════════════════════════════════════════════════════════════════
     class GenericIframeAdapter extends ProviderAdapter {
+        constructor(iframe) {
+            super(iframe);
+            this.setCapabilities({
+                supportsCommands: true,
+                supportsTelemetry: false,
+                supportsSeeking: true,
+                supportsPlaybackRate: false
+            });
+        }
         play() {
             return this.sendCommand("play");
         }
@@ -1299,9 +1602,9 @@
                 if (socket && socket.isHost && self.heartbeatInterval) {
                     var syncEngine = self.kernel.get("sync");
                     if (data.state === 'hidden') {
-                        self.startSending(syncEngine, 15000);
-                    } else {
                         self.startSending(syncEngine, 5000);
+                    } else {
+                        self.startSending(syncEngine, 2500);
                     }
                 }
             });
@@ -1313,24 +1616,35 @@
 
         startSending(syncEngine, intervalMs) {
             var self = this;
-            intervalMs = intervalMs || 5000;
+            intervalMs = intervalMs || 2500;
             self.stopSending();
             self.heartbeatInterval = setInterval(function() {
                 try {
                     var socket = self.kernel.get("socket");
                     if (!socket || !socket.isConnected() || !socket.isHost) return;
 
-                    syncEngine.getPlayerTime().then(function(currentTime) {
-                        if (currentTime > 0) {
-                            socket.emitSyncEvent({
-                                currentTime: currentTime,
-                                playing: syncEngine.isPlaying,
-                                buffering: false,
-                                playbackRate: 1.0,
-                                ts: Date.now()
-                            });
-                            self.eventBus.emit("HEARTBEAT_SENT", { currentTime: currentTime });
-                        }
+                    syncEngine.getSyncSnapshot().then(function(snapshot) {
+                        socket.emitSyncEvent({
+                            currentTime: snapshot.currentTime,
+                            playing: !!snapshot.playing,
+                            paused: !!snapshot.paused,
+                            buffering: !!snapshot.buffering,
+                            playbackRate: Number.isFinite(snapshot.playbackRate) ? snapshot.playbackRate : 1.0,
+                            duration: Number.isFinite(snapshot.duration) ? snapshot.duration : 0,
+                            telemetrySource: snapshot.source || 'heartbeat-snapshot',
+                            synthetic: !!snapshot.synthetic,
+                            ts: Date.now()
+                        });
+                        self.eventBus.emit("HEARTBEAT_SENT", {
+                            currentTime: snapshot.currentTime,
+                            source: snapshot.source || 'heartbeat-snapshot',
+                            synthetic: !!snapshot.synthetic
+                        });
+                        console.log('[VAILISM HEARTBEAT] Sent periodic heartbeat snapshot', {
+                            currentTime: snapshot.currentTime,
+                            source: snapshot.source || 'heartbeat-snapshot',
+                            synthetic: !!snapshot.synthetic
+                        });
                     });
                 } catch (e) {
                     console.error("[HeartbeatManager] Error in heartbeat transmit loop:", e);
@@ -1374,12 +1688,28 @@
             this.pendingHostPayload = null;
             this.lastLocalTime = 0;
             this.lastTimeProgression = Date.now();
-            this.lastHostTime = 0;
-            this.lastHostPlaying = false;
-            this.maxDriftSeconds = 1.5;
             this.lastPlaybackEvent = null;
             this.lastProviderCommand = null;
             this.lastSyncTimestamp = 0;
+            this.lastHostTime = 0;
+            this.lastHostPlaying = false;
+            this.adapter = null;
+            this.adapterIframe = null;
+            this.adapterSrc = '';
+            this.providerCapabilities = {
+                supportsCommands: false,
+                supportsTelemetry: false,
+                supportsSeeking: false,
+                supportsPlaybackRate: false
+            };
+            this.telemetrySource = 'none';
+            this.pollingActive = false;
+            this.syntheticClockEnabled = false;
+            this.softSyncMode = false;
+            this.lastTelemetryTimestamp = 0;
+            this.lastSnapshotBroadcast = 0;
+            this.periodicSnapshotIntervalMs = 2500;
+            this.maxDriftSeconds = 0.75;
         }
 
         injectKernel(kernel) {
@@ -1388,40 +1718,47 @@
         }
 
         onStart() {
-            var self = this;
-            var socket = self.kernel.get("socket");
-            self.isJoinBuffered = !socket.isHost;
-            self.pendingHostPayload = null;
-            self.isSyncingLocal = false;
-            self.isPlaying = false;
-            self.lastLocalTime = 0;
-            self.lastTimeProgression = Date.now();
+            const socket = this.kernel.get("socket");
+            this.isJoinBuffered = !socket.isHost;
+            this.pendingHostPayload = null;
+            this.isSyncingLocal = false;
+            this.isPlaying = false;
+            this.lastLocalTime = 0;
+            this.lastTimeProgression = Date.now();
+            this.lastSnapshotBroadcast = 0;
 
-            self.eventBus.on("REMOTE_SYNC_RECEIVED", function(payload) {
-                self.handleRemoteSync(payload);
+            this.refreshAdapter(true);
+
+            this.eventBus.on("REMOTE_SYNC_RECEIVED", (payload) => {
+                this.handleRemoteSync(payload);
             });
 
-            var heartbeats = self.kernel.get("sync.heartbeats");
+            const heartbeats = this.kernel.get("sync.heartbeats");
             if (socket.isHost) {
-                heartbeats.startSending(self);
+                heartbeats.startSending(this);
             }
 
-            if (self.isJoinBuffered) {
-                self.eventBus.emit("JOIN_BUFFER_START", { statusText: "Syncing playback..." });
+            if (this.isJoinBuffered) {
+                this.eventBus.emit("JOIN_BUFFER_START", { statusText: "Syncing playback..." });
             }
 
-            self.eventBus.on("VISIBILITY_CHANGED", function(data) {
+            this.eventBus.on("VISIBILITY_CHANGED", (data) => {
+                const adapter = this.getAdapter();
+                if (adapter && typeof adapter.resetPollingInterval === 'function') {
+                    adapter.resetPollingInterval();
+                }
+
                 if (data.state === 'visible') {
-                    var socket = self.kernel.get("socket");
+                    const socket = this.kernel.get("socket");
                     if (socket && !socket.isHost && socket.isConnected()) {
                         console.log("[SyncEngine] Tab visible. Requesting latest room snapshot...");
-                        var confidenceManager = self.kernel.get("sync.confidence");
+                        const confidenceManager = this.kernel.get("sync.confidence");
                         confidenceManager.setConfidence("recovering");
-                        
-                        var reconnectManager = self.kernel.get("recovery.reconnect");
-                        socket.joinRoom(reconnectManager.roomId, reconnectManager.username, function(res) {
+
+                        const reconnectManager = this.kernel.get("recovery.reconnect");
+                        socket.joinRoom(reconnectManager.roomId, reconnectManager.username, (res) => {
                             if (res && res.lastSync) {
-                                self.handleRemoteSync(res.lastSync);
+                                this.handleRemoteSync(res.lastSync);
                             }
                         });
                     }
@@ -1431,28 +1768,147 @@
 
         onStop() {
             if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
-            var heartbeats = this.kernel.get("sync.heartbeats");
+            const heartbeats = this.kernel.get("sync.heartbeats");
             heartbeats.stopSending();
-        }
-
-        getAdapter() {
-            if (!this.wrapper) return null;
-            var iframe = this.wrapper.querySelector("iframe");
-            if (!iframe) return null;
-            var src = iframe.src || "";
-            if (src.includes("vidlink.pro")) {
-                return new VidlinkAdapter(iframe);
-            } else if (src.includes("vidsrc.to")) {
-                return new VidsrcAdapter(iframe);
-            } else if (src.includes("videasy.net")) {
-                return new VideasyAdapter(iframe);
-            } else {
-                return new GenericIframeAdapter(iframe);
+            if (this.adapter && typeof this.adapter.stopPolling === 'function') {
+                this.adapter.stopPolling();
             }
         }
 
+        refreshAdapter(force = false) {
+            const previousAdapter = this.adapter;
+            const adapter = this.getAdapter(force);
+            if (previousAdapter && previousAdapter !== adapter && typeof previousAdapter.stopPolling === 'function') {
+                previousAdapter.stopPolling();
+            }
+
+            if (adapter) {
+                const capabilities = typeof adapter.getCapabilities === 'function'
+                    ? adapter.getCapabilities()
+                    : {
+                        supportsCommands: false,
+                        supportsTelemetry: false,
+                        supportsSeeking: false,
+                        supportsPlaybackRate: false
+                    };
+                this.providerCapabilities = capabilities;
+                this.softSyncMode = !capabilities.supportsTelemetry;
+
+                if (typeof adapter.setTelemetryListener === 'function') {
+                    adapter.setTelemetryListener((snapshot) => {
+                        this.handleProviderTelemetry(snapshot);
+                    });
+                }
+                if (typeof adapter.startPolling === 'function') {
+                    adapter.startPolling();
+                }
+
+                this.pollingActive = !!adapter.pollingActive;
+                this.eventBus.emit('PROVIDER_CAPABILITIES_UPDATED', {
+                    adapter: adapter.constructor.name,
+                    capabilities,
+                    softSyncMode: this.softSyncMode
+                });
+                console.log('[VAILISM PROVIDER] Adapter ready', {
+                    adapter: adapter.constructor.name,
+                    capabilities,
+                    softSyncMode: this.softSyncMode
+                });
+            }
+
+            return adapter;
+        }
+
+        getAdapter(force = false) {
+            if (!this.wrapper) return null;
+            const iframe = this.wrapper.querySelector("iframe");
+            if (!iframe) return null;
+            const src = iframe.src || "";
+
+            if (!force && this.adapter && this.adapterIframe === iframe && this.adapterSrc === src) {
+                return this.adapter;
+            }
+
+            let nextAdapter = null;
+            if (src.includes("vidlink.pro")) {
+                nextAdapter = new VidlinkAdapter(iframe);
+            } else if (src.includes("vidsrc.to")) {
+                nextAdapter = new VidsrcAdapter(iframe);
+            } else if (src.includes("videasy.net")) {
+                nextAdapter = new VideasyAdapter(iframe);
+            } else {
+                nextAdapter = new GenericIframeAdapter(iframe);
+            }
+
+            this.adapter = nextAdapter;
+            this.adapterIframe = iframe;
+            this.adapterSrc = src;
+
+            if (nextAdapter && this.eventBus) {
+                if (typeof nextAdapter.setTelemetryListener === 'function') {
+                    nextAdapter.setTelemetryListener((snapshot) => {
+                        this.handleProviderTelemetry(snapshot);
+                    });
+                }
+                if (typeof nextAdapter.startPolling === 'function') {
+                    nextAdapter.startPolling();
+                }
+                if (typeof nextAdapter.getCapabilities === 'function') {
+                    this.providerCapabilities = nextAdapter.getCapabilities();
+                    this.softSyncMode = !this.providerCapabilities.supportsTelemetry;
+                }
+                this.pollingActive = !!nextAdapter.pollingActive;
+            }
+
+            return nextAdapter;
+        }
+
+        getTelemetryStatus() {
+            return {
+                source: this.telemetrySource,
+                pollingActive: this.pollingActive,
+                syntheticClockEnabled: this.syntheticClockEnabled,
+                capabilities: { ...this.providerCapabilities },
+                softSyncMode: this.softSyncMode,
+                lastTelemetryAgeMs: this.lastTelemetryTimestamp ? Date.now() - this.lastTelemetryTimestamp : null
+            };
+        }
+
+        getSyncSnapshot() {
+            const adapter = this.getAdapter();
+            const state = adapter && typeof adapter.getStateSnapshot === 'function'
+                ? adapter.getStateSnapshot()
+                : null;
+
+            if (state && Number.isFinite(state.currentTime)) {
+                return Promise.resolve({
+                    currentTime: state.currentTime,
+                    playing: typeof state.playing === 'boolean' ? state.playing : !state.paused,
+                    paused: typeof state.paused === 'boolean' ? state.paused : !state.playing,
+                    buffering: !!state.buffering,
+                    playbackRate: Number.isFinite(state.playbackRate) ? state.playbackRate : 1.0,
+                    duration: Number.isFinite(state.duration) ? state.duration : 0,
+                    source: state.source || this.telemetrySource || 'adapter-state',
+                    synthetic: !!state.synthetic,
+                    ts: Date.now()
+                });
+            }
+
+            return this.getPlayerTime().then((currentTime) => ({
+                currentTime: Number.isFinite(currentTime) ? currentTime : 0,
+                playing: this.isPlaying,
+                paused: !this.isPlaying,
+                buffering: false,
+                playbackRate: 1.0,
+                duration: 0,
+                source: 'iframe-query',
+                synthetic: false,
+                ts: Date.now()
+            }));
+        }
+
         getAdapterType() {
-            var adapter = this.getAdapter();
+            const adapter = this.getAdapter();
             return adapter ? adapter.constructor.name : 'None';
         }
 
@@ -1468,8 +1924,7 @@
             this.eventBus.emit("PROVIDER_COMMAND_ATTEMPTED", this.lastProviderCommand);
         }
 
-        sendProviderCommand(adapter, command, details) {
-            details = details || {};
+        sendProviderCommand(adapter, command, details = {}) {
             if (!adapter || typeof adapter.sendCommand !== 'function') {
                 this.recordProviderCommand(command, false, { reason: 'adapter-missing' });
                 return false;
@@ -1481,17 +1936,98 @@
         }
 
         normalizeMessage(payload) {
-            var adapter = this.getAdapter();
+            const adapter = this.getAdapter();
             return adapter ? adapter.normalizeMessage(payload) : null;
         }
 
+        maybeBroadcastSnapshot(snapshot) {
+            const socket = this.kernel.get('socket');
+            if (!socket || !socket.isHost || !socket.isConnected()) return;
+
+            const now = Date.now();
+            if (now - this.lastSnapshotBroadcast < this.periodicSnapshotIntervalMs) return;
+
+            this.lastSnapshotBroadcast = now;
+            socket.emitSyncEvent({
+                currentTime: snapshot.currentTime,
+                playing: !!snapshot.playing,
+                paused: !!snapshot.paused,
+                buffering: !!snapshot.buffering,
+                playbackRate: Number.isFinite(snapshot.playbackRate) ? snapshot.playbackRate : 1.0,
+                duration: Number.isFinite(snapshot.duration) ? snapshot.duration : 0,
+                telemetrySource: snapshot.source || this.telemetrySource,
+                synthetic: !!snapshot.synthetic,
+                ts: now
+            });
+
+            this.eventBus.emit('LOCAL_SYNC_BROADCASTED', {
+                action: 'SNAPSHOT',
+                currentTime: snapshot.currentTime,
+                playing: !!snapshot.playing,
+                source: snapshot.source || this.telemetrySource,
+                synthetic: !!snapshot.synthetic,
+                ts: now
+            });
+            console.log('[VAILISM HEARTBEAT] Broadcast periodic snapshot', {
+                currentTime: snapshot.currentTime,
+                playing: !!snapshot.playing,
+                source: snapshot.source || this.telemetrySource,
+                synthetic: !!snapshot.synthetic
+            });
+        }
+
+        handleProviderTelemetry(snapshot) {
+            if (!snapshot || typeof snapshot !== 'object') return;
+
+            const adapter = this.getAdapter();
+            if (adapter && typeof adapter.getCapabilities === 'function') {
+                this.providerCapabilities = adapter.getCapabilities();
+                this.softSyncMode = !this.providerCapabilities.supportsTelemetry;
+                this.pollingActive = !!adapter.pollingActive;
+                this.syntheticClockEnabled = !!adapter.syntheticClockEnabled;
+            }
+
+            this.telemetrySource = snapshot.source || (snapshot.synthetic ? 'synthetic-clock' : 'provider-telemetry');
+            this.lastTelemetryTimestamp = Date.now();
+            if (Number.isFinite(snapshot.currentTime)) {
+                this.lastLocalTime = snapshot.currentTime;
+            }
+            if (typeof snapshot.playing === 'boolean') {
+                this.isPlaying = snapshot.playing;
+            } else if (typeof snapshot.paused === 'boolean') {
+                this.isPlaying = !snapshot.paused;
+            }
+
+            this.eventBus.emit('PROVIDER_TELEMETRY_UPDATED', {
+                ...snapshot,
+                source: this.telemetrySource,
+                capabilities: { ...this.providerCapabilities },
+                pollingActive: this.pollingActive,
+                syntheticClockEnabled: this.syntheticClockEnabled,
+                softSyncMode: this.softSyncMode,
+                ts: this.lastTelemetryTimestamp
+            });
+            console.log('[VAILISM TELEMETRY] Provider snapshot', {
+                type: snapshot.type,
+                currentTime: snapshot.currentTime,
+                paused: snapshot.paused,
+                playbackRate: snapshot.playbackRate,
+                source: this.telemetrySource,
+                synthetic: !!snapshot.synthetic
+            });
+
+            const evtName = snapshot.type || 'timeupdate';
+            this.handleLocalPlayerEvent(evtName, snapshot.currentTime || 0, snapshot.duration || 0, snapshot);
+            this.maybeBroadcastSnapshot(snapshot);
+        }
+
         getPlayerTime() {
-            var iframe = this.wrapper ? this.wrapper.querySelector("iframe") : null;
-            return new Promise(function(resolve) {
+            const iframe = this.wrapper ? this.wrapper.querySelector("iframe") : null;
+            return new Promise((resolve) => {
                 try {
                     if (!iframe || !iframe.contentWindow) return resolve(0);
-                    var channel = new MessageChannel();
-                    channel.port1.onmessage = function(event) {
+                    const channel = new MessageChannel();
+                    channel.port1.onmessage = (event) => {
                         try {
                             var data = event.data;
                             if (typeof data === "string") {
@@ -1508,7 +2044,7 @@
                         "*",
                         [channel.port2]
                     );
-                    setTimeout(function() { resolve(0); }, 120);
+                    setTimeout(() => { resolve(0); }, 120);
                 } catch (e) {
                     resolve(0);
                 }
@@ -1592,16 +2128,16 @@
                         self.isSyncingLocal = true;
                         var adapter = self.getAdapter();
                         if (adapter) {
-                            adapter.seek(targetTime);
+                            self.sendProviderCommand(adapter, 'seek', { time: targetTime, reason: 'join-sync' });
                             var fsm = self.kernel.get("fsm");
                             if (payload.playing) {
                                 self.isPlaying = true;
                                 fsm.transitionTo('PLAYING', 'Aligned with host playing on join');
-                                adapter.play();
+                                self.sendProviderCommand(adapter, 'play', { reason: 'join-sync' });
                             } else {
                                 self.isPlaying = false;
                                 fsm.transitionTo('PAUSED', 'Aligned with host paused on join');
-                                adapter.pause();
+                                self.sendProviderCommand(adapter, 'pause', { reason: 'join-sync' });
                             }
                         }
                         
@@ -2503,6 +3039,25 @@
                         var lastPlaybackEvent = syncEngine.lastPlaybackEvent ? JSON.stringify(syncEngine.lastPlaybackEvent) : 'None';
                         var lastProviderCommand = syncEngine.lastProviderCommand ? JSON.stringify(syncEngine.lastProviderCommand) : 'None';
                         var lastSyncAge = syncEngine.lastSyncTimestamp ? ((Date.now() - syncEngine.lastSyncTimestamp) / 1000).toFixed(1) + 's' : 'N/A';
+                        var telemetry = typeof syncEngine.getTelemetryStatus === 'function'
+                            ? syncEngine.getTelemetryStatus()
+                            : {
+                                source: 'none',
+                                pollingActive: false,
+                                syntheticClockEnabled: false,
+                                capabilities: {},
+                                softSyncMode: false,
+                                lastTelemetryAgeMs: null
+                            };
+                        var telemetryAge = telemetry.lastTelemetryAgeMs !== null
+                            ? (telemetry.lastTelemetryAgeMs / 1000).toFixed(1) + 's'
+                            : 'N/A';
+                        var capabilityMatrix = telemetry.capabilities
+                            ? 'cmd=' + (telemetry.capabilities.supportsCommands ? 'Y' : 'N') +
+                              ' telem=' + (telemetry.capabilities.supportsTelemetry ? 'Y' : 'N') +
+                              ' seek=' + (telemetry.capabilities.supportsSeeking ? 'Y' : 'N') +
+                              ' rate=' + (telemetry.capabilities.supportsPlaybackRate ? 'Y' : 'N')
+                            : 'N/A';
 
                         var metrics = metricsStore.metrics;
                         var avgDrift = metricsStore.getAverageDrift().toFixed(3) + "s";
@@ -2519,6 +3074,12 @@
                             'Adapter: ' + adapterType + '<br>' +
                             'RTT: ' + (socket.rtt || 0) + 'ms (Avg: ' + avgRtt + ')<br>' +
                             'Last Sync: ' + lastSyncAge + '<br>' +
+                            'Telemetry Source: ' + (telemetry.source || 'none') + '<br>' +
+                            'Telemetry Age: ' + telemetryAge + '<br>' +
+                            'Polling Active: ' + (telemetry.pollingActive ? 'YES' : 'NO') + '<br>' +
+                            'Synthetic Clock: ' + (telemetry.syntheticClockEnabled ? 'YES' : 'NO') + '<br>' +
+                            'Soft Sync Mode: ' + (telemetry.softSyncMode ? 'YES' : 'NO') + '<br>' +
+                            'Capabilities: ' + capabilityMatrix + '<br>' +
                             'Heartbeat Age: ' + age + '<br>' +
                             'Tab Visibility: ' + vis + '<br>' +
                             'Local Playhead: ' + localTime.toFixed(2) + 's<br>' +

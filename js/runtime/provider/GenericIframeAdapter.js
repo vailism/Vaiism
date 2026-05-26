@@ -1,20 +1,32 @@
 import { ProviderAdapter } from './ProviderAdapter.js';
 
 export class GenericIframeAdapter extends ProviderAdapter {
+    constructor(iframe) {
+        super(iframe);
+        this.setCapabilities({
+            supportsCommands: true,
+            supportsTelemetry: false,
+            supportsSeeking: true,
+            supportsPlaybackRate: false
+        });
+    }
+
     play() {
-        this.send({ command: "play" });
-        this.send("play");
+        return this.sendCommand('play');
     }
+
     pause() {
-        this.send({ command: "pause" });
-        this.send("pause");
+        return this.sendCommand('pause');
     }
+
     seek(time) {
-        this.send({ command: "seek", time: time });
+        return this.sendCommand('seek', { time, currentTime: time, position: time });
     }
+
     setPlaybackRate(rate) {
-        this.send({ command: "setPlaybackRate", rate: rate });
+        return this.sendCommand('setPlaybackRate', { rate, playbackRate: rate });
     }
+
     send(data) {
         if (this.iframe && this.iframe.contentWindow) {
             const msg = typeof data === "string" ? data : JSON.stringify(data);
