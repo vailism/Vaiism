@@ -634,21 +634,74 @@
             }
         }
 
+        class PlaybackStateMachine {
+            constructor() {
+                this.currentState = "IDLE";
+                this.allowedTransitions = {
+                    "IDLE": ["CONNECTING"],
+                    "CONNECTING": ["JOINING", "DISCONNECTED", "FAILED", "IDLE"],
+                    "JOINING": ["BUFFERING", "READY", "DISCONNECTED", "FAILED", "IDLE"],
+                    "BUFFERING": ["READY", "STALLED", "PLAYING", "PAUSED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "READY": ["PLAYING", "PAUSED", "SYNCING", "BUFFERING", "STALLED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "PLAYING": ["PAUSED", "SYNCING", "BUFFERING", "STALLED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "PAUSED": ["PLAYING", "SYNCING", "BUFFERING", "STALLED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "SYNCING": ["PLAYING", "PAUSED", "BUFFERING", "STALLED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "STALLED": ["RECOVERING", "PLAYING", "PAUSED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "RECOVERING": ["PLAYING", "PAUSED", "READY", "STALLED", "DISCONNECTED", "FAILED", "IDLE"],
+                    "DISCONNECTED": ["CONNECTING", "IDLE"],
+                    "FAILED": ["CONNECTING", "IDLE"]
+                };
+                this.onTransitionCallbacks = [];
+            }
+
+            transitionTo(newState, reason = "") {
+                if (this.currentState === newState) return true;
+                const allowed = this.allowedTransitions[this.currentState];
+                if (!allowed || !allowed.includes(newState)) {
+                    console.warn(`[FSM] Invalid state transition: ${this.currentState} -> ${newState} (${reason})`);
+                    return false;
+                }
+                const oldState = this.currentState;
+                this.currentState = newState;
+                console.log(`[FSM] State: ${oldState} -> ${newState} | Reason: ${reason}`);
+                this.onTransitionCallbacks.forEach(cb => {
+                    try {
+                        cb(newState, oldState, reason);
+                    } catch (e) {
+                        console.error("[FSM] Error in transition callback:", e);
+                    }
+                });
+                return true;
+            }
+
+            onTransition(cb) {
+                this.onTransitionCallbacks.push(cb);
+            }
+        }
+
         // Toast Notification System
         function showToast(msg) {
-            const container = document.getElementById("partyToastContainer");
-            if (!container) return;
-            const toast = document.createElement("div");
-            toast.className = "party-toast";
-            toast.textContent = msg;
-            container.appendChild(toast);
-            
-            // Auto remove after 3s (matches CSS transition)
-            setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.parentNode.removeChild(toast);
-                }
-            }, 3000);
+            try {
+                const container = document.getElementById("partyToastContainer");
+                if (!container) return;
+                const toast = document.createElement("div");
+                toast.className = "party-toast";
+                toast.textContent = msg;
+                container.appendChild(toast);
+                
+                // Auto remove after 3s (matches CSS transition)
+                setTimeout(() => {
+                    try {
+                        if (toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                    } catch (err) {
+                        console.error("[Toast] Error removing toast:", err);
+                    }
+                }, 3000);
+            } catch (err) {
+                console.error("[Toast] Error showing toast:", err);
+            }
         }
 
         class RoomManager {
@@ -662,6 +715,10 @@
                 this.localSessionId = null;
                 this.hostId = null;
                 this.rtt = 0;
+                
+                // FSM initialization
+                this.fsm = new PlaybackStateMachine();
+                this.lastSnapshot = null; // Sync Snapshot caching
                 
                 // Typing indicators tracking
                 this.activeTypers = new Map();
@@ -677,6 +734,16 @@
                 this.serverUrl = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
                     ? 'http://localhost:3000'
                     : 'https://vailism-sync.onrender.com';
+
+                // Listen to FSM state changes to auto-redraw UI
+                this.fsm.onTransition((newState, oldState, reason) => {
+                    try {
+                        this.updateStatusUI();
+                        this.updateConnectionQualityBadge();
+                    } catch (e) {
+                        console.error("[RoomManager] Error in FSM transition callback:", e);
+                    }
+                });
             }
 
             on(event, handler) {
@@ -686,7 +753,13 @@
 
             trigger(event, data) {
                 if (this.eventListeners[event]) {
-                    this.eventListeners[event].forEach(h => h(data));
+                    this.eventListeners[event].forEach(h => {
+                        try {
+                            h(data);
+                        } catch (e) {
+                            console.error("[RoomManager] Error in event listener trigger:", e);
+                        }
+                    });
                 }
             }
 
@@ -694,8 +767,7 @@
                 this.username = userName;
                 console.log(`[RoomManager] Connecting to sync server: ${this.serverUrl}`);
                 
-                this.updateStatusUI('Connecting...', 'connecting');
-                this.updateConnectionQualityBadge('connecting');
+                this.fsm.transitionTo('CONNECTING', 'Initiating socket connection');
 
                 this.socket = io(this.serverUrl, {
                     transports: ['websocket'],
@@ -714,16 +786,24 @@
                         this.reconnectInterval = null;
                     }
 
-                    this.updateStatusUI('Connected to Server', 'connected');
-                    this.updateConnectionQualityBadge('connected');
+                    this.fsm.transitionTo('JOINING', 'Socket connected, preparing to join/rejoin');
                     this.toggleChatInputs(true);
                     showToast("Connected to sync server");
 
                     if (this.roomId) {
                         console.log(`[RoomManager] Rejoining room: ${this.roomId}`);
+                        if (window._playbackSyncer && window._playbackSyncer.metrics) {
+                            window._playbackSyncer.metrics.reconnectCount++;
+                        }
                         this.joinRoom(this.roomId, this.username);
                     }
-                    if (connectionCallback) connectionCallback();
+                    if (connectionCallback) {
+                        try {
+                            connectionCallback();
+                        } catch (e) {
+                            console.error("[RoomManager] Error in connect callback:", e);
+                        }
+                    }
                     
                     this.startRttPingLoop();
                     this.setupChatInputListeners();
@@ -731,8 +811,7 @@
 
                 this.socket.on('disconnect', (reason) => {
                     console.warn(`[RoomManager] Disconnected. Reason: ${reason}`);
-                    this.updateStatusUI('Reconnecting in 5s...', 'reconnecting');
-                    this.updateConnectionQualityBadge('reconnecting');
+                    this.fsm.transitionTo('DISCONNECTED', `Socket disconnected: ${reason}`);
                     this.toggleChatInputs(false);
                     showToast("Disconnected. Reconnecting...");
                     this.stopRttPingLoop();
@@ -745,25 +824,33 @@
                     if (this.reconnectInterval) clearInterval(this.reconnectInterval);
                     this.reconnectCountdown = 5;
                     this.reconnectInterval = setInterval(() => {
-                        this.reconnectCountdown--;
-                        if (this.reconnectCountdown <= 0) {
-                            this.reconnectCountdown = 5;
-                            this.updateStatusUI('Attempting reconnect...', 'reconnecting');
-                        } else {
-                            this.updateStatusUI(`Reconnecting in ${this.reconnectCountdown}s...`, 'reconnecting');
+                        try {
+                            this.reconnectCountdown--;
+                            if (this.reconnectCountdown <= 0) {
+                                this.reconnectCountdown = 5;
+                                this.updateStatusUI('Attempting reconnect...', 'reconnecting');
+                            } else {
+                                this.updateStatusUI(`Reconnecting in ${this.reconnectCountdown}s...`, 'reconnecting');
+                            }
+                        } catch (err) {
+                            console.error("[RoomManager] Error in reconnect timer:", err);
                         }
                     }, 1000);
                 });
 
                 this.socket.on('connect_error', (error) => {
                     console.error('[RoomManager] Connection error:', error);
-                    this.updateStatusUI('Connection error. Retrying...', 'error');
-                    this.updateConnectionQualityBadge('disconnected');
+                    this.fsm.transitionTo('FAILED', `Socket connection error: ${error ? error.message : ''}`);
                     this.toggleChatInputs(false);
                 });
 
                 this.socket.on('sync-state', (data) => {
-                    this.trigger('syncCommand', data);
+                    try {
+                        this.lastSnapshot = data; // Cache snapshot
+                        this.trigger('syncCommand', data);
+                    } catch (e) {
+                        console.error("[RoomManager] Error handling sync-state event:", e);
+                    }
                 });
 
                 this.socket.on('chat-message', (data) => {
@@ -775,482 +862,594 @@
                 });
 
                 this.socket.on('host-changed', (data) => {
-                    console.log(`[RoomManager] Host changed: ${data.hostName} (${data.hostId})`);
-                    this.isHost = (data.hostId === this.socket.id);
-                    this.hostId = data.hostId;
-                    
-                    const hostControls = document.getElementById("partyHostControls");
-                    if (hostControls) {
-                        hostControls.style.display = this.isHost ? "block" : "none";
-                    }
+                    try {
+                        console.log(`[RoomManager] Host changed: ${data.hostName} (${data.hostId})`);
+                        this.isHost = (data.hostId === this.socket.id);
+                        this.hostId = data.hostId;
+                        
+                        const hostControls = document.getElementById("partyHostControls");
+                        if (hostControls) {
+                            hostControls.style.display = this.isHost ? "block" : "none";
+                        }
 
-                    this.participants.clear();
-                    data.participants.forEach(p => {
-                        this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
-                    });
-                    
-                    this.updateParticipantsListUI();
-                    
-                    if (this.isHost) {
-                        this.updateStatusUI('You are the Host', 'host');
-                        this.updateConnectionQualityBadge('host');
-                    } else {
-                        this.updateStatusUI(`Host: ${data.hostName}`, 'guest');
-                        this.updateConnectionQualityBadge('connected');
+                        this.participants.clear();
+                        data.participants.forEach(p => {
+                            this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
+                        });
+                        
+                        this.updateParticipantsListUI();
+                        
+                        showToast(`Host migrated: ${data.hostName} is now room controller`);
+                        
+                        // Insert system message in chat
+                        this.appendChatMessage({
+                            system: true,
+                            text: `Host migrated to ${data.hostName}`,
+                            ts: Date.now()
+                        });
+                    } catch (e) {
+                        console.error("[RoomManager] Error in host-changed handler:", e);
                     }
-
-                    showToast(`Host migrated: ${data.hostName} is now room controller`);
-                    
-                    // Insert system message in chat
-                    this.appendChatMessage({
-                        system: true,
-                        text: `Host migrated to ${data.hostName}`,
-                        ts: Date.now()
-                    });
                 });
 
                 this.socket.on('user-joined', (data) => {
-                    console.log(`[RoomManager] User joined: ${data.name}`);
-                    this.participants.clear();
-                    data.participants.forEach(p => {
-                        this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
-                    });
-                    this.updateParticipantsListUI();
-                    showToast(`${data.name} joined the watch party`);
-                    
-                    // Insert system message in chat
-                    this.appendChatMessage({
-                        system: true,
-                        text: `${data.name} joined the room`,
-                        ts: Date.now()
-                    });
+                    try {
+                        console.log(`[RoomManager] User joined: ${data.name}`);
+                        this.participants.clear();
+                        data.participants.forEach(p => {
+                            this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
+                        });
+                        this.updateParticipantsListUI();
+                        showToast(`${data.name} joined the watch party`);
+                        
+                        // Insert system message in chat
+                        this.appendChatMessage({
+                            system: true,
+                            text: `${data.name} joined the room`,
+                            ts: Date.now()
+                        });
+                    } catch (e) {
+                        console.error("[RoomManager] Error in user-joined handler:", e);
+                    }
                 });
 
                 this.socket.on('user-left', (data) => {
-                    console.log(`[RoomManager] User left: ${data.name}`);
-                    this.participants.clear();
-                    data.participants.forEach(p => {
-                        this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
-                    });
-                    this.updateParticipantsListUI();
-                    showToast(`${data.name} left the watch party`);
+                    try {
+                        console.log(`[RoomManager] User left: ${data.name}`);
+                        this.participants.clear();
+                        data.participants.forEach(p => {
+                            this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
+                        });
+                        this.updateParticipantsListUI();
+                        showToast(`${data.name} left the watch party`);
 
-                    // Remove from active typers if present
-                    if (this.activeTypers.has(data.socketId)) {
-                        clearTimeout(this.activeTypers.get(data.socketId).timeout);
-                        this.activeTypers.delete(data.socketId);
-                        this.updateTypingIndicatorUI();
+                        // Remove from active typers if present
+                        if (this.activeTypers.has(data.socketId)) {
+                            clearTimeout(this.activeTypers.get(data.socketId).timeout);
+                            this.activeTypers.delete(data.socketId);
+                            this.updateTypingIndicatorUI();
+                        }
+
+                        // Insert system message in chat
+                        this.appendChatMessage({
+                            system: true,
+                            text: `${data.name} left the room`,
+                            ts: Date.now()
+                        });
+                    } catch (e) {
+                        console.error("[RoomManager] Error in user-left handler:", e);
                     }
-
-                    // Insert system message in chat
-                    this.appendChatMessage({
-                        system: true,
-                        text: `${data.name} left the room`,
-                        ts: Date.now()
-                    });
                 });
 
                 this.socket.on('error-msg', (data) => {
-                    console.error('[RoomManager] Error:', data.message);
-                    this.updateStatusUI(`Error: ${data.message}`, 'error');
-                    showToast(`Error: ${data.message}`);
+                    try {
+                        console.error('[RoomManager] Error:', data.message);
+                        this.fsm.transitionTo('FAILED', `Room error: ${data.message}`);
+                        showToast(`Error: ${data.message}`);
+                    } catch (e) {
+                        console.error(e);
+                    }
                 });
             }
 
             createRoom(videoId, videoType, hostName) {
                 if (!this.socket) return;
                 this.socket.emit('create-room', { videoId, videoType, hostName }, (res) => {
-                    if (res.error) {
-                        console.error('[RoomManager] Create room failed:', res.error);
-                        this.updateStatusUI(`Create failed: ${res.error}`, 'error');
-                        return;
+                    try {
+                        if (res.error) {
+                            console.error('[RoomManager] Create room failed:', res.error);
+                            this.fsm.transitionTo('FAILED', `Create failed: ${res.error}`);
+                            return;
+                        }
+                        this.roomId = res.roomId;
+                        this.isHost = true;
+                        this.hostId = res.hostId;
+                        console.log(`[RoomManager] Room created: ${this.roomId}`);
+                        
+                        this.fsm.transitionTo('READY', 'Created room successfully');
+                        
+                        this.participants.clear();
+                        res.participants.forEach(p => {
+                            this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
+                        });
+                        this.updateParticipantsListUI();
+                        
+                        setupShareLink(this.roomId);
+                        showToast(`Watch Together Room Created: ${this.roomId}`);
+                    } catch (e) {
+                        console.error("[RoomManager] Error in createRoom callback:", e);
                     }
-                    this.roomId = res.roomId;
-                    this.isHost = true;
-                    this.hostId = res.hostId;
-                    console.log(`[RoomManager] Room created: ${this.roomId}`);
-                    this.updateStatusUI('Joined Room (Host)', 'host');
-                    this.updateConnectionQualityBadge('host');
-                    
-                    this.participants.clear();
-                    res.participants.forEach(p => {
-                        this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
-                    });
-                    this.updateParticipantsListUI();
-                    
-                    setupShareLink(this.roomId);
-                    showToast(`Watch Together Room Created: ${this.roomId}`);
                 });
             }
 
             joinRoom(roomId, userName) {
                 if (!this.socket) return;
                 this.socket.emit('join-room', { roomId, userName }, (res) => {
-                    if (res.error) {
-                        console.error('[RoomManager] Join room failed:', res.error);
-                        this.updateStatusUI(`Join failed: ${res.error}`, 'error');
-                        showToast(`Join failed: ${res.error}`);
-                        return;
-                    }
-                    this.roomId = roomId;
-                    this.isHost = (res.hostId === this.socket.id);
-                    this.hostId = res.hostId;
-                    console.log(`[RoomManager] Joined room: ${this.roomId}, isHost: ${this.isHost}`);
-                    this.updateStatusUI(this.isHost ? 'Joined Room (Host)' : `Joined Room`, this.isHost ? 'host' : 'guest');
-                    this.updateConnectionQualityBadge(this.isHost ? 'host' : 'connected');
-                    
-                    this.participants.clear();
-                    res.participants.forEach(p => {
-                        this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
-                    });
-                    this.updateParticipantsListUI();
-
-                    const hostControls = document.getElementById("partyHostControls");
-                    if (hostControls) {
-                        hostControls.style.display = this.isHost ? "block" : "none";
-                    }
-
-                    setupShareLink(this.roomId);
-                    showToast(`Joined Room: ${this.roomId}`);
-
-                    if (!this.isHost && res.lastSync) {
-                        this.trigger('syncCommand', {
-                            action: res.lastSync.playing ? 'PLAY' : 'PAUSE',
-                            currentTime: res.lastSync.currentTime,
-                            playing: res.lastSync.playing,
-                            ts: res.lastSync.ts
+                    try {
+                        if (res.error) {
+                            console.error('[RoomManager] Join room failed:', res.error);
+                            this.fsm.transitionTo('FAILED', `Join failed: ${res.error}`);
+                            showToast(`Join failed: ${res.error}`);
+                            return;
+                        }
+                        this.roomId = roomId;
+                        this.isHost = (res.hostId === this.socket.id);
+                        this.hostId = res.hostId;
+                        console.log(`[RoomManager] Joined room: ${this.roomId}, isHost: ${this.isHost}`);
+                        
+                        if (this.isHost) {
+                            this.fsm.transitionTo('READY', 'Joined room as host');
+                        } else {
+                            this.fsm.transitionTo('BUFFERING', 'Joined room as guest, preloading');
+                        }
+                        
+                        this.participants.clear();
+                        res.participants.forEach(p => {
+                            this.participants.set(p.socketId, { id: p.socketId, displayName: p.name });
                         });
+                        this.updateParticipantsListUI();
+
+                        const hostControls = document.getElementById("partyHostControls");
+                        if (hostControls) {
+                            hostControls.style.display = this.isHost ? "block" : "none";
+                        }
+
+                        setupShareLink(this.roomId);
+                        showToast(`Joined Room: ${this.roomId}`);
+
+                        if (!this.isHost && res.lastSync) {
+                            this.lastSnapshot = res.lastSync; // Cache snapshot
+                            this.trigger('syncCommand', {
+                                action: res.lastSync.playing ? 'PLAY' : 'PAUSE',
+                                currentTime: res.lastSync.currentTime,
+                                playing: res.lastSync.playing,
+                                ts: res.lastSync.ts
+                            });
+                        }
+                    } catch (e) {
+                        console.error("[RoomManager] Error in joinRoom callback:", e);
                     }
                 });
             }
 
             broadcastCommand(action, data) {
-                if (!this.socket || !this.isHost) return;
-                this.socket.emit('sync-event', {
-                    currentTime: data.currentTime,
-                    playing: data.playing,
-                    paused: !data.playing,
-                    buffering: !!data.buffering,
-                    playbackRate: data.playbackRate || 1.0,
-                    ts: Date.now()
-                });
+                try {
+                    if (!this.socket || !this.isHost) return;
+                    const payload = {
+                        currentTime: data.currentTime,
+                        playing: data.playing,
+                        paused: !data.playing,
+                        buffering: !!data.buffering,
+                        playbackRate: data.playbackRate || 1.0,
+                        ts: Date.now()
+                    };
+                    this.lastSnapshot = {
+                        action: action,
+                        currentTime: data.currentTime,
+                        playing: data.playing,
+                        ts: payload.ts
+                    };
+                    this.socket.emit('sync-event', payload);
+                } catch (e) {
+                    console.error("[RoomManager] Error broadcasting sync-event:", e);
+                }
             }
 
             updateStatusUI(text, stateClass) {
-                const container = document.getElementById("jaas-chat-iframe-container");
-                if (!container) return;
-                
-                let displayStatus = text;
-                const confidence = window._playbackSyncer?.syncConfidence || "synced";
-                if (stateClass === 'connected' || stateClass === 'guest') {
-                    if (confidence === "stabilizing") {
-                        displayStatus = "Sync Stabilizing";
-                        stateClass = "connecting";
-                    } else if (confidence === "delayed") {
-                        displayStatus = "Playback Delayed";
-                        stateClass = "error";
-                    } else if (confidence === "buffering") {
-                        displayStatus = "Buffering Stream";
-                        stateClass = "connecting";
-                    } else {
-                        displayStatus = "Synced";
-                        stateClass = "connected";
-                    }
-                }
+                try {
+                    const container = document.getElementById("jaas-chat-iframe-container");
+                    if (!container) return;
 
-                container.innerHTML = `
-                    <div class="party-status-card ${stateClass}">
-                        <div class="party-status-dot"></div>
-                        <div class="party-status-details">
-                            <span class="party-status-label">Room Status</span>
-                            <span class="party-status-value">${displayStatus}</span>
+                    let displayStatus = text;
+                    let stateDotClass = stateClass;
+
+                    const fsmState = this.fsm ? this.fsm.currentState : "IDLE";
+                    
+                    const stateMapping = {
+                        "IDLE": { label: "Offline", dotClass: "error" },
+                        "CONNECTING": { label: "Connecting...", dotClass: "connecting" },
+                        "JOINING": { label: "Joining Room...", dotClass: "connecting" },
+                        "BUFFERING": { label: "Buffering Stream", dotClass: "connecting" },
+                        "READY": { label: "Ready", dotClass: "connected" },
+                        "PLAYING": { label: this.isHost ? "You are the Host" : "Synced", dotClass: this.isHost ? "host" : "connected" },
+                        "PAUSED": { label: this.isHost ? "You are the Host" : "Synced", dotClass: this.isHost ? "host" : "connected" },
+                        "SYNCING": { label: "Synchronizing...", dotClass: "connecting" },
+                        "STALLED": { label: "Playback Stalled", dotClass: "error" },
+                        "RECOVERING": { label: "Recovering Sync...", dotClass: "connecting" },
+                        "DISCONNECTED": { label: "Disconnected", dotClass: "error" },
+                        "FAILED": { label: "Connection Failed", dotClass: "error" }
+                    };
+
+                    if (!displayStatus && stateMapping[fsmState]) {
+                        displayStatus = stateMapping[fsmState].label;
+                        stateDotClass = stateMapping[fsmState].dotClass;
+                    }
+
+                    if (window._playbackSyncer) {
+                        const confidence = window._playbackSyncer.syncConfidence;
+                        if (confidence === "stabilizing" && (fsmState === "PLAYING" || fsmState === "PAUSED" || fsmState === "SYNCING")) {
+                            displayStatus = "Sync Stabilizing";
+                            stateDotClass = "connecting";
+                        } else if (confidence === "delayed") {
+                            displayStatus = "Playback Stalled";
+                            stateDotClass = "error";
+                        } else if (confidence === "unstable") {
+                            displayStatus = "Sync Degrading";
+                            stateDotClass = "connecting";
+                        }
+                    }
+
+                    container.innerHTML = `
+                        <div class="party-status-card ${stateDotClass || 'connected'}">
+                            <div class="party-status-dot"></div>
+                            <div class="party-status-details">
+                                <span class="party-status-label">Room Status</span>
+                                <span class="party-status-value">${displayStatus || 'Synced'}</span>
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                } catch (e) {
+                    console.error("[RoomManager] Error updating status UI:", e);
+                }
             }
 
             updateParticipantsListUI() {
-                const listContainer = document.getElementById("partyParticipantsList");
-                const countContainer = document.getElementById("partyUserCount");
-                if (!listContainer) return;
+                try {
+                    const listContainer = document.getElementById("partyParticipantsList");
+                    const countContainer = document.getElementById("partyUserCount");
+                    if (!listContainer) return;
 
-                if (countContainer) {
-                    countContainer.textContent = this.participants.size + 1; // Include self
-                }
+                    if (countContainer) {
+                        countContainer.textContent = this.participants.size + 1; // Include self
+                    }
 
-                // Batch updates using DocumentFragment to prevent layout thrashing
-                const fragment = document.createDocumentFragment();
-                
-                // Add local user
-                const localName = this.username || 'You';
-                const meRow = document.createElement("div");
-                meRow.className = "party-member-row";
-                const isLocalHost = this.isHost;
-                const escapedLocalName = escapeHTML(localName);
-                const firstCharLocal = escapeHTML(localName.charAt(0).toUpperCase());
-                meRow.innerHTML = `
-                    <div class="party-member-avatar" style="background:#e50914;">${firstCharLocal}</div>
-                    <div class="party-member-info">
-                        <span class="party-member-name">${escapedLocalName} (You) ${isLocalHost ? '👑' : ''}</span>
-                        <span class="party-member-role">${isLocalHost ? 'Host' : 'Viewer'}</span>
-                    </div>
-                `;
-                fragment.appendChild(meRow);
-
-                // Add other participants
-                this.participants.forEach((p, sId) => {
-                    if (sId === this.socket?.id) return;
-                    const pRow = document.createElement("div");
-                    pRow.className = "party-member-row";
-                    const isPHost = (sId === this.hostId);
-                    const escapedDisplayName = escapeHTML(p.displayName);
-                    const firstCharDisplay = escapeHTML(p.displayName.charAt(0).toUpperCase());
-                    pRow.innerHTML = `
-                        <div class="party-member-avatar" style="background:#333;">${firstCharDisplay}</div>
+                    const fragment = document.createDocumentFragment();
+                    
+                    // Add local user
+                    const localName = this.username || 'You';
+                    const meRow = document.createElement("div");
+                    meRow.className = "party-member-row";
+                    const isLocalHost = this.isHost;
+                    const escapedLocalName = escapeHTML(localName);
+                    const firstCharLocal = escapeHTML(localName.charAt(0).toUpperCase());
+                    meRow.innerHTML = `
+                        <div class="party-member-avatar" style="background:#e50914;">${firstCharLocal}</div>
                         <div class="party-member-info">
-                            <span class="party-member-name">${escapedDisplayName} ${isPHost ? '👑' : ''}</span>
-                            <span class="party-member-role">${isPHost ? 'Host' : 'Viewer'}</span>
+                            <span class="party-member-name">${escapedLocalName} (You) ${isLocalHost ? '👑' : ''}</span>
+                            <span class="party-member-role">${isLocalHost ? 'Host' : 'Viewer'}</span>
                         </div>
                     `;
-                    fragment.appendChild(pRow);
-                });
+                    fragment.appendChild(meRow);
 
-                // Single DOM write
-                listContainer.innerHTML = "";
-                listContainer.appendChild(fragment);
+                    // Add other participants
+                    this.participants.forEach((p, sId) => {
+                        if (sId === this.socket?.id) return;
+                        const pRow = document.createElement("div");
+                        pRow.className = "party-member-row";
+                        const isPHost = (sId === this.hostId);
+                        const escapedDisplayName = escapeHTML(p.displayName);
+                        const firstCharDisplay = escapeHTML(p.displayName.charAt(0).toUpperCase());
+                        pRow.innerHTML = `
+                            <div class="party-member-avatar" style="background:#333;">${firstCharDisplay}</div>
+                            <div class="party-member-info">
+                                <span class="party-member-name">${escapedDisplayName} ${isPHost ? '👑' : ''}</span>
+                                <span class="party-member-role">${isPHost ? 'Host' : 'Viewer'}</span>
+                            </div>
+                        `;
+                        fragment.appendChild(pRow);
+                    });
+
+                    listContainer.innerHTML = "";
+                    listContainer.appendChild(fragment);
+                } catch (e) {
+                    console.error("[RoomManager] Error updating participants list UI:", e);
+                }
             }
 
             appendChatMessage(data) {
-                const chatMessages = document.getElementById("partyChatMessages");
-                if (!chatMessages) return;
+                try {
+                    const chatMessages = document.getElementById("partyChatMessages");
+                    if (!chatMessages) return;
 
-                // XSS Mitigation: Sanitize messages by treating content as pure text
-                const sanitizedText = escapeHTML(data.text);
-                const sanitizedSenderName = escapeHTML(data.senderName);
+                    const sanitizedText = escapeHTML(data.text);
+                    const sanitizedSenderName = escapeHTML(data.senderName);
 
-                const isMe = data.senderId === this.socket?.id;
-                const isSenderHost = data.senderId === this.hostId || (this.isHost && isMe);
+                    const isMe = data.senderId === this.socket?.id;
+                    const isSenderHost = data.senderId === this.hostId || (this.isHost && isMe);
 
-                const row = document.createElement("div");
-                row.className = `party-message-row ${isMe ? 'me' : ''} ${data.system ? 'system' : ''}`;
-                
-                const timeStr = new Date(data.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const row = document.createElement("div");
+                    row.className = `party-message-row ${isMe ? 'me' : ''} ${data.system ? 'system' : ''}`;
+                    
+                    const timeStr = new Date(data.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-                if (data.system) {
-                    row.innerHTML = `<div class="party-message-bubble">${sanitizedText}</div>`;
-                } else {
-                    const hostLabel = isSenderHost ? `<span class="party-badge-host">Host</span>` : '';
-                    row.innerHTML = `
-                        <div class="party-message-meta">
-                            <span class="sender-name">${sanitizedSenderName}</span>
-                            ${hostLabel}
-                            <span class="message-time">${timeStr}</span>
-                        </div>
-                        <div class="party-message-bubble">${sanitizedText}</div>
-                    `;
-                }
+                    if (data.system) {
+                        row.innerHTML = `<div class="party-message-bubble">${sanitizedText}</div>`;
+                    } else {
+                        const hostLabel = isSenderHost ? `<span class="party-badge-host">Host</span>` : '';
+                        row.innerHTML = `
+                            <div class="party-message-meta">
+                                <span class="sender-name">${sanitizedSenderName}</span>
+                                ${hostLabel}
+                                <span class="message-time">${timeStr}</span>
+                            </div>
+                            <div class="party-message-bubble">${sanitizedText}</div>
+                        `;
+                    }
 
-                chatMessages.appendChild(row);
+                    chatMessages.appendChild(row);
 
-                // Auto-scroll logic: only scroll if the viewer is already reading near the bottom
-                const threshold = 60;
-                const isAtBottom = (chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight) <= threshold;
-                if (isAtBottom || isMe) {
-                    // Batch scroll with requestAnimationFrame to prevent layout reflow blocking
-                    requestAnimationFrame(() => {
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                    });
-                }
+                    const threshold = 60;
+                    const isAtBottom = (chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight) <= threshold;
+                    if (isAtBottom || isMe) {
+                        requestAnimationFrame(() => {
+                            try {
+                                chatMessages.scrollTop = chatMessages.scrollHeight;
+                            } catch (err) {}
+                        });
+                    }
 
-                // Buffer capping to protect memory leak on long streaming views
-                if (chatMessages.children.length > 100) {
-                    chatMessages.removeChild(chatMessages.firstChild);
+                    if (chatMessages.children.length > 100) {
+                        chatMessages.removeChild(chatMessages.firstChild);
+                    }
+                } catch (e) {
+                    console.error("[RoomManager] Error appending chat message:", e);
                 }
             }
 
             handleRemoteTyping(data) {
-                const { senderId, senderName, isTyping } = data;
-                
-                // Clear previous timeout for this user
-                if (this.activeTypers.has(senderId)) {
-                    clearTimeout(this.activeTypers.get(senderId).timeout);
-                    this.activeTypers.delete(senderId);
-                }
-
-                if (isTyping) {
-                    // Fail-safe auto-clear: if remote user disconnects, typing label will clear in 4s
-                    const timeout = setTimeout(() => {
+                try {
+                    const { senderId, senderName, isTyping } = data;
+                    
+                    if (this.activeTypers.has(senderId)) {
+                        clearTimeout(this.activeTypers.get(senderId).timeout);
                         this.activeTypers.delete(senderId);
-                        this.updateTypingIndicatorUI();
-                    }, 4000);
+                    }
 
-                    this.activeTypers.set(senderId, { name: senderName, timeout });
+                    if (isTyping) {
+                        const timeout = setTimeout(() => {
+                            try {
+                                this.activeTypers.delete(senderId);
+                                this.updateTypingIndicatorUI();
+                            } catch (err) {}
+                        }, 4000);
+
+                        this.activeTypers.set(senderId, { name: senderName, timeout });
+                    }
+
+                    this.updateTypingIndicatorUI();
+                } catch (e) {
+                    console.error("[RoomManager] Error handling remote typing:", e);
                 }
-
-                this.updateTypingIndicatorUI();
             }
 
             updateTypingIndicatorUI() {
-                const indicator = document.getElementById("partyTypingIndicator");
-                if (!indicator) return;
+                try {
+                    const indicator = document.getElementById("partyTypingIndicator");
+                    if (!indicator) return;
 
-                const typers = Array.from(this.activeTypers.values());
-                if (typers.length === 0) {
-                    indicator.innerHTML = "";
-                } else if (typers.length === 1) {
-                    indicator.innerHTML = `${escapeHTML(typers[0].name)} is typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
-                } else if (typers.length === 2) {
-                    indicator.innerHTML = `${escapeHTML(typers[0].name)} and ${escapeHTML(typers[1].name)} are typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
-                } else {
-                    indicator.innerHTML = `Multiple people are typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                    const typers = Array.from(this.activeTypers.values());
+                    if (typers.length === 0) {
+                        indicator.innerHTML = "";
+                    } else if (typers.length === 1) {
+                        indicator.innerHTML = `${escapeHTML(typers[0].name)} is typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                    } else if (typers.length === 2) {
+                        indicator.innerHTML = `${escapeHTML(typers[0].name)} and ${escapeHTML(typers[1].name)} are typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                    } else {
+                        indicator.innerHTML = `Multiple people are typing<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>`;
+                    }
+                } catch (e) {
+                    console.error("[RoomManager] Error updating typing indicator UI:", e);
                 }
             }
 
             setupChatInputListeners() {
-                const chatInput = document.getElementById("partyChatInput");
-                const sendBtn = document.getElementById("sendChatBtn");
-                if (!chatInput || !sendBtn) return;
+                try {
+                    const chatInput = document.getElementById("partyChatInput");
+                    const sendBtn = document.getElementById("sendChatBtn");
+                    if (!chatInput || !sendBtn) return;
 
-                // Typing indicator keyboard listener
-                chatInput.oninput = () => {
-                    if (!this.socket || !this.socket.connected) return;
+                    chatInput.oninput = () => {
+                        if (!this.socket || !this.socket.connected) return;
 
-                    if (!this.isLocallyTyping) {
-                        this.isLocallyTyping = true;
-                        this.socket.emit('typing', { isTyping: true });
-                    }
+                        if (!this.isLocallyTyping) {
+                            this.isLocallyTyping = true;
+                            this.socket.emit('typing', { isTyping: true });
+                        }
 
-                    if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
-                    this.localTypingTimeout = setTimeout(() => {
-                        this.isLocallyTyping = false;
+                        if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
+                        this.localTypingTimeout = setTimeout(() => {
+                            this.isLocallyTyping = false;
+                            if (this.socket && this.socket.connected) {
+                                this.socket.emit('typing', { isTyping: false });
+                            }
+                        }, 2000);
+                    };
+
+                    const sendMessage = () => {
+                        const text = chatInput.value.trim();
+                        if (!text) return;
+
                         if (this.socket && this.socket.connected) {
+                            this.socket.emit('chat-message', { text });
+                            chatInput.value = "";
+
+                            this.isLocallyTyping = false;
+                            if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
                             this.socket.emit('typing', { isTyping: false });
                         }
-                    }, 2000);
-                };
+                    };
 
-                const sendMessage = () => {
-                    const text = chatInput.value.trim();
-                    if (!text) return;
-
-                    if (this.socket && this.socket.connected) {
-                        this.socket.emit('chat-message', { text });
-                        chatInput.value = "";
-
-                        // Immediately clear typing state on message emit
-                        this.isLocallyTyping = false;
-                        if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
-                        this.socket.emit('typing', { isTyping: false });
-                    }
-                };
-
-                sendBtn.onclick = sendMessage;
-                chatInput.onkeydown = (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        sendMessage();
-                    }
-                };
+                    sendBtn.onclick = sendMessage;
+                    chatInput.onkeydown = (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            sendMessage();
+                        }
+                    };
+                } catch (e) {
+                    console.error("[RoomManager] Error setting up chat input listeners:", e);
+                }
             }
 
             toggleChatInputs(enabled) {
-                const chatInput = document.getElementById("partyChatInput");
-                const sendBtn = document.getElementById("sendChatBtn");
-                if (chatInput) chatInput.disabled = !enabled;
-                if (sendBtn) sendBtn.disabled = !enabled;
+                try {
+                    const chatInput = document.getElementById("partyChatInput");
+                    const sendBtn = document.getElementById("sendChatBtn");
+                    if (chatInput) chatInput.disabled = !enabled;
+                    if (sendBtn) sendBtn.disabled = !enabled;
+                } catch (e) {
+                    console.error(e);
+                }
             }
 
             updateConnectionQualityBadge(state = null) {
-                const badge = document.getElementById("partyConnectionBadge");
-                if (!badge) return;
+                try {
+                    const badge = document.getElementById("partyConnectionBadge");
+                    if (!badge) return;
 
-                badge.className = "party-badge"; // Reset classes
-                let statusText = "Connected";
-                let stateClass = "connected";
+                    badge.className = "party-badge"; // Reset classes
+                    let statusText = "Connected";
+                    let stateClass = "connected";
 
-                if (state) {
-                    stateClass = state;
-                    if (state === 'connecting') statusText = 'Connecting to Sync Server...';
-                    else if (state === 'reconnecting') statusText = 'Reconnecting to Sync Server...';
-                    else if (state === 'disconnected') statusText = 'Disconnected from Server';
-                    else if (state === 'error') statusText = 'Sync Connection Error';
-                    else if (state === 'host') statusText = 'Connected (Host Controller)';
-                } else {
-                    const confidence = window._playbackSyncer?.syncConfidence || "synced";
-                    
-                    if (confidence === "recovering") {
-                        stateClass = "reconnecting";
-                        statusText = "Sync recovering...";
-                    } else if (confidence === "buffering") {
-                        stateClass = "connecting";
-                        statusText = "Buffering stream...";
-                    } else if (confidence === "stabilizing") {
-                        stateClass = "poor";
-                        statusText = `Sync stabilizing... (${this.rtt}ms RTT)`;
-                    } else if (confidence === "delayed") {
-                        stateClass = "poor";
-                        statusText = "Playback delayed";
-                    } else if (this.rtt > 300) {
-                        stateClass = "poor";
-                        statusText = `Poor Connection Latency (${this.rtt}ms RTT)`;
+                    if (state) {
+                        stateClass = state;
+                        if (state === 'connecting') statusText = 'Connecting to Sync Server...';
+                        else if (state === 'reconnecting') statusText = 'Reconnecting to Sync Server...';
+                        else if (state === 'disconnected') statusText = 'Disconnected from Server';
+                        else if (state === 'error') statusText = 'Sync Connection Error';
+                        else if (state === 'host') statusText = 'Connected (Host Controller)';
                     } else {
-                        stateClass = this.isHost ? 'host' : 'connected';
-                        statusText = `Connected (${this.rtt}ms RTT)`;
+                        const fsmState = this.fsm ? this.fsm.currentState : "IDLE";
+                        const confidence = window._playbackSyncer?.syncConfidence || "synced";
+                        
+                        if (fsmState === "CONNECTING" || fsmState === "JOINING" || fsmState === "RECOVERING") {
+                            stateClass = "connecting";
+                            statusText = "Connecting...";
+                        } else if (fsmState === "DISCONNECTED") {
+                            stateClass = "disconnected";
+                            statusText = "Disconnected from Server";
+                        } else if (fsmState === "FAILED") {
+                            stateClass = "error";
+                            statusText = "Sync Connection Error";
+                        } else if (confidence === "recovering") {
+                            stateClass = "reconnecting";
+                            statusText = "Sync recovering...";
+                        } else if (confidence === "buffering") {
+                            stateClass = "connecting";
+                            statusText = "Buffering stream...";
+                        } else if (confidence === "stabilizing") {
+                            stateClass = "poor";
+                            statusText = `Sync stabilizing... (${this.rtt}ms RTT)`;
+                        } else if (confidence === "delayed") {
+                            stateClass = "poor";
+                            statusText = "Playback delayed";
+                        } else if (confidence === "unstable") {
+                            stateClass = "poor";
+                            statusText = `Sync unstable (expanded drift tolerance)`;
+                        } else if (this.rtt > 300) {
+                            stateClass = "poor";
+                            statusText = `Poor Connection Latency (${this.rtt}ms RTT)`;
+                        } else {
+                            stateClass = this.isHost ? 'host' : 'connected';
+                            statusText = `Connected (${this.rtt}ms RTT)`;
+                        }
                     }
-                }
 
-                badge.classList.add(stateClass);
-                badge.title = statusText;
+                    badge.classList.add(stateClass);
+                    badge.title = statusText;
+                } catch (e) {
+                    console.error("[RoomManager] Error updating connection quality badge:", e);
+                }
             }
 
             startRttPingLoop() {
-                this.stopRttPingLoop();
-                this.rttPingInterval = setInterval(() => {
-                    if (!this.socket || !this.socket.connected) return;
-                    const pingStart = Date.now();
-                    
-                    // Measure socket latency
-                    this.socket.once('heartbeat-ack', () => {
-                        this.rtt = Date.now() - pingStart;
-                        this.updateConnectionQualityBadge();
-                    });
-                    this.socket.emit('heartbeat');
-                }, 5000);
+                try {
+                    this.stopRttPingLoop();
+                    this.rttPingInterval = setInterval(() => {
+                        try {
+                            if (!this.socket || !this.socket.connected) return;
+                            const pingStart = Date.now();
+                            
+                            this.socket.once('heartbeat-ack', () => {
+                                try {
+                                    this.rtt = Date.now() - pingStart;
+                                    if (window._playbackSyncer && window._playbackSyncer.metrics) {
+                                        window._playbackSyncer._addMetricHistory(window._playbackSyncer.metrics.rttHistory, this.rtt);
+                                    }
+                                    this.updateConnectionQualityBadge();
+                                } catch (err) {}
+                            });
+                            this.socket.emit('heartbeat');
+                        } catch (err) {}
+                    }, 5000);
+                } catch (e) {
+                    console.error("[RoomManager] Error starting RTT ping loop:", e);
+                }
             }
 
             stopRttPingLoop() {
-                if (this.rttPingInterval) {
-                    clearInterval(this.rttPingInterval);
-                    this.rttPingInterval = null;
+                try {
+                    if (this.rttPingInterval) {
+                        clearInterval(this.rttPingInterval);
+                        this.rttPingInterval = null;
+                    }
+                } catch (e) {
+                    console.error(e);
                 }
             }
 
             destroy() {
-                console.log("[RoomManager] Tearing down connection...");
-                this.updateStatusUI('Disconnected', 'error');
-                this.updateConnectionQualityBadge('disconnected');
-                this.toggleChatInputs(false);
-                this.stopRttPingLoop();
-                
-                if (this.reconnectInterval) {
-                    clearInterval(this.reconnectInterval);
-                    this.reconnectInterval = null;
-                }
+                try {
+                    console.log("[RoomManager] Tearing down connection...");
+                    this.fsm.transitionTo('IDLE', 'RoomManager destroyed');
+                    this.stopRttPingLoop();
+                    
+                    if (this.reconnectInterval) {
+                        clearInterval(this.reconnectInterval);
+                        this.reconnectInterval = null;
+                    }
 
-                if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
-                this.activeTypers.forEach(typer => clearTimeout(typer.timeout));
-                this.activeTypers.clear();
-                
-                if (this.socket) {
-                    this.socket.disconnect();
-                    this.socket = null;
+                    if (this.localTypingTimeout) clearTimeout(this.localTypingTimeout);
+                    this.activeTypers.forEach(typer => {
+                        try {
+                            clearTimeout(typer.timeout);
+                        } catch (err) {}
+                    });
+                    this.activeTypers.clear();
+                    
+                    if (this.socket) {
+                        this.socket.disconnect();
+                        this.socket = null;
+                    }
+                    this.participants.clear();
+                    this.eventListeners = {};
+                    this.roomId = null;
+                    this.username = null;
+                    this.isHost = false;
+                    this.hostId = null;
+                } catch (e) {
+                    console.error("[RoomManager] Error during RoomManager destroy:", e);
                 }
-                this.participants.clear();
-                this.eventListeners = {};
-                this.roomId = null;
-                this.username = null;
-                this.isHost = false;
-                this.hostId = null;
             }
         }
 
@@ -1266,11 +1465,18 @@
                 this.debugHudInterval = null;
                 this.stalledCheckInterval = null;
                 
+                // FSM and Snapshot properties
+                this.fsm = this.room.fsm;
+                this.lastSnapshot = this.room.lastSnapshot;
+                this.lastSyncCommandReceivedTs = Date.now();
+                this.hardSeekTimestamps = [];
+                this.reloadAttempts = 0;
+                
                 // Buffered join flow properties
                 this.isJoinBuffered = !this.room.isHost; // Only guests buffer join
                 this.pendingHostPayload = null;
 
-                // Sync Confidence & Recovery
+                // Sync Confidence & Telemetry
                 this.syncConfidence = this.room.isHost ? "synced" : "recovering";
                 this.retryCount = 0;
                 this.lastLocalTime = 0;
@@ -1282,7 +1488,29 @@
                 this.lastHostReceivedTs = 0;
                 this.lastHostPlaying = false;
 
+                // Telemetry metrics
+                this.metrics = {
+                    driftHistory: [],      // cap at 50
+                    hardSeeksCount: 0,
+                    reconnectCount: 0,
+                    providerReloads: 0,
+                    stallsCount: 0,
+                    rttHistory: [],        // cap at 50
+                    heartbeatMisses: 0,
+                    recoveryAttempts: 0
+                };
+
                 window._playbackSyncer = this;
+
+                // Transition hooks to update badge/status
+                this.fsm.onTransition((newState, oldState, reason) => {
+                    try {
+                        this.room.updateStatusUI();
+                        this.room.updateConnectionQualityBadge();
+                    } catch (e) {
+                        console.error("[PlaybackSyncer] Error in FSM transition callback:", e);
+                    }
+                });
 
                 this._setupListeners();
                 this._startSyncHeartbeat();
@@ -1296,7 +1524,11 @@
 
             _setupListeners() {
                 this.room.on("syncCommand", (payload) => {
-                    this._handleRemoteSync(payload);
+                    try {
+                        this._handleRemoteSync(payload);
+                    } catch (e) {
+                        console.error("[PlaybackSyncer] Error handling remote sync:", e);
+                    }
                 });
             }
 
@@ -1322,11 +1554,21 @@
                 if (this.room.isHost) return;
 
                 const { action, currentTime, playing, ts } = payload;
+                this.lastSyncCommandReceivedTs = Date.now();
 
-                // Save playhead alignment parameters for debug HUD
+                // Save playhead alignment parameters for debug HUD & snapshots
                 this.lastHostTime = currentTime;
                 this.lastHostReceivedTs = Date.now();
                 this.lastHostPlaying = playing;
+                this.lastSnapshot = payload;
+                if (this.room) {
+                    this.room.lastSnapshot = payload;
+                }
+
+                if (Date.now() - ts > 10000) {
+                    console.warn(`[PlaybackSyncer] Ignoring stale sync payload. Age: ${((Date.now() - ts) / 1000).toFixed(1)}s`);
+                    return;
+                }
 
                 if (this.isJoinBuffered) {
                     this.pendingHostPayload = payload;
@@ -1344,6 +1586,7 @@
                 if (adapter) {
                     if (playing !== this.isPlaying) {
                         this.isPlaying = playing;
+                        this.fsm.transitionTo(playing ? 'PLAYING' : 'PAUSED', `Remote command: ${action}`);
                         if (playing) {
                             adapter.play();
                         } else {
@@ -1368,16 +1611,32 @@
 
                     if (forceImmediate || absDiff > 3.0) {
                         console.log(`[PlaybackSyncer] Drift seek: local=${localSeconds.toFixed(1)}s, target=${targetSeconds.toFixed(1)}s`);
+                        
+                        this.metrics.hardSeeksCount++;
+                        this._addMetricHistory(this.metrics.driftHistory, difference);
+
+                        if (!this.hardSeekTimestamps) this.hardSeekTimestamps = [];
+                        this.hardSeekTimestamps.push(Date.now());
+                        this.hardSeekTimestamps = this.hardSeekTimestamps.filter(t => Date.now() - t < 30000);
+                        if (this.hardSeekTimestamps.length >= 3 && this.syncConfidence !== 'unstable') {
+                            this.syncConfidence = 'unstable';
+                            this.maxDriftSeconds = 5.0;
+                            console.warn('[PlaybackSyncer] Entering unstable sync confidence. Expanding drift tolerance to 5.0s.');
+                            showToast("Unstable connection. Adjusting sync tolerance.");
+                        }
+
+                        this.fsm.transitionTo("SYNCING", `Hard drift seek of ${difference.toFixed(2)}s`);
                         adapter.seek(targetSeconds);
                         adapter.setPlaybackRate(1.0);
-                        this.syncConfidence = "stabilizing";
+                        this.syncConfidence = this.syncConfidence === 'unstable' ? 'unstable' : "stabilizing";
                     } else if (absDiff > 0.25) {
                         const rate = difference > 0 ? 0.97 : 1.03;
                         adapter.setPlaybackRate(rate);
-                        this.syncConfidence = "stabilizing";
+                        this.syncConfidence = this.syncConfidence === 'unstable' ? 'unstable' : "stabilizing";
+                        this._addMetricHistory(this.metrics.driftHistory, difference);
                     } else {
                         adapter.setPlaybackRate(1.0);
-                        this.syncConfidence = "synced";
+                        this.syncConfidence = this.syncConfidence === 'unstable' ? 'unstable' : "synced";
                     }
                     this.room.updateConnectionQualityBadge();
                     this.room.updateStatusUI(this.room.isHost ? 'You are the Host' : 'Synced', this.room.isHost ? 'host' : 'guest');
@@ -1395,46 +1654,84 @@
 
                 if (!adapter) return;
 
-                if (absDiff > 3.0) {
-                    console.log(`[PlaybackSyncer] Drift exceeded hard limit (${absDiff.toFixed(2)}s). Hard seeking to ${hostTime.toFixed(1)}s`);
+                if (absDiff > this.maxDriftSeconds) {
+                    console.log(`[PlaybackSyncer] Drift exceeded limit (${absDiff.toFixed(2)}s). Hard seeking to ${hostTime.toFixed(1)}s`);
                     this.isSyncingLocal = true;
+
+                    this.metrics.hardSeeksCount++;
+                    this._addMetricHistory(this.metrics.driftHistory, difference);
+
+                    if (!this.hardSeekTimestamps) this.hardSeekTimestamps = [];
+                    this.hardSeekTimestamps.push(Date.now());
+                    this.hardSeekTimestamps = this.hardSeekTimestamps.filter(t => Date.now() - t < 30000);
+                    if (this.hardSeekTimestamps.length >= 3 && this.syncConfidence !== 'unstable') {
+                        this.syncConfidence = 'unstable';
+                        this.maxDriftSeconds = 5.0;
+                        console.warn('[PlaybackSyncer] Entering unstable sync confidence. Expanding drift tolerance to 5.0s.');
+                        showToast("Unstable connection. Adjusting sync tolerance.");
+                    }
+
+                    this.fsm.transitionTo("SYNCING", `Hard drift seek of ${difference.toFixed(2)}s`);
                     adapter.seek(hostTime);
                     adapter.setPlaybackRate(1.0);
-                    this.syncConfidence = "stabilizing";
-                    setTimeout(() => { this.isSyncingLocal = false; }, 500);
+                    this.syncConfidence = this.syncConfidence === 'unstable' ? 'unstable' : "stabilizing";
+                    setTimeout(() => { 
+                        this.isSyncingLocal = false; 
+                        this.fsm.transitionTo(this.isPlaying ? 'PLAYING' : 'PAUSED', 'Resumed after drift seek');
+                    }, 500);
                 } else if (absDiff > 0.25) {
                     const rate = difference > 0 ? 0.97 : 1.03;
                     adapter.setPlaybackRate(rate);
-                    this.syncConfidence = "stabilizing";
+                    this.syncConfidence = this.syncConfidence === 'unstable' ? 'unstable' : "stabilizing";
+                    this._addMetricHistory(this.metrics.driftHistory, difference);
                 } else {
                     adapter.setPlaybackRate(1.0);
-                    this.syncConfidence = "synced";
+                    this.syncConfidence = this.syncConfidence === 'unstable' ? 'unstable' : "synced";
                 }
                 this.room.updateConnectionQualityBadge();
                 this.room.updateStatusUI(this.room.isHost ? 'You are the Host' : 'Synced', this.room.isHost ? 'host' : 'guest');
             }
 
+            _addMetricHistory(array, value) {
+                try {
+                    array.push(value);
+                    if (array.length > 50) {
+                        array.shift();
+                    }
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error in _addMetricHistory:", e);
+                }
+            }
+
             _startSyncHeartbeat(intervalMs = 5000) {
                 this._stopSyncHeartbeat();
                 this.syncHeartbeatInterval = setInterval(() => {
-                    if (!this.room || !this.room.isHost || this.isSyncingLocal) return;
-                    this.getPlayerTime().then(currentTime => {
-                        if (currentTime > 0) {
-                            this.room.broadcastCommand("HEARTBEAT", {
-                                currentTime: currentTime,
-                                playing: this.isPlaying,
-                                buffering: false,
-                                playbackRate: 1.0
-                            });
-                        }
-                    });
+                    try {
+                        if (!this.room || !this.room.isHost || this.isSyncingLocal) return;
+                        this.getPlayerTime().then(currentTime => {
+                            if (currentTime > 0) {
+                                this.room.broadcastCommand("HEARTBEAT", {
+                                    currentTime: currentTime,
+                                    playing: this.isPlaying,
+                                    buffering: false,
+                                    playbackRate: 1.0
+                                });
+                            }
+                        });
+                    } catch (e) {
+                        console.error("[PlaybackSyncer] Error in sync heartbeat interval:", e);
+                    }
                 }, intervalMs);
             }
 
             _stopSyncHeartbeat() {
-                if (this.syncHeartbeatInterval) {
-                    clearInterval(this.syncHeartbeatInterval);
-                    this.syncHeartbeatInterval = null;
+                try {
+                    if (this.syncHeartbeatInterval) {
+                        clearInterval(this.syncHeartbeatInterval);
+                        this.syncHeartbeatInterval = null;
+                    }
+                } catch (e) {
+                    console.error(e);
                 }
             }
 
@@ -1453,196 +1750,354 @@
 
                 hud.style.display = "block";
 
+                if (this.debugHudInterval) clearInterval(this.debugHudInterval);
                 this.debugHudInterval = setInterval(() => {
-                    if (!this.room || !this.room.socket) {
-                        hud.innerHTML = "HUD Status: Offline";
-                        return;
-                    }
-
-                    this.getPlayerTime().then(localTime => {
-                        let hostTime = localTime;
-                        let drift = 0;
-
-                        if (!this.room.isHost) {
-                            if (this.lastHostReceivedTs > 0) {
-                                const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
-                                hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
-                                drift = localTime - hostTime;
-                            }
+                    try {
+                        if (!this.room || !this.room.socket) {
+                            hud.innerHTML = "HUD Status: Offline";
+                            return;
                         }
 
-                        const statusText = this.room.socket.connected ? "CONNECTED" : "DISCONNECTED";
-                        const rtt = this.room.rtt;
-                        const age = this.lastHostReceivedTs > 0 ? ((Date.now() - this.lastHostReceivedTs) / 1000).toFixed(1) + "s" : "N/A";
-                        const vis = document.visibilityState || "visible";
-                        const adapter = this.getAdapter();
-                        const adapterType = adapter ? adapter.constructor.name : "None";
-                        const confidence = this.syncConfidence.toUpperCase();
-                        
-                        hud.innerHTML = `
-                            <strong>Watch Together Debug HUD</strong><br>
-                            Status: <span style="color: ${this.room.socket.connected ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
-                            Confidence: <span style="color: #f5a623">${confidence}</span><br>
-                            Role: ${this.room.isHost ? "HOST" : "GUEST"}<br>
-                            Adapter: ${adapterType}<br>
-                            RTT (Avg): ${rtt}ms<br>
-                            Heartbeat Age: ${age}<br>
-                            Tab Visibility: ${vis}<br>
-                            Local Playhead: ${localTime.toFixed(2)}s<br>
-                            Host Playhead: ${hostTime.toFixed(2)}s<br>
-                            Drift: <span style="color: ${Math.abs(drift) > this.maxDriftSeconds ? '#ff4444' : '#00ff66'}">${drift.toFixed(3)}s</span><br>
-                            Max Allowed Drift: ${this.maxDriftSeconds}s
-                        `;
-                    });
+                        this.getPlayerTime().then(localTime => {
+                            try {
+                                let hostTime = localTime;
+                                let drift = 0;
+
+                                if (!this.room.isHost) {
+                                    if (this.lastHostReceivedTs > 0) {
+                                        const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
+                                        hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
+                                        drift = localTime - hostTime;
+                                    }
+                                }
+
+                                const statusText = this.room.socket.connected ? "CONNECTED" : "DISCONNECTED";
+                                const age = this.lastHostReceivedTs > 0 ? ((Date.now() - this.lastHostReceivedTs) / 1000).toFixed(1) + "s" : "N/A";
+                                const vis = document.visibilityState || "visible";
+                                const adapter = this.getAdapter();
+                                const adapterType = adapter ? adapter.constructor.name : "None";
+                                const confidence = this.syncConfidence.toUpperCase();
+                                const fsmState = this.fsm ? this.fsm.currentState : "UNKNOWN";
+
+                                const avgDrift = this.metrics.driftHistory.length > 0
+                                    ? (this.metrics.driftHistory.reduce((a, b) => a + Math.abs(b), 0) / this.metrics.driftHistory.length).toFixed(3) + "s"
+                                    : "0.000s";
+                                const avgRtt = this.metrics.rttHistory.length > 0
+                                    ? (this.metrics.rttHistory.reduce((a, b) => a + b, 0) / this.metrics.rttHistory.length).toFixed(0) + "ms"
+                                    : this.room.rtt + "ms";
+                                
+                                hud.innerHTML = `
+                                    <strong>Watch Together Debug HUD</strong><br>
+                                    Status: <span style="color: ${this.room.socket.connected ? '#00ff66' : '#ff4444'}">${statusText}</span><br>
+                                    FSM State: <span style="color: #00e5ff">${fsmState}</span><br>
+                                    Confidence: <span style="color: #f5a623">${confidence}</span><br>
+                                    Role: ${this.room.isHost ? "HOST" : "GUEST"}<br>
+                                    Adapter: ${adapterType}<br>
+                                    RTT: ${this.room.rtt}ms (Avg: ${avgRtt})<br>
+                                    Heartbeat Age: ${age}<br>
+                                    Tab Visibility: ${vis}<br>
+                                    Local Playhead: ${localTime.toFixed(2)}s<br>
+                                    Host Playhead: ${hostTime.toFixed(2)}s<br>
+                                    Drift: <span style="color: ${Math.abs(drift) > this.maxDriftSeconds ? '#ff4444' : '#00ff66'}">${drift.toFixed(3)}s</span> (Avg: ${avgDrift})<br>
+                                    Max Allowed Drift: ${this.maxDriftSeconds}s<br>
+                                    <hr style="border:0;border-top:1px solid rgba(255,255,255,0.2);margin:4px 0;">
+                                    <strong>Metrics:</strong><br>
+                                    Hard Seeks: ${this.metrics.hardSeeksCount}<br>
+                                    Stalls: ${this.metrics.stallsCount}<br>
+                                    Recovery Seeks: ${this.metrics.recoveryAttempts}<br>
+                                    Iframe Reloads: ${this.metrics.providerReloads}<br>
+                                    Socket Reconnects: ${this.metrics.reconnectCount}<br>
+                                    Heartbeat Misses: ${this.metrics.heartbeatMisses}
+                                `;
+                            } catch (e) {
+                                console.error("[PlaybackSyncer] Error in inner debug HUD: ", e);
+                            }
+                        });
+                    } catch (e) {
+                        console.error("[PlaybackSyncer] Error in debug HUD interval:", e);
+                    }
                 }, 200);
             }
 
             _startStalledCheck() {
                 if (this.stalledCheckInterval) clearInterval(this.stalledCheckInterval);
+                this.reloadAttempts = 0;
+                
                 this.stalledCheckInterval = setInterval(() => {
-                    if (!this.room || !this.isPlaying || this.isJoinBuffered) return;
+                    try {
+                        if (!this.room || !this.isPlaying || this.isJoinBuffered) return;
 
-                    this.getPlayerTime().then(currentTime => {
-                        if (currentTime === this.lastLocalTime) {
-                            const timeSinceProgress = Date.now() - this.lastTimeProgression;
-                            
-                            if (timeSinceProgress > 4000) {
-                                console.warn(`[PlaybackSyncer] Playback stall detected at ${currentTime}s.`);
-                                this.syncConfidence = "delayed";
-                                this.room.updateConnectionQualityBadge();
-                                this.room.updateStatusUI("Playback Delayed", "error");
-                                
-                                if (this.retryCount < 3) {
-                                    this.retryCount++;
-                                    console.log(`[PlaybackSyncer] Attempting recovery retry #${this.retryCount}...`);
+                        // Stale heartbeat detection check
+                        if (!this.room.isHost && this.room.socket && this.room.socket.connected) {
+                            const timeSinceLastSync = Date.now() - this.lastSyncCommandReceivedTs;
+                            if (timeSinceLastSync > 15000) {
+                                if (this.syncConfidence !== 'degraded') {
+                                    this.syncConfidence = 'degraded';
+                                    this.metrics.heartbeatMisses++;
+                                    console.warn(`[PlaybackSyncer] Missed host heartbeats for ${timeSinceLastSync / 1000}s. Downgrading confidence to degraded.`);
+                                    this.room.updateConnectionQualityBadge();
+                                    this.room.updateStatusUI("Playback Delayed", "error");
                                     
-                                    const adapter = this.getAdapter();
-                                    if (adapter) {
-                                        adapter.seek(currentTime);
-                                        adapter.play();
-                                    }
-                                } else {
-                                    console.error("[PlaybackSyncer] Recovery retries exhausted. Autoplay blocked or iframe stalled.");
-                                    this.autoplayBlocked = true;
-                                    this.showBlockedAutoplayUI();
+                                    console.log("[PlaybackSyncer] Requesting fresh snapshot due to stale heartbeats...");
+                                    this.room.socket.emit('join-room', { roomId: this.room.roomId, userName: this.room.username }, (res) => {
+                                        if (res && res.lastSync) {
+                                            this._handleRemoteSync(res.lastSync);
+                                        }
+                                    });
                                 }
                             }
-                        } else {
-                            this.lastLocalTime = currentTime;
-                            this.lastTimeProgression = Date.now();
-                            this.retryCount = 0;
-                            if (this.autoplayBlocked) {
-                                this.autoplayBlocked = false;
-                                this.hideBlockedAutoplayUI();
+                        }
+
+                        // Dynamic drift tolerance check (unstable restoration)
+                        if (this.syncConfidence === 'unstable') {
+                            const timeSinceLastHardSeek = this.hardSeekTimestamps && this.hardSeekTimestamps.length > 0
+                                ? Date.now() - this.hardSeekTimestamps[this.hardSeekTimestamps.length - 1]
+                                : 30000;
+                            if (timeSinceLastHardSeek >= 30000) {
+                                console.log('[PlaybackSyncer] Restoring sync confidence to stable. Setting drift tolerance to 1.5s.');
+                                this.maxDriftSeconds = 1.5;
+                                this.syncConfidence = 'synced';
+                                this.room.updateConnectionQualityBadge();
+                                showToast("Connection stabilized. Sync restored.");
                             }
                         }
-                    });
+
+                        this.getPlayerTime().then(currentTime => {
+                            try {
+                                if (currentTime === this.lastLocalTime) {
+                                    const timeSinceProgress = Date.now() - this.lastTimeProgression;
+                                    
+                                    if (timeSinceProgress > 4000) {
+                                        console.warn(`[PlaybackSyncer] Playback stall detected at ${currentTime}s.`);
+                                        this.fsm.transitionTo("STALLED", "Playback stalled (no playhead progression)");
+                                        this.syncConfidence = "delayed";
+                                        this.room.updateConnectionQualityBadge();
+                                        this.room.updateStatusUI("Playback Delayed", "error");
+                                        this.metrics.stallsCount++;
+
+                                        if (this.retryCount < 3) {
+                                            this.retryCount++;
+                                            this.metrics.recoveryAttempts++;
+                                            console.log(`[PlaybackSyncer] Attempting recovery retry #${this.retryCount}...`);
+                                            
+                                            const adapter = this.getAdapter();
+                                            if (adapter) {
+                                                adapter.seek(currentTime);
+                                                adapter.play();
+                                            }
+                                        } else {
+                                            if (this.reloadAttempts < 2) {
+                                                this.reloadAttempts++;
+                                                this.fsm.transitionTo("RECOVERING", "Watchdog triggering iframe reload");
+                                                this.metrics.providerReloads++;
+                                                this._reloadProviderIframe();
+                                            } else {
+                                                console.error("[PlaybackSyncer] Recovery and reload retries exhausted.");
+                                                this.fsm.transitionTo("FAILED", "Autoplay blocked or stream crashed permanently");
+                                                this.autoplayBlocked = true;
+                                                this.showBlockedAutoplayUI();
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    this.lastLocalTime = currentTime;
+                                    this.lastTimeProgression = Date.now();
+                                    this.retryCount = 0;
+                                    
+                                    if (this.fsm.currentState === "STALLED" || this.fsm.currentState === "RECOVERING") {
+                                        this.fsm.transitionTo(this.isPlaying ? "PLAYING" : "PAUSED", "Playhead resumed progression");
+                                    }
+                                    
+                                    if (this.autoplayBlocked) {
+                                        this.autoplayBlocked = false;
+                                        this.hideBlockedAutoplayUI();
+                                    }
+                                }
+                            } catch (err) {
+                                console.error("[PlaybackSyncer] Error in inner stalled check: ", err);
+                            }
+                        });
+                    } catch (e) {
+                        console.error("[PlaybackSyncer] Error in stalled check interval:", e);
+                    }
                 }, 1000);
             }
 
+            _reloadProviderIframe() {
+                try {
+                    const iframe = this.wrapper.querySelector("iframe");
+                    if (!iframe) return;
+                    
+                    console.warn(`[PlaybackSyncer] Reloading iframe due to persistent stall. Reload attempt #${this.reloadAttempts}`);
+                    this.showJoinOverlay("Recovering stream...");
+                    
+                    const originalSrc = iframe.src;
+                    iframe.src = "about:blank";
+                    
+                    setTimeout(() => {
+                        try {
+                            iframe.src = originalSrc;
+                            
+                            this.isJoinBuffered = true;
+                            this.pendingHostPayload = this.lastSnapshot || {
+                                action: this.isPlaying ? "PLAY" : "PAUSE",
+                                currentTime: this.lastLocalTime,
+                                playing: this.isPlaying,
+                                ts: Date.now()
+                            };
+                            
+                            this.retryCount = 0;
+                            this.lastTimeProgression = Date.now();
+                        } catch (err) {
+                            console.error("[PlaybackSyncer] Error during iframe src reload reset:", err);
+                        }
+                    }, 200);
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error reloading provider iframe:", e);
+                }
+            }
+
             showJoinOverlay(statusText) {
-                const overlay = document.getElementById("partyJoinOverlay");
-                const textEl = document.getElementById("partyJoinStatusText");
-                if (overlay && textEl) {
-                    textEl.textContent = statusText;
-                    overlay.style.display = "flex";
-                    overlay.style.opacity = "1";
+                try {
+                    const overlay = document.getElementById("partyJoinOverlay");
+                    const textEl = document.getElementById("partyJoinStatusText");
+                    if (overlay && textEl) {
+                        textEl.textContent = statusText;
+                        overlay.style.display = "flex";
+                        overlay.style.opacity = "1";
+                    }
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error showing join overlay:", e);
                 }
             }
 
             hideJoinOverlay() {
-                const overlay = document.getElementById("partyJoinOverlay");
-                if (overlay) {
-                    overlay.style.opacity = "0";
-                    setTimeout(() => {
-                        overlay.style.display = "none";
-                    }, 400);
+                try {
+                    const overlay = document.getElementById("partyJoinOverlay");
+                    if (overlay) {
+                        overlay.style.opacity = "0";
+                        setTimeout(() => {
+                            try {
+                                overlay.style.display = "none";
+                            } catch (err) {}
+                        }, 400);
+                    }
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error hiding join overlay:", e);
                 }
             }
 
             showBlockedAutoplayUI() {
-                const overlay = document.getElementById("partyAutoplayBlockOverlay");
-                if (overlay) {
-                    overlay.style.display = "flex";
-                    const btn = document.getElementById("partyUnblockAutoplayBtn");
-                    if (btn) {
-                        btn.onclick = () => {
-                            console.log("[PlaybackSyncer] User clicked unblock button. Resuming stream...");
-                            const adapter = this.getAdapter();
-                            if (adapter) {
-                                adapter.play();
-                                if (this.lastHostReceivedTs > 0) {
-                                    const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
-                                    const hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
-                                    adapter.seek(hostTime);
+                try {
+                    const overlay = document.getElementById("partyAutoplayBlockOverlay");
+                    if (overlay) {
+                        overlay.style.display = "flex";
+                        const btn = document.getElementById("partyUnblockAutoplayBtn");
+                        if (btn) {
+                            btn.onclick = () => {
+                                try {
+                                    console.log("[PlaybackSyncer] User clicked unblock button. Resuming stream...");
+                                    const adapter = this.getAdapter();
+                                    if (adapter) {
+                                        adapter.play();
+                                        if (this.lastHostReceivedTs > 0) {
+                                            const elapsed = (Date.now() - this.lastHostReceivedTs) / 1000;
+                                            const hostTime = this.lastHostTime + (this.lastHostPlaying ? elapsed : 0);
+                                            adapter.seek(hostTime);
+                                        }
+                                    }
+                                    this.autoplayBlocked = false;
+                                    this.retryCount = 0;
+                                    this.lastTimeProgression = Date.now();
+                                    this.hideBlockedAutoplayUI();
+                                } catch (err) {
+                                    console.error("[PlaybackSyncer] Error in autoplay unblock click handler:", err);
                                 }
-                            }
-                            this.autoplayBlocked = false;
-                            this.retryCount = 0;
-                            this.lastTimeProgression = Date.now();
-                            this.hideBlockedAutoplayUI();
-                        };
+                            };
+                        }
                     }
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error showing blocked autoplay UI:", e);
                 }
             }
 
             hideBlockedAutoplayUI() {
-                const overlay = document.getElementById("partyAutoplayBlockOverlay");
-                if (overlay) {
-                    overlay.style.display = "none";
+                try {
+                    const overlay = document.getElementById("partyAutoplayBlockOverlay");
+                    if (overlay) {
+                        overlay.style.display = "none";
+                    }
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error hiding blocked autoplay UI:", e);
                 }
             }
 
             handleVisibilityChange(state) {
-                console.log(`[PlaybackSyncer] Tab visibility changed: ${state}`);
-                if (state === 'hidden') {
-                    this._stopSyncHeartbeat();
-                    this._startSyncHeartbeat(15000);
-                    if (this.debugHudInterval) {
-                        clearInterval(this.debugHudInterval);
-                        this.debugHudInterval = null;
-                    }
-                    if (this.stalledCheckInterval) {
-                        clearInterval(this.stalledCheckInterval);
-                        this.stalledCheckInterval = null;
-                    }
-                } else {
-                    this._stopSyncHeartbeat();
-                    this._startSyncHeartbeat(5000);
-                    this._startDebugHud();
-                    this._startStalledCheck();
+                try {
+                    console.log(`[PlaybackSyncer] Tab visibility changed: ${state}`);
+                    if (state === 'hidden') {
+                        this._stopSyncHeartbeat();
+                        this._startSyncHeartbeat(15000);
+                        if (this.debugHudInterval) {
+                            clearInterval(this.debugHudInterval);
+                            this.debugHudInterval = null;
+                        }
+                        if (this.stalledCheckInterval) {
+                            clearInterval(this.stalledCheckInterval);
+                            this.stalledCheckInterval = null;
+                        }
+                    } else {
+                        this._stopSyncHeartbeat();
+                        this._startSyncHeartbeat(5000);
+                        this._startDebugHud();
+                        this._startStalledCheck();
 
-                    if (!this.room.isHost && this.room.socket && this.room.socket.connected) {
-                        console.log("[PlaybackSyncer] Tab visible. Requesting latest room snapshot...");
-                        this.syncConfidence = "recovering";
-                        this.room.socket.emit('join-room', { roomId: this.room.roomId, userName: this.room.username }, (res) => {
-                            if (res && res.lastSync) {
-                                this._handleRemoteSync(res.lastSync);
-                            }
-                        });
+                        if (!this.room.isHost && this.room.socket && this.room.socket.connected) {
+                            console.log("[PlaybackSyncer] Tab visible. Requesting latest room snapshot...");
+                            this.syncConfidence = "recovering";
+                            this.room.socket.emit('join-room', { roomId: this.room.roomId, userName: this.room.username }, (res) => {
+                                try {
+                                    if (res && res.lastSync) {
+                                        this._handleRemoteSync(res.lastSync);
+                                    }
+                                } catch (err) {
+                                    console.error("[PlaybackSyncer] Error handling join-room response on tab visibility change:", err);
+                                }
+                            });
+                        }
                     }
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error handling visibility change:", e);
                 }
             }
 
             getPlayerTime() {
                 const iframe = this.wrapper.querySelector("iframe");
                 return new Promise((resolve) => {
-                    if (!iframe || !iframe.contentWindow) return resolve(0);
-                    const channel = new MessageChannel();
-                    channel.port1.onmessage = (event) => {
-                        var data = event.data;
-                        if (typeof data === "string") {
-                            try { data = JSON.parse(data); } catch(ex) {}
-                        }
-                        if (data && data.data) data = data.data;
-                        resolve(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : 0));
-                    };
-                    iframe.contentWindow.postMessage(
-                        JSON.stringify({ command: "getCurrentTime" }),
-                        "*",
-                        [channel.port2]
-                    );
-                    setTimeout(() => resolve(0), 120);
+                    try {
+                        if (!iframe || !iframe.contentWindow) return resolve(0);
+                        const channel = new MessageChannel();
+                        channel.port1.onmessage = (event) => {
+                            try {
+                                var data = event.data;
+                                if (typeof data === "string") {
+                                    try { data = JSON.parse(data); } catch(ex) {}
+                                }
+                                if (data && data.data) data = data.data;
+                                resolve(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : 0));
+                            } catch (err) {
+                                resolve(0);
+                            }
+                        };
+                        iframe.contentWindow.postMessage(
+                            JSON.stringify({ command: "getCurrentTime" }),
+                            "*",
+                            [channel.port2]
+                        );
+                        setTimeout(() => resolve(0), 120);
+                    } catch (e) {
+                        resolve(0);
+                    }
                 });
             }
 
@@ -1670,9 +2125,11 @@
                                 adapter.seek(targetTime);
                                 if (payload.playing) {
                                     this.isPlaying = true;
+                                    this.fsm.transitionTo('PLAYING', 'Aligned with host playing on join');
                                     adapter.play();
                                 } else {
                                     this.isPlaying = false;
+                                    this.fsm.transitionTo('PAUSED', 'Aligned with host paused on join');
                                     adapter.pause();
                                 }
                             }
@@ -1682,10 +2139,15 @@
                                 this.syncConfidence = "synced";
                             }, 500);
                         } else {
+                            this.fsm.transitionTo(this.isPlaying ? 'PLAYING' : 'PAUSED', 'No pending host payload on join');
                             this.syncConfidence = "synced";
                         }
                     }
                     return;
+                }
+
+                if (this.fsm.currentState === 'SYNCING' && evtName === 'timeupdate') {
+                    this.fsm.transitionTo(this.isPlaying ? 'PLAYING' : 'PAUSED', 'Resumed playhead progression after seek');
                 }
 
                 if (!this.room.isHost && evtName === 'timeupdate') {
@@ -1702,26 +2164,34 @@
 
                 if (evtName === "play") {
                     this.isPlaying = true;
+                    this.fsm.transitionTo('PLAYING', 'Local player play event');
                     this.room.broadcastCommand("PLAY", { currentTime, playing: true });
                 } else if (evtName === "pause") {
                     this.isPlaying = false;
+                    this.fsm.transitionTo('PAUSED', 'Local player pause event');
                     this.room.broadcastCommand("PAUSE", { currentTime, playing: false });
                 } else if (evtName === "seek" || evtName === "seeked") {
+                    this.fsm.transitionTo('SYNCING', 'Local player seek event');
                     if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
                     this.seekDebounceTimeout = setTimeout(() => {
                         this.room.broadcastCommand("SEEK", { currentTime, playing: this.isPlaying });
+                        this.fsm.transitionTo(this.isPlaying ? 'PLAYING' : 'PAUSED', 'Resumed after local seek broadcast');
                     }, 250);
                 }
             }
 
             destroy() {
-                if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
-                if (this.syncHeartbeatInterval) clearInterval(this.syncHeartbeatInterval);
-                if (this.debugHudInterval) clearInterval(this.debugHudInterval);
-                if (this.stalledCheckInterval) clearInterval(this.stalledCheckInterval);
-                window._playbackSyncer = null;
-                this.room = null;
-                this.wrapper = null;
+                try {
+                    if (this.seekDebounceTimeout) clearTimeout(this.seekDebounceTimeout);
+                    if (this.syncHeartbeatInterval) clearInterval(this.syncHeartbeatInterval);
+                    if (this.debugHudInterval) clearInterval(this.debugHudInterval);
+                    if (this.stalledCheckInterval) clearInterval(this.stalledCheckInterval);
+                    window._playbackSyncer = null;
+                    this.room = null;
+                    this.wrapper = null;
+                } catch (e) {
+                    console.error("[PlaybackSyncer] Error in destroy:", e);
+                }
             }
         }
 
@@ -2352,7 +2822,11 @@
 
             // Feed to watch-party sync system
             if (playbackSyncer && typeof playbackSyncer.handleLocalPlayerEvent === 'function') {
-                playbackSyncer.handleLocalPlayerEvent(evtName, currentTime, duration, normalized);
+                try {
+                    playbackSyncer.handleLocalPlayerEvent(evtName, currentTime, duration, normalized);
+                } catch (ex) {
+                    console.error("[VAILISM] Error handling watch-party sync event:", ex);
+                }
             }
 
             // Binge-Watch Auto-Skip Logic
