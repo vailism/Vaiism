@@ -3488,6 +3488,15 @@
             self.eventBus.on("TYPING_UPDATED", function(data) {
                 self.updateTypingIndicatorUI(data.activeTypers);
             });
+            self.eventBus.on("JITSI_PARTICIPANTS_CHANGED", function(data) {
+                self.latestJitsiData = data;
+                var presence = self.kernel.get("network.presence");
+                var socket = self.kernel.get("socket");
+                var participants = presence ? presence.participants : new Map();
+                var hostId = presence ? presence.hostId : null;
+                var isHost = socket ? socket.isHost : false;
+                self.updateParticipantsListUI(participants, hostId, isHost);
+            });
         }
 
         onStop() {}
@@ -3510,14 +3519,30 @@
 
                 var fragment = document.createDocumentFragment();
                 
+                // Jitsi local status
+                var jitsi = self.kernel.get("jitsi");
+                var localVoiceBadge = "";
+                var localSpeakingClass = "";
+                if (jitsi && jitsi.isJoined) {
+                    if (jitsi.dominantSpeaker === 'local') {
+                        localVoiceBadge = ' <span class="speaking-indicator" title="Speaking">🔊</span>';
+                        localSpeakingClass = " speaking";
+                    } else if (jitsi.micMuted) {
+                        localVoiceBadge = ' <span class="muted-indicator" title="Muted">🔇</span>';
+                    } else {
+                        localVoiceBadge = ' <span class="voice-active-indicator" title="Voice Connected">🎙️</span>';
+                    }
+                }
+
+                // Add local user
                 var meRow = document.createElement("div");
-                meRow.className = "party-member-row";
+                meRow.className = "party-member-row" + localSpeakingClass;
                 var escapedLocalName = self.escapeHTML(userName);
                 var firstCharLocal = self.escapeHTML(userName.charAt(0).toUpperCase());
                 meRow.innerHTML =
                     '<div class="party-member-avatar" style="background:#e50914;">' + firstCharLocal + '</div>' +
                     '<div class="party-member-info">' +
-                    '<span class="party-member-name">' + escapedLocalName + ' (You) ' + (isHost ? '👑' : '') + '</span>' +
+                    '<span class="party-member-name">' + escapedLocalName + ' (You) ' + (isHost ? '👑' : '') + localVoiceBadge + '</span>' +
                     '<span class="party-member-role">' + (isHost ? 'Host' : 'Viewer') + '</span>' +
                     '</div>';
                 fragment.appendChild(meRow);
@@ -3525,14 +3550,34 @@
                 participants.forEach(function(p, sId) {
                     if (socket && sId === socket.getSocketId()) return;
                     var pRow = document.createElement("div");
-                    pRow.className = "party-member-row";
+                    
+                    // Find matching Jitsi participant
+                    var remoteVoiceBadge = "";
+                    var remoteSpeakingClass = "";
+                    if (jitsi && jitsi.isJoined) {
+                        var jp = Array.from(jitsi.participants.values()).find(function(jUser) {
+                            return jUser.name.toLowerCase() === p.displayName.toLowerCase();
+                        });
+                        if (jp) {
+                            if (jp.speaking || jitsi.dominantSpeaker === jp.id) {
+                                remoteVoiceBadge = ' <span class="speaking-indicator" title="Speaking">🔊</span>';
+                                remoteSpeakingClass = " speaking";
+                            } else if (jp.micMuted) {
+                                remoteVoiceBadge = ' <span class="muted-indicator" title="Muted">🔇</span>';
+                            } else {
+                                remoteVoiceBadge = ' <span class="voice-active-indicator" title="Voice Connected">🎙️</span>';
+                            }
+                        }
+                    }
+
+                    pRow.className = "party-member-row" + remoteSpeakingClass;
                     var isPHost = (sId === hostId);
                     var escapedDisplayName = self.escapeHTML(p.displayName);
                     var firstCharDisplay = self.escapeHTML(p.displayName.charAt(0).toUpperCase());
                     pRow.innerHTML =
                         '<div class="party-member-avatar" style="background:#333;">' + firstCharDisplay + '</div>' +
                         '<div class="party-member-info">' +
-                        '<span class="party-member-name">' + escapedDisplayName + ' ' + (isPHost ? '👑' : '') + '</span>' +
+                        '<span class="party-member-name">' + escapedDisplayName + ' ' + (isPHost ? '👑' : '') + remoteVoiceBadge + '</span>' +
                         '<span class="party-member-role">' + (isPHost ? 'Host' : 'Viewer') + '</span>' +
                         '</div>';
                     fragment.appendChild(pRow);
