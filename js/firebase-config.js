@@ -1,10 +1,9 @@
 // Centralized Firebase configuration for Vailism
-// Replace these placeholders with your actual Firebase Project keys
 window.FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyCmvI6o7utB2a8YAhlMUz0Ubck_n5eFAgo",
+  authDomain: "vailism-netflix.firebaseapp.com",
+  projectId: "vailism-netflix",
+  storageBucket: "vailism-netflix.firebasestorage.app",
+  messagingSenderId: "781010832644",
+  appId: "1:781010832644:web:2facdda1b9559e3024d451"
 };
