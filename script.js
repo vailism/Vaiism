@@ -2046,68 +2046,18 @@ async function initAuthSync() {
     const profileBtn = document.getElementById('profileBtn');
     const modal = document.getElementById('account-modal');
     const closeBtn = document.getElementById('closeAccountModalBtn');
-    const tabs = document.querySelectorAll('.auth-tab-btn');
-    const tabPanes = document.querySelectorAll('.auth-tab-pane');
     
-    // Auth elements
-    const authForm = document.getElementById('authForm');
-    const authFormTitle = document.getElementById('authFormTitle');
-    const authEmailInput = document.getElementById('authEmail');
-    const authPasswordInput = document.getElementById('authPassword');
-    const authSubmitBtn = document.getElementById('authSubmitBtn');
-    const authToggleLink = document.getElementById('authToggleLink');
-    const authError = document.getElementById('authError');
-    
-    // Profile elements
-    const profileName = document.getElementById('profileName');
-    const profileStatus = document.getElementById('profileStatus');
-    const profileLogoutBtn = document.getElementById('profileLogoutBtn');
-    const statHistoryCount = document.getElementById('statHistoryCount');
-    const statWatchlistCount = document.getElementById('statWatchlistCount');
-    
-    // Sync elements
-    const generateSyncKeyBtn = document.getElementById('generateSyncKeyBtn');
-    const syncStatusLabel = document.getElementById('syncStatusLabel');
-
     if (!profileBtn || !modal) return;
 
-    let isLoginMode = false; // Default form to Register
+    // Instantiate AuthManager if firebase is ready
+    let authManager = null;
+    if (typeof window.AuthManager !== 'undefined' && firebase.apps.length > 0) {
+        authManager = new window.AuthManager();
+    }
 
-    // Tab switcher
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            tabPanes.forEach(p => p.classList.remove('active'));
-            tab.classList.add('active');
-            const targetPane = document.getElementById(tab.dataset.tab);
-            if (targetPane) targetPane.classList.add('active');
-            
-            // Refresh stats on switching to Profile tab
-            if (tab.dataset.tab === 'profile-tab') {
-                updateProfileUI();
-            }
-        });
-    });
-
-    // Toggle between login and register modes
-    authToggleLink.addEventListener('click', () => {
-        isLoginMode = !isLoginMode;
-        if (isLoginMode) {
-            authFormTitle.textContent = 'Log In to Profile';
-            authSubmitBtn.textContent = 'Log In';
-            authToggleLink.textContent = "Don't have an account? Register";
-        } else {
-            authFormTitle.textContent = 'Create Cloud Account';
-            authSubmitBtn.textContent = 'Register Cloud Account';
-            authToggleLink.textContent = 'Already have an account? Log In';
-        }
-        authError.textContent = '';
-    });
-
-    // Close / Open Modal
+    // Modal toggles
     profileBtn.addEventListener('click', () => {
         modal.classList.remove('hidden');
-        updateProfileUI();
     });
     
     if (closeBtn) {
@@ -2120,139 +2070,181 @@ async function initAuthSync() {
         if (e.target === modal) modal.classList.add('hidden');
     });
 
-    // Handle Auth Form Submission
-    authForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        authError.textContent = '';
-        
-        const email = authEmailInput.value.trim();
-        const password = authPasswordInput.value;
-        if (!email || !password) return;
+    // Tab switching
+    const authTabs = document.querySelectorAll('.auth-tab-btn');
+    const authPanes = document.querySelectorAll('.auth-tab-pane');
+    authTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            authTabs.forEach(t => t.classList.remove('active'));
+            authPanes.forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            const targetPane = document.getElementById(tab.dataset.tab);
+            if (targetPane) targetPane.classList.add('active');
+        });
+    });
 
-        if (!auth_firebase) {
-            authError.textContent = 'Firebase authentication is currently disabled/offline.';
+    // Password toggles
+    document.querySelectorAll('.pwd-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.dataset.target;
+            const input = document.getElementById(targetId);
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.innerHTML = '<i data-lucide="eye-off"></i>';
+            } else {
+                input.type = 'password';
+                btn.innerHTML = '<i data-lucide="eye"></i>';
+            }
+            if (window.lucide) lucide.createIcons();
+        });
+    });
+
+    if (!authManager) {
+        console.warn('AuthManager could not be initialized. Check Firebase config.');
+        return;
+    }
+
+    // Forms
+    const signInForm = document.getElementById('signInForm');
+    const signUpForm = document.getElementById('signUpForm');
+    
+    // Elements
+    const signInEmail = document.getElementById('signInEmail');
+    const signInPassword = document.getElementById('signInPassword');
+    const rememberMe = document.getElementById('rememberMe');
+    const signInError = document.getElementById('signInError');
+    const signInBtn = document.getElementById('signInBtn');
+
+    const signUpUsername = document.getElementById('signUpUsername');
+    const signUpEmail = document.getElementById('signUpEmail');
+    const signUpPassword = document.getElementById('signUpPassword');
+    const signUpConfirmPassword = document.getElementById('signUpConfirmPassword');
+    const signUpError = document.getElementById('signUpError');
+    const signUpBtn = document.getElementById('signUpBtn');
+
+    // Google Buttons
+    const googleSignInBtn = document.getElementById('googleSignInBtn');
+    const googleSignUpBtn = document.getElementById('googleSignUpBtn');
+
+    // Profile View Elements
+    const loggedInProfileView = document.getElementById('loggedInProfileView');
+    const profileName = document.getElementById('profileName');
+    const profileEmail = document.getElementById('profileEmail');
+    const profileLogoutBtn = document.getElementById('profileLogoutBtn');
+
+    // Listen to Auth State
+    authManager.onAuthStateChanged(async (user) => {
+        if (user) {
+            localStorage.setItem('vailism_current_user', user.uid);
+            localStorage.setItem('vailism_current_user_email', user.email);
+            
+            // Sync logic
+            try {
+                const doc = await db_firestore.collection('users').doc(user.uid).get();
+                if (doc.exists) await importSyncData(doc.data());
+            } catch (err) { console.error(err); }
+            await syncLocalToCloud();
+            
+            try {
+                const bc = new BroadcastChannel('vailism_sync');
+                bc.postMessage({ type: 'UPDATE' });
+                bc.close();
+            } catch(e) {}
+            
+            // Show logged-in UI
+            signInForm.classList.add('hidden');
+            loggedInProfileView.classList.remove('hidden');
+            profileName.textContent = user.displayName || 'User';
+            profileEmail.textContent = user.email;
+            
+            // Auto switch to sign-in tab if not there
+            document.getElementById('tabSignInHeader').click();
+            document.getElementById('tabSignInHeader').textContent = "Profile";
+            document.getElementById('tabSignUpHeader').style.display = 'none';
+            
+        } else {
+            localStorage.removeItem('vailism_current_user');
+            localStorage.removeItem('vailism_current_user_email');
+            
+            // Show logged-out UI
+            signInForm.classList.remove('hidden');
+            loggedInProfileView.classList.add('hidden');
+            document.getElementById('tabSignInHeader').textContent = "Sign In";
+            document.getElementById('tabSignUpHeader').style.display = 'block';
+        }
+    });
+
+    // Handle Sign In
+    signInForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        signInError.textContent = '';
+        signInBtn.disabled = true;
+        signInBtn.textContent = 'Signing in...';
+
+        const { user, error } = await authManager.signIn(
+            signInEmail.value.trim(), 
+            signInPassword.value, 
+            rememberMe.checked
+        );
+
+        if (error) {
+            signInError.textContent = error;
+        } else {
+            modal.classList.add('hidden');
+        }
+        signInBtn.disabled = false;
+        signInBtn.textContent = 'Continue Watching';
+    });
+
+    // Handle Sign Up
+    signUpForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        signUpError.textContent = '';
+        
+        if (signUpPassword.value !== signUpConfirmPassword.value) {
+            signUpError.textContent = 'Passwords do not match.';
             return;
         }
 
-        try {
-            authSubmitBtn.disabled = true;
-            authSubmitBtn.textContent = isLoginMode ? 'Logging In...' : 'Registering...';
+        signUpBtn.disabled = true;
+        signUpBtn.textContent = 'Creating account...';
 
-            if (isLoginMode) {
-                // Log In
-                await auth_firebase.signInWithEmailAndPassword(email, password);
-                document.getElementById('tabProfileHeader').click();
-            } else {
-                // Register
-                await auth_firebase.createUserWithEmailAndPassword(email, password);
-                document.getElementById('tabProfileHeader').click();
-            }
-        } catch (error) {
-            console.error('Firebase Auth Error:', error);
-            authError.textContent = error.message;
-        } finally {
-            authSubmitBtn.disabled = false;
-            authSubmitBtn.textContent = isLoginMode ? 'Log In' : 'Register Account';
-        }
-    });
+        const { user, error } = await authManager.signUp(
+            signUpEmail.value.trim(),
+            signUpPassword.value,
+            signUpUsername.value.trim()
+        );
 
-    // Logout Button
-    profileLogoutBtn.addEventListener('click', async () => {
-        if (auth_firebase) {
-            try {
-                await auth_firebase.signOut();
-            } catch (err) {
-                console.error('Logout failed:', err);
-            }
-        }
-    });
-
-    // Manual cloud sync trigger button
-    if (generateSyncKeyBtn) {
-        generateSyncKeyBtn.addEventListener('click', async () => {
-            generateSyncKeyBtn.disabled = true;
-            generateSyncKeyBtn.textContent = 'Syncing...';
-            await syncLocalToCloud();
-            setTimeout(() => {
-                generateSyncKeyBtn.disabled = false;
-                generateSyncKeyBtn.textContent = 'Sync Data Now';
-            }, 1000);
-        });
-    }
-
-    // Firebase Auth State Listener
-    if (auth_firebase) {
-        auth_firebase.onAuthStateChanged(async (user) => {
-            if (user) {
-                localStorage.setItem('vailism_current_user', user.uid);
-                localStorage.setItem('vailism_current_user_email', user.email);
-                
-                // Pull existing cloud data & merge into local IndexedDB
-                try {
-                    const doc = await db_firestore.collection('users').doc(user.uid).get();
-                    if (doc.exists) {
-                        await importSyncData(doc.data());
-                    }
-                } catch (err) {
-                    console.error('[Sync] Failed to pull cloud data:', err);
-                }
-                
-                // Push local changes up
-                await syncLocalToCloud();
-                
-                // Broadcast update to other tabs to refresh UI
-                try {
-                    const bc = new BroadcastChannel('vailism_sync');
-                    bc.postMessage({ type: 'UPDATE' });
-                    bc.close();
-                } catch(e) {}
-                
-                updateProfileUI();
-            } else {
-                localStorage.removeItem('vailism_current_user');
-                localStorage.removeItem('vailism_current_user_email');
-                updateProfileUI();
-            }
-        });
-    }
-
-    // Dynamic UI refresher
-    async function updateProfileUI() {
-        const currentUser = localStorage.getItem('vailism_current_user');
-        const currentUserEmail = localStorage.getItem('vailism_current_user_email');
-        
-        // Count history and watchlist
-        const allData = await getAllSyncData();
-        const historyCount = Object.keys(allData).filter(k => k.startsWith('vailism_progress_')).length;
-        const watchlistData = allData['vailism_watchlist'];
-        const watchlistCount = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items.length : 0;
-        
-        statHistoryCount.textContent = historyCount;
-        statWatchlistCount.textContent = watchlistCount;
-
-        if (currentUser) {
-            profileName.textContent = currentUserEmail ? currentUserEmail : 'Signed In';
-            profileStatus.textContent = 'Connected to Cloud database. Your watchlist and history sync instantly.';
-            profileLogoutBtn.style.display = 'block';
-            
-            // Switch tabs availability
-            document.getElementById('tabLoginHeader').style.display = 'none';
-            if (generateSyncKeyBtn) generateSyncKeyBtn.style.display = 'block';
-            if (syncStatusLabel) syncStatusLabel.textContent = 'Cloud synchronization is active and fully functional.';
+        if (error) {
+            signUpError.textContent = error;
         } else {
-            profileName.textContent = 'Guest Mode';
-            profileStatus.textContent = 'Data is stored locally on this browser. Sign in to back up and sync.';
-            profileLogoutBtn.style.display = 'none';
-            document.getElementById('tabLoginHeader').style.display = 'block';
-            if (generateSyncKeyBtn) generateSyncKeyBtn.style.display = 'none';
-            if (syncStatusLabel) syncStatusLabel.textContent = 'Not logged in. Log in to sync to the cloud.';
+            modal.classList.add('hidden');
         }
-    }
+        signUpBtn.disabled = false;
+        signUpBtn.textContent = 'Create Free Account';
+    });
+
+    // Handle Google Auth
+    const handleGoogleAuth = async () => {
+        const { user, error } = await authManager.signInWithGoogle();
+        if (error) {
+            signInError.textContent = error;
+            if (signUpError) signUpError.textContent = error;
+        } else {
+            modal.classList.add('hidden');
+        }
+    };
+    if (googleSignInBtn) googleSignInBtn.addEventListener('click', handleGoogleAuth);
+    if (googleSignUpBtn) googleSignUpBtn.addEventListener('click', handleGoogleAuth);
+
+    // Logout
+    profileLogoutBtn.addEventListener('click', async () => {
+        await authManager.signOut();
+    });
 
     // Auto-open auth modal if redirect query parameter exists
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('openAuth')) {
-        // Clean query parameter from URL
         const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
         window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
         profileBtn.click();
