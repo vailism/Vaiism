@@ -1,17 +1,22 @@
+import { 
+    auth, db, setPersistence, browserLocalPersistence, browserSessionPersistence, 
+    signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, 
+    GoogleAuthProvider, signOut, sendPasswordResetEmail, onAuthStateChanged, 
+    updateProfile, doc, setDoc, serverTimestamp 
+} from './firebase-config.js';
+
+import { CloudSyncManager } from './cloud-sync.js';
+
 class AuthManager {
     constructor() {
-        if (typeof firebase === 'undefined' || !firebase.apps.length) {
-            console.error('Firebase is not initialized.');
-            return;
-        }
-        this.auth = firebase.auth();
-        this.db = firebase.firestore();
-        this.googleProvider = new firebase.auth.GoogleAuthProvider();
+        this.auth = auth;
+        this.db = db;
+        this.googleProvider = new GoogleAuthProvider();
         this.googleProvider.setCustomParameters({ prompt: 'select_account' });
         
         // Listeners for auth state
         this.authListeners = [];
-        this.auth.onAuthStateChanged(this.handleAuthStateChange.bind(this));
+        onAuthStateChanged(this.auth, this.handleAuthStateChange.bind(this));
     }
 
     onAuthStateChanged(callback) {
@@ -22,76 +27,79 @@ class AuthManager {
         }
     }
 
-    handleAuthStateChange(user) {
+    async handleAuthStateChange(user) {
         if (user) {
-            this.bootstrapUser(user);
-            this.syncUserData(user);
+            console.log(`[VAILISM AUTH] Logged in as ${user.email}`);
+            await CloudSyncManager.bootstrapUser(user.uid);
+        } else {
+            console.log('[VAILISM AUTH] User signed out');
+            CloudSyncManager.clearLocalState();
         }
         // Notify subscribers
         this.authListeners.forEach(cb => cb(user));
     }
 
-    async setPersistence(rememberMe) {
-        const persistence = rememberMe 
-            ? firebase.auth.Auth.Persistence.LOCAL 
-            : firebase.auth.Auth.Persistence.SESSION;
-        await this.auth.setPersistence(persistence);
+    async setPersistenceMode(rememberMe) {
+        const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+        await setPersistence(this.auth, persistence);
     }
 
     async signUp(email, password, username) {
         try {
-            const userCredential = await this.auth.createUserWithEmailAndPassword(email, password);
+            const userCredential = await createUserWithEmailAndPassword(this.auth, email, password);
             const user = userCredential.user;
-            await user.updateProfile({ displayName: username });
+            await updateProfile(user, { displayName: username });
             
             // Initialize basic Firestore user document
-            await this.db.collection('users').doc(user.uid).set({
+            const userRef = doc(this.db, 'users', user.uid);
+            await setDoc(userRef, {
                 email: user.email,
                 username: username,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                createdAt: serverTimestamp()
             }, { merge: true });
             
             return { user, error: null };
         } catch (error) {
-            console.error('Sign Up Error:', error);
+            console.error('[VAILISM AUTH] Sign Up Error:', error);
             return { user: null, error: this.mapAuthError(error) };
         }
     }
 
     async signIn(email, password, rememberMe = true) {
         try {
-            await this.setPersistence(rememberMe);
-            const userCredential = await this.auth.signInWithEmailAndPassword(email, password);
+            await this.setPersistenceMode(rememberMe);
+            const userCredential = await signInWithEmailAndPassword(this.auth, email, password);
             return { user: userCredential.user, error: null };
         } catch (error) {
-            console.error('Sign In Error:', error);
+            console.error('[VAILISM AUTH] Sign In Error:', error);
             return { user: null, error: this.mapAuthError(error) };
         }
     }
 
     async signInWithGoogle() {
         try {
-            await this.setPersistence(true);
-            const userCredential = await this.auth.signInWithPopup(this.googleProvider);
+            await this.setPersistenceMode(true);
+            const userCredential = await signInWithPopup(this.auth, this.googleProvider);
             const user = userCredential.user;
             
             // Ensure document exists
-            await this.db.collection('users').doc(user.uid).set({
+            const userRef = doc(this.db, 'users', user.uid);
+            await setDoc(userRef, {
                 email: user.email,
                 username: user.displayName || 'Google User',
-                lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                lastLogin: serverTimestamp()
             }, { merge: true });
 
             return { user, error: null };
         } catch (error) {
-            console.error('Google Sign In Error:', error);
+            console.error('[VAILISM AUTH] Google Sign In Error:', error);
             return { user: null, error: this.mapAuthError(error) };
         }
     }
 
     async signOut() {
         try {
-            await this.auth.signOut();
+            await signOut(this.auth);
             return { success: true, error: null };
         } catch (error) {
             return { success: false, error: this.mapAuthError(error) };
@@ -100,22 +108,11 @@ class AuthManager {
 
     async resetPassword(email) {
         try {
-            await this.auth.sendPasswordResetEmail(email);
+            await sendPasswordResetEmail(this.auth, email);
             return { success: true, error: null };
         } catch (error) {
             return { success: false, error: this.mapAuthError(error) };
         }
-    }
-
-    async syncUserData(user) {
-        if (!user) return;
-        // Centralized bootstrap sync operations.
-    }
-
-    async bootstrapUser(user) {
-        if (!user) return;
-        // Logic to pre-fetch any user specific cloud settings right after login
-        console.log(`Bootstrapped user session for ${user.email}`);
     }
 
     mapAuthError(error) {
@@ -142,5 +139,5 @@ class AuthManager {
     }
 }
 
-// Make globally available
-window.AuthManager = AuthManager;
+// Export a singleton instance
+export const authManager = new AuthManager();

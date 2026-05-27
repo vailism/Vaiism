@@ -1,5 +1,9 @@
-// VAILISM - Netflix Clone Logic
+import { authManager } from './js/AuthManager.js';
+import { CloudSyncManager } from './js/cloud-sync.js';
+import { WatchlistManager } from './js/watchlist.js';
+import { WatchProgressManager } from './js/watch-progress.js';
 
+// VAILISM - Netflix Clone Logic
 // ─── Constants ───────────────────────────────────────────────────────────────
 const BASE_URL      = '/api/tmdb';
 const IMG_BASE_URL  = 'https://image.tmdb.org/t/p/w342';
@@ -1127,21 +1131,19 @@ window.playMovie = async function (id, type, s, e) {
 window.toggleMyList = async function (movie, btn) {
     if (!movie || !movie.id) return;
     try {
-        let myListData = await lsGet('vailism_watchlist');
-        let myList = (myListData && Array.isArray(myListData.items)) ? myListData.items : [];
-
-        const id    = String(movie.id);
-        const index = myList.findIndex(m => String(m.id) === id);
-
-        if (index === -1) {
-            myList.push({ id: parseInt(id, 10), mediaType: movie.media_type || (movie.name ? 'tv' : 'movie'), addedAt: Date.now() });
-            if (btn) btn.classList.add('added');
-        } else {
-            myList.splice(index, 1);
-            if (btn) btn.classList.remove('added');
+        const item = {
+            tmdbId: parseInt(movie.id, 10),
+            mediaType: movie.media_type || (movie.name ? 'tv' : 'movie'),
+            title: movie.title || movie.name || 'Unknown Title',
+            poster: movie.poster_path || '',
+            backdrop: movie.backdrop_path || ''
+        };
+        
+        const added = await WatchlistManager.toggleWatchlist(item);
+        if (btn) {
+            if (added) btn.classList.add('added');
+            else btn.classList.remove('added');
         }
-
-        await lsSet('vailism_watchlist', { version: 1, items: myList });
         if (window.lucide) window.lucide.createIcons();
     } catch (e) {
         console.warn('[VAILISM] toggleMyList error:', e);
@@ -1956,91 +1958,6 @@ document.addEventListener('keydown', (e) => {
     if (bestMatch) setSpatialFocus(bestMatch);
 });
 
-// ─── Account & Sync System (Firebase Integration) ────────────────────────────
-let db_firestore = null;
-let auth_firebase = null;
-
-try {
-    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY") {
-        firebase.initializeApp(window.FIREBASE_CONFIG);
-        db_firestore = firebase.firestore();
-        auth_firebase = firebase.auth();
-    } else {
-        console.warn("[VAILISM] Firebase is running in mock mode. Set valid keys in js/firebase-config.js to enable cloud database sync.");
-    }
-} catch (e) {
-    console.error("[VAILISM] Firebase initialization error:", e);
-}
-
-// Gather all database history/watchlist entries
-async function getAllSyncData() {
-    try {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readonly');
-            const store = tx.objectStore(STORE_NAME);
-            const data = {};
-            const request = store.openCursor();
-            request.onsuccess = (event) => {
-                const cursor = event.target.result;
-                if (cursor) {
-                    if (cursor.key.startsWith('vailism_progress_') || cursor.key === 'vailism_watchlist') {
-                        data[cursor.key] = cursor.value;
-                    }
-                    cursor.continue();
-                } else {
-                    data['vailism_preferred_server'] = localStorage.getItem('vailism_preferred_server');
-                    resolve(data);
-                }
-            };
-            request.onerror = () => reject(request.error);
-        });
-    } catch (e) {
-        return {};
-    }
-}
-
-// Merge restored JSON payload into active browser DB
-async function importSyncData(data) {
-    if (!data || typeof data !== 'object') return;
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        
-        for (const key in data) {
-            if (key.startsWith('vailism_progress_') || key === 'vailism_watchlist') {
-                store.put(data[key], key);
-            } else if (key === 'vailism_preferred_server' && data[key]) {
-                localStorage.setItem('vailism_preferred_server', data[key]);
-            }
-        }
-        
-        return new Promise((resolve, reject) => {
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error);
-        });
-    } catch (e) {
-        console.error('[Sync] Import failed:', e);
-    }
-}
-
-// Push local IndexedDB to Cloud Firestore
-async function syncLocalToCloud() {
-    if (!auth_firebase || !auth_firebase.currentUser || !db_firestore) return;
-    const uid = auth_firebase.currentUser.uid;
-    const localData = await getAllSyncData();
-    delete localData['vailism_preferred_server']; // avoid syncing preferred server
-    
-    if (Object.keys(localData).length > 0) {
-        try {
-            await db_firestore.collection('users').doc(uid).set(localData, { merge: true });
-        } catch (err) {
-            console.error('[Sync] Failed to push local data to firestore:', err);
-        }
-    }
-}
-
 // Main logic coordinator
 async function initAuthSync() {
     const profileBtn = document.getElementById('profileBtn');
@@ -2048,12 +1965,6 @@ async function initAuthSync() {
     const closeBtn = document.getElementById('closeAccountModalBtn');
     
     if (!profileBtn || !modal) return;
-
-    // Instantiate AuthManager if firebase is ready
-    let authManager = null;
-    if (typeof window.AuthManager !== 'undefined' && firebase.apps.length > 0) {
-        authManager = new window.AuthManager();
-    }
 
     // Modal toggles
     profileBtn.addEventListener('click', () => {
@@ -2138,19 +2049,6 @@ async function initAuthSync() {
             localStorage.setItem('vailism_current_user', user.uid);
             localStorage.setItem('vailism_current_user_email', user.email);
             
-            // Sync logic
-            try {
-                const doc = await db_firestore.collection('users').doc(user.uid).get();
-                if (doc.exists) await importSyncData(doc.data());
-            } catch (err) { console.error(err); }
-            await syncLocalToCloud();
-            
-            try {
-                const bc = new BroadcastChannel('vailism_sync');
-                bc.postMessage({ type: 'UPDATE' });
-                bc.close();
-            } catch(e) {}
-            
             // Show logged-in UI
             signInForm.classList.add('hidden');
             loggedInProfileView.classList.remove('hidden');
@@ -2160,7 +2058,9 @@ async function initAuthSync() {
             // Auto switch to sign-in tab if not there
             document.getElementById('tabSignInHeader').click();
             document.getElementById('tabSignInHeader').textContent = "Profile";
-            document.getElementById('tabSignUpHeader').style.display = 'none';
+            if (document.getElementById('tabSignUpHeader')) {
+                document.getElementById('tabSignUpHeader').style.display = 'none';
+            }
             
         } else {
             localStorage.removeItem('vailism_current_user');
@@ -2170,7 +2070,9 @@ async function initAuthSync() {
             signInForm.classList.remove('hidden');
             loggedInProfileView.classList.add('hidden');
             document.getElementById('tabSignInHeader').textContent = "Sign In";
-            document.getElementById('tabSignUpHeader').style.display = 'block';
+            if (document.getElementById('tabSignUpHeader')) {
+                document.getElementById('tabSignUpHeader').style.display = 'block';
+            }
         }
     });
 

@@ -416,8 +416,10 @@
                 </div>
             </div>
         </div>
-    </div><script>
-    (function () {
+    </div><script type="module">
+        import { WatchProgressManager } from './js/watch-progress.js';
+        
+        (function () {
         'use strict';
 
         // ── Watch Together Helpers & Classes ────────────────────────────────
@@ -1136,9 +1138,6 @@
             // Save on timeupdate and pause
             if (evtName === 'timeupdate' || evtName === 'pause') {
                 if (currentTime > 0 && duration > 0 && currentTime < duration) {
-                    if (saveThrottle) return;
-                    saveThrottle = setTimeout(function () { saveThrottle = null; }, 3000);
-
                     var currentS = 1;
                     var currentE = 1;
                     if (mediaType === 'tv') {
@@ -1146,49 +1145,26 @@
                         currentE = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
                     }
 
-                    var activeStorageKey = mediaType === 'tv'
-                        ? ('vailism_progress_' + movieId + '_s' + currentS + '_e' + currentE)
-                        : ('vailism_progress_' + movieId);
+                    var contentId = mediaType === 'tv'
+                        ? (movieId + '_s' + currentS + '_e' + currentE)
+                        : String(movieId);
 
-                    var toSave = {
-                        id:        parseInt(movieId, 10),
+                    var details = {
+                        title: document.title.replace(' - VAILISM', '') || 'Unknown Title',
+                        tmdbId: parseInt(movieId, 10),
                         mediaType: mediaType,
-                        timestamp: Math.max(0, Math.min(currentTime, duration)),
-                        duration:  duration,
-                        updatedAt: Date.now()
+                        season: currentS,
+                        episode: currentE,
                     };
 
-                    if (mediaType === 'tv') {
-                        toSave.season  = currentS;
-                        toSave.episode = currentE;
-                    }
-
-                    try {
-                        localStorage.setItem(activeStorageKey, JSON.stringify(toSave));
-                    } catch (e) {
-                        console.warn('[VAILISM] localStorage write failed:', e);
-                        if (e.name === 'QuotaExceededError' || e.code === 22) {
-                            try {
-                                var keys = Object.keys(localStorage);
-                                var progressEntries = keys
-                                    .filter(function(k) { return k.indexOf('vailism_progress_') === 0; })
-                                    .map(function(k) {
-                                        try { return { key: k, data: JSON.parse(localStorage.getItem(k)) }; } catch(ex) { return null; }
-                                    })
-                                    .filter(function(item) { return item && item.data && item.data.updatedAt; })
-                                    .sort(function(a, b) { return a.data.updatedAt - b.data.updatedAt; });
-                                
-                                if (progressEntries.length > 0) {
-                                    progressEntries.slice(0, 3).forEach(function(item) {
-                                        localStorage.removeItem(item.key);
-                                    });
-                                    localStorage.setItem(activeStorageKey, JSON.stringify(toSave));
-                                }
-                            } catch (retryErr) {
-                                console.error('[VAILISM] Eviction/retry failed:', retryErr);
-                            }
-                        }
-                    }
+                    WatchProgressManager.saveProgress(
+                        contentId, 
+                        details, 
+                        currentTime, 
+                        duration, 
+                        (evtName === 'pause'), 
+                        false
+                    );
                 }
             }
 
@@ -1200,12 +1176,27 @@
                     currentS = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
                     currentE = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
                 }
-                var activeStorageKey = mediaType === 'tv'
-                    ? ('vailism_progress_' + movieId + '_s' + currentS + '_e' + currentE)
-                    : ('vailism_progress_' + movieId);
+                var contentId = mediaType === 'tv'
+                    ? (movieId + '_s' + currentS + '_e' + currentE)
+                    : String(movieId);
 
-                try { localStorage.removeItem(activeStorageKey); } catch (e) {}
-                console.log('[VAILISM] Playback complete – progress cleared.');
+                var details = {
+                    title: document.title.replace(' - VAILISM', '') || 'Unknown Title',
+                    tmdbId: parseInt(movieId, 10),
+                    mediaType: mediaType,
+                    season: currentS,
+                    episode: currentE,
+                };
+                
+                WatchProgressManager.saveProgress(
+                    contentId, 
+                    details, 
+                    duration, 
+                    duration, 
+                    false, 
+                    true
+                );
+                console.log('[VAILISM] Playback complete – progress marked complete.');
             }
         }
 

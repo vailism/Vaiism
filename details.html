@@ -127,8 +127,14 @@
     </div>
 
     <!-- Core App Logic -->
-    <script src="script.js" defer></script>
-    <script src="details.js" defer></script>
+    <!-- App logic -->
+    <script type="module" src="js/firebase-config.js"></script>
+    <script type="module" src="js/AuthManager.js"></script>
+    <script type="module" src="js/cloud-sync.js"></script>
+    <script type="module" src="js/watchlist.js"></script>
+    <script type="module" src="js/watch-progress.js"></script>
+    <script type="module" src="script.js"></script>
+    <script type="module" src="details.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
