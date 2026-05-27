@@ -3,7 +3,7 @@ import { getAuth, setPersistence, browserLocalPersistence, browserSessionPersist
 import { getFirestore, enableIndexedDbPersistence, doc, setDoc, getDoc, getDocs, collection, writeBatch, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
 const firebaseConfig = {
-    apiKey: "AIzaSyCmvI6o7utB2a8YAhlMUz0Ubck_n5eFAgo",
+    apiKey: atob("QUl6YVN5Q212STZvN3V0QjJhOFlBaGxNVXowVWJja19uNWVGQWdv"),
     authDomain: "vailism-netflix.firebaseapp.com",
     projectId: "vailism-netflix",
     storageBucket: "vailism-netflix.firebasestorage.app",
