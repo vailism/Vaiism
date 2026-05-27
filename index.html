@@ -179,8 +179,8 @@
                     <h3 id="authFormTitle">Create Local Account</h3>
                     <p class="form-desc">Keep your data organized under a local user profile.</p>
                     <div class="form-group">
-                        <label for="authUsername">Username</label>
-                        <input type="text" id="authUsername" required placeholder="Enter username">
+                        <label for="authEmail">Email Address</label>
+                        <input type="email" id="authEmail" required placeholder="Enter email address">
                     </div>
                     <div class="form-group">
                         <label for="authPassword">Password</label>
@@ -195,34 +195,25 @@
             <!-- Cloud Sync View -->
             <div class="auth-tab-pane" id="sync-tab">
                 <h3>Cloud Backup & Sync</h3>
-                <p class="form-desc">Sync your watchlist, watch history, and server preferences across other devices anonymously.</p>
+                <p class="form-desc">Sync your watchlist, watch history, and server preferences across other devices securely.</p>
                 
                 <div class="sync-section">
-                    <h4>Backup / Upload Data</h4>
-                    <p class="sub-desc">Generate a secure Sync Key to backup your history and preferences online.</p>
-                    <button class="btn btn-info w-100" id="generateSyncKeyBtn">Generate Sync Key</button>
-                    <div id="syncKeyDisplay" class="sync-key-display hidden">
-                        <span class="key-label">Your Sync Key:</span>
-                        <code id="syncKeyValue">XXXX-XXXX-XXXX</code>
-                        <button class="btn-copy" id="copySyncKeyBtn" title="Copy Key"><i data-lucide="copy"></i></button>
+                    <h4>Cloud Backup Status</h4>
+                    <p class="sub-desc">Your data is automatically synced to the cloud when you are logged in.</p>
+                    <button class="btn btn-info w-100" id="generateSyncKeyBtn" style="display: none;">Sync Data Now</button>
+                    <div id="syncKeyDisplay" class="sync-key-display">
+                        <span class="key-label" id="syncStatusLabel">Not logged in. Log in to sync to the cloud.</span>
                     </div>
-                </div>
-
-                <hr class="auth-divider">
-
-                <div class="sync-section">
-                    <h4>Restore / Sync Device</h4>
-                    <p class="sub-desc">Enter a Sync Key from another device to load and merge your data.</p>
-                    <div class="sync-input-group">
-                        <input type="text" id="restoreSyncKeyInput" placeholder="Paste Sync Key here...">
-                        <button class="btn btn-primary" id="restoreSyncBtn">Restore</button>
-                    </div>
-                    <div class="form-error" id="syncError"></div>
-                    <div class="form-success" id="syncSuccess"></div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
 
     <!-- App logic: deferred to unblock rendering -->
     <script src="script.js" defer></script>

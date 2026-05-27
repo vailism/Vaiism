@@ -171,6 +171,12 @@ async function lsSet(key, value, skipBroadcast = false) {
                         bc.close();
                     } catch(e) {}
                 }
+                // Push to Firestore if logged in
+                if (auth_firebase && auth_firebase.currentUser && db_firestore && (key.startsWith('vailism_progress_') || key === 'vailism_watchlist')) {
+                    const uid = auth_firebase.currentUser.uid;
+                    db_firestore.collection('users').doc(uid).set({ [key]: value }, { merge: true })
+                        .catch(err => console.error('[Sync] Firestore set failed:', err));
+                }
                 resolve();
             };
             request.onerror = () => reject(request.error);
@@ -195,11 +201,20 @@ async function lsRemove(key, skipBroadcast = false) {
                         bc.close();
                     } catch(e) {}
                 }
+                // Remove from Firestore if logged in
+                if (auth_firebase && auth_firebase.currentUser && db_firestore && (key.startsWith('vailism_progress_') || key === 'vailism_watchlist')) {
+                    const uid = auth_firebase.currentUser.uid;
+                    db_firestore.collection('users').doc(uid).update({
+                        [key]: firebase.firestore.FieldValue.delete()
+                    }).catch(err => console.error('[Sync] Firestore delete failed:', err));
+                }
                 resolve();
             };
             request.onerror = () => reject(request.error);
         });
-    } catch(e) {}
+    } catch(e) {
+        console.warn('[VAILISM] IDB Remove failed:', e);
+    }
 }
 
 async function lsKeys() {
@@ -1941,29 +1956,20 @@ document.addEventListener('keydown', (e) => {
     if (bestMatch) setSpatialFocus(bestMatch);
 });
 
-// ─── Account & Sync System ───────────────────────────────────────────────────
-const SYNC_BUCKET = 'vailism_shared_2026';
+// ─── Account & Sync System (Firebase Integration) ────────────────────────────
+let db_firestore = null;
+let auth_firebase = null;
 
-// XOR encryption helper for lightweight protection of public bucket contents
-function encryptSyncData(text, key) {
-    let result = '';
-    for (let i = 0; i < text.length; i++) {
-        result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+try {
+    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY") {
+        firebase.initializeApp(window.FIREBASE_CONFIG);
+        db_firestore = firebase.firestore();
+        auth_firebase = firebase.auth();
+    } else {
+        console.warn("[VAILISM] Firebase is running in mock mode. Set valid keys in js/firebase-config.js to enable cloud database sync.");
     }
-    return btoa(result);
-}
-
-function decryptSyncData(encoded, key) {
-    try {
-        let text = atob(encoded);
-        let result = '';
-        for (let i = 0; i < text.length; i++) {
-            result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-        }
-        return result;
-    } catch (e) {
-        return null;
-    }
+} catch (e) {
+    console.error("[VAILISM] Firebase initialization error:", e);
 }
 
 // Gather all database history/watchlist entries
@@ -2019,6 +2025,22 @@ async function importSyncData(data) {
     }
 }
 
+// Push local IndexedDB to Cloud Firestore
+async function syncLocalToCloud() {
+    if (!auth_firebase || !auth_firebase.currentUser || !db_firestore) return;
+    const uid = auth_firebase.currentUser.uid;
+    const localData = await getAllSyncData();
+    delete localData['vailism_preferred_server']; // avoid syncing preferred server
+    
+    if (Object.keys(localData).length > 0) {
+        try {
+            await db_firestore.collection('users').doc(uid).set(localData, { merge: true });
+        } catch (err) {
+            console.error('[Sync] Failed to push local data to firestore:', err);
+        }
+    }
+}
+
 // Main logic coordinator
 async function initAuthSync() {
     const profileBtn = document.getElementById('profileBtn');
@@ -2030,7 +2052,7 @@ async function initAuthSync() {
     // Auth elements
     const authForm = document.getElementById('authForm');
     const authFormTitle = document.getElementById('authFormTitle');
-    const authUsernameInput = document.getElementById('authUsername');
+    const authEmailInput = document.getElementById('authEmail');
     const authPasswordInput = document.getElementById('authPassword');
     const authSubmitBtn = document.getElementById('authSubmitBtn');
     const authToggleLink = document.getElementById('authToggleLink');
@@ -2045,13 +2067,7 @@ async function initAuthSync() {
     
     // Sync elements
     const generateSyncKeyBtn = document.getElementById('generateSyncKeyBtn');
-    const syncKeyDisplay = document.getElementById('syncKeyDisplay');
-    const syncKeyValue = document.getElementById('syncKeyValue');
-    const copySyncKeyBtn = document.getElementById('copySyncKeyBtn');
-    const restoreSyncKeyInput = document.getElementById('restoreSyncKeyInput');
-    const restoreSyncBtn = document.getElementById('restoreSyncBtn');
-    const syncError = document.getElementById('syncError');
-    const syncSuccess = document.getElementById('syncSuccess');
+    const syncStatusLabel = document.getElementById('syncStatusLabel');
 
     if (!profileBtn || !modal) return;
 
@@ -2105,145 +2121,105 @@ async function initAuthSync() {
     });
 
     // Handle Auth Form Submission
-    authForm.addEventListener('submit', (e) => {
+    authForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         authError.textContent = '';
         
-        const username = authUsernameInput.value.trim().toLowerCase();
+        const email = authEmailInput.value.trim();
         const password = authPasswordInput.value;
-        if (!username || !password) return;
+        if (!email || !password) return;
 
-        const accounts = JSON.parse(localStorage.getItem('vailism_accounts') || '{}');
-
-        if (isLoginMode) {
-            // Log In
-            if (accounts[username] && accounts[username] === password) {
-                localStorage.setItem('vailism_current_user', username);
-                updateProfileUI();
-                // Switch to profile tab
-                document.getElementById('tabProfileHeader').click();
-            } else {
-                authError.textContent = 'Invalid username or password.';
-            }
-        } else {
-            // Register
-            if (accounts[username]) {
-                authError.textContent = 'Username already exists.';
-            } else {
-                accounts[username] = password;
-                localStorage.setItem('vailism_accounts', JSON.stringify(accounts));
-                localStorage.setItem('vailism_current_user', username);
-                updateProfileUI();
-                // Switch to profile tab
-                document.getElementById('tabProfileHeader').click();
-            }
-        }
-    });
-
-    // Logout Button
-    profileLogoutBtn.addEventListener('click', () => {
-        localStorage.removeItem('vailism_current_user');
-        updateProfileUI();
-    });
-
-    // Generate Sync Key (Cloud Upload)
-    generateSyncKeyBtn.addEventListener('click', async () => {
-        syncError.textContent = '';
-        syncSuccess.textContent = '';
-        
-        // Generate random 12-char key: VAIL-XXXX-XXXX
-        const rand = () => Math.random().toString(36).substring(2, 6).toUpperCase();
-        const syncKey = `VAIL-${rand()}-${rand()}`;
-        
-        const localData = await getAllSyncData();
-        const payload = encodeURIComponent(JSON.stringify(localData));
-        const encrypted = encryptSyncData(payload, syncKey);
-
-        try {
-            generateSyncKeyBtn.disabled = true;
-            generateSyncKeyBtn.textContent = 'Backing up...';
-            
-            const res = await fetch(`https://kvdb.io/${SYNC_BUCKET}/${syncKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: encrypted
-            });
-
-            if (res.ok) {
-                syncKeyValue.textContent = syncKey;
-                syncKeyDisplay.classList.remove('hidden');
-                syncSuccess.textContent = 'Successfully uploaded data to cloud backup.';
-            } else {
-                syncError.textContent = 'Failed to connect to sync server. Try again.';
-            }
-        } catch (err) {
-            syncError.textContent = 'Error uploading backup payload.';
-        } finally {
-            generateSyncKeyBtn.disabled = false;
-            generateSyncKeyBtn.textContent = 'Generate Sync Key';
-        }
-    });
-
-    // Copy Sync Key
-    copySyncKeyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(syncKeyValue.textContent);
-        const icon = copySyncKeyBtn.querySelector('i');
-        if (icon) {
-            icon.setAttribute('data-lucide', 'check');
-            if (window.lucide) lucide.createIcons();
-            setTimeout(() => {
-                icon.setAttribute('data-lucide', 'copy');
-                if (window.lucide) lucide.createIcons();
-            }, 2000);
-        }
-    });
-
-    // Restore Sync Key (Cloud Download & Merge)
-    restoreSyncBtn.addEventListener('click', async () => {
-        syncError.textContent = '';
-        syncSuccess.textContent = '';
-        
-        const syncKey = restoreSyncKeyInput.value.trim().toUpperCase();
-        if (!syncKey || !syncKey.startsWith('VAIL-')) {
-            syncError.textContent = 'Please enter a valid Sync Key (e.g. VAIL-XXXX-XXXX).';
+        if (!auth_firebase) {
+            authError.textContent = 'Firebase authentication is currently disabled/offline.';
             return;
         }
 
         try {
-            restoreSyncBtn.disabled = true;
-            restoreSyncBtn.textContent = 'Restoring...';
-            
-            const res = await fetch(`https://kvdb.io/${SYNC_BUCKET}/${syncKey}`);
-            if (!res.ok) {
-                syncError.textContent = 'Sync Key not found or expired.';
-                return;
-            }
+            authSubmitBtn.disabled = true;
+            authSubmitBtn.textContent = isLoginMode ? 'Logging In...' : 'Registering...';
 
-            const encrypted = await res.text();
-            const payload = decryptSyncData(encrypted, syncKey);
-            if (!payload) {
-                syncError.textContent = 'Failed to decrypt backup package.';
-                return;
+            if (isLoginMode) {
+                // Log In
+                await auth_firebase.signInWithEmailAndPassword(email, password);
+                document.getElementById('tabProfileHeader').click();
+            } else {
+                // Register
+                await auth_firebase.createUserWithEmailAndPassword(email, password);
+                document.getElementById('tabProfileHeader').click();
             }
-
-            const data = JSON.parse(decodeURIComponent(payload));
-            await importSyncData(data);
-            
-            syncSuccess.textContent = 'Data successfully synchronized! Reloading page...';
-            setTimeout(() => {
-                window.location.reload();
-            }, 1500);
-        } catch (err) {
-            syncError.textContent = 'Connection error during sync restoration.';
+        } catch (error) {
+            console.error('Firebase Auth Error:', error);
+            authError.textContent = error.message;
         } finally {
-            restoreSyncBtn.disabled = false;
-            restoreSyncBtn.textContent = 'Restore';
+            authSubmitBtn.disabled = false;
+            authSubmitBtn.textContent = isLoginMode ? 'Log In' : 'Register Account';
         }
     });
+
+    // Logout Button
+    profileLogoutBtn.addEventListener('click', async () => {
+        if (auth_firebase) {
+            try {
+                await auth_firebase.signOut();
+            } catch (err) {
+                console.error('Logout failed:', err);
+            }
+        }
+    });
+
+    // Manual cloud sync trigger button
+    if (generateSyncKeyBtn) {
+        generateSyncKeyBtn.addEventListener('click', async () => {
+            generateSyncKeyBtn.disabled = true;
+            generateSyncKeyBtn.textContent = 'Syncing...';
+            await syncLocalToCloud();
+            setTimeout(() => {
+                generateSyncKeyBtn.disabled = false;
+                generateSyncKeyBtn.textContent = 'Sync Data Now';
+            }, 1000);
+        });
+    }
+
+    // Firebase Auth State Listener
+    if (auth_firebase) {
+        auth_firebase.onAuthStateChanged(async (user) => {
+            if (user) {
+                localStorage.setItem('vailism_current_user', user.uid);
+                localStorage.setItem('vailism_current_user_email', user.email);
+                
+                // Pull existing cloud data & merge into local IndexedDB
+                try {
+                    const doc = await db_firestore.collection('users').doc(user.uid).get();
+                    if (doc.exists) {
+                        await importSyncData(doc.data());
+                    }
+                } catch (err) {
+                    console.error('[Sync] Failed to pull cloud data:', err);
+                }
+                
+                // Push local changes up
+                await syncLocalToCloud();
+                
+                // Broadcast update to other tabs to refresh UI
+                try {
+                    const bc = new BroadcastChannel('vailism_sync');
+                    bc.postMessage({ type: 'UPDATE' });
+                    bc.close();
+                } catch(e) {}
+                
+                updateProfileUI();
+            } else {
+                localStorage.removeItem('vailism_current_user');
+                localStorage.removeItem('vailism_current_user_email');
+                updateProfileUI();
+            }
+        });
+    }
 
     // Dynamic UI refresher
     async function updateProfileUI() {
         const currentUser = localStorage.getItem('vailism_current_user');
+        const currentUserEmail = localStorage.getItem('vailism_current_user_email');
         
         // Count history and watchlist
         const allData = await getAllSyncData();
@@ -2255,17 +2231,21 @@ async function initAuthSync() {
         statWatchlistCount.textContent = watchlistCount;
 
         if (currentUser) {
-            profileName.textContent = currentUser.toUpperCase();
-            profileStatus.textContent = 'Signed in. Your data syncs with your profile.';
+            profileName.textContent = currentUserEmail ? currentUserEmail : 'Signed In';
+            profileStatus.textContent = 'Connected to Cloud database. Your watchlist and history sync instantly.';
             profileLogoutBtn.style.display = 'block';
             
             // Switch tabs availability
             document.getElementById('tabLoginHeader').style.display = 'none';
+            if (generateSyncKeyBtn) generateSyncKeyBtn.style.display = 'block';
+            if (syncStatusLabel) syncStatusLabel.textContent = 'Cloud synchronization is active and fully functional.';
         } else {
             profileName.textContent = 'Guest Mode';
-            profileStatus.textContent = 'Data is stored locally on this browser.';
+            profileStatus.textContent = 'Data is stored locally on this browser. Sign in to back up and sync.';
             profileLogoutBtn.style.display = 'none';
             document.getElementById('tabLoginHeader').style.display = 'block';
+            if (generateSyncKeyBtn) generateSyncKeyBtn.style.display = 'none';
+            if (syncStatusLabel) syncStatusLabel.textContent = 'Not logged in. Log in to sync to the cloud.';
         }
     }
 
