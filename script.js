@@ -1449,17 +1449,18 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadContinueWatching() {
         const rawKeys = await lsKeys();
         const keys = rawKeys.filter(k => k.startsWith('vailism_progress_'));
-        if (keys.length === 0) return;
 
         const mainContent = document.getElementById('main-content');
         if (!mainContent) return;
 
         // Fetch and validate entries
-        const items = [];
+        const items = WatchProgressManager.getAllProgress();
         for (const key of keys) {
             const data = await lsGet(key);
             items.push({ key, data });
         }
+        
+        if (items.length === 0) return;
         
         const validatedEntries = items
             .filter(item => isValidProgress(item.data))
@@ -1468,8 +1469,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Group by show/movie ID to only keep the most recently updated progress for each title
         const groupedMap = new Map();
         validatedEntries.forEach(item => {
-            if (!groupedMap.has(item.data.id)) {
-                groupedMap.set(item.data.id, item);
+            const mappedId = item.data.tmdbId || item.data.id;
+            if (!groupedMap.has(mappedId)) {
+                groupedMap.set(mappedId, item);
             }
         });
 
@@ -1492,9 +1494,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const fetchPromises = progressEntries.map(async item => {
             const savedData = item.data;
-            const movieId   = savedData.id;
+            const movieId   = savedData.tmdbId || savedData.id;
             const typePath  = savedData.mediaType;
-            const ts        = savedData.timestamp;
+            const ts        = savedData.currentTime || savedData.timestamp;
             const dur       = savedData.duration;
 
             try {
@@ -1562,7 +1564,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Watchlist / My List ──────────────────────────────────────────────────
     async function loadWatchlist() {
         const watchlistData = await lsGet('vailism_watchlist');
-        const items = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items : [];
+        const legacyItems = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items : [];
+        const currentItems = WatchlistManager.getWatchlist();
+        
+        // Merge and deduplicate based on tmdbId/id
+        const mergedMap = new Map();
+        [...legacyItems, ...currentItems].forEach(item => {
+            const mappedId = item.tmdbId || item.id;
+            if (!mergedMap.has(mappedId)) {
+                mergedMap.set(mappedId, item);
+            }
+        });
+        
+        const items = Array.from(mergedMap.values());
         if (items.length === 0) return;
 
         const mainContent = document.getElementById('main-content');

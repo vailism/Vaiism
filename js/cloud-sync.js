@@ -1,4 +1,4 @@
-import { auth, db, doc, setDoc, getDocs, collection, writeBatch, serverTimestamp } from './firebase-config.js';
+import { auth, db, doc, setDoc, getDocs, collection, writeBatch, serverTimestamp, deleteDoc } from './firebase-config.js';
 
 class CloudSyncManagerImpl {
     constructor() {
@@ -154,13 +154,9 @@ class CloudSyncManagerImpl {
         // Local cache handles removals. CloudSyncManager handles cloud state.
         const docRef = doc(db, `users/${this.uid}/watchlist`, String(item.tmdbId));
         if (isRemove) {
-            // Delete requires special handling, but writeBatch or direct delete works.
-            // For queuing, let's execute directly for now or add to queue.
+            // Offline persistence handles this directly
             try {
-                // To keep it simple, direct delete (offline persistence handles this).
-                import('./firebase-config.js').then(({deleteDoc}) => {
-                    deleteDoc(docRef);
-                });
+                deleteDoc(docRef).catch(e => console.error('[VAILISM CLOUD] Failed to delete', e));
             } catch(e) { console.error(e); }
         } else {
             this.queueWrite(docRef, { ...item, addedAt: serverTimestamp() });

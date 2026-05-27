@@ -26,11 +26,11 @@ class WatchProgressManagerImpl {
         // Update Local Storage
         localStorage.setItem(`vailism_progress_${contentId}`, JSON.stringify(progressData));
 
-        // Debounce cloud sync (Save every 15s or immediately on pause/exit)
+        // Debounce cloud sync (Save every 60s or immediately on pause/exit)
         if (isPaused || isExit) {
             this.forceSync(contentId, progressData);
         } else {
-            if (currentTime - this.lastSavedTime >= 15 || this.lastSavedTime === 0) {
+            if (Math.abs(currentTime - this.lastSavedTime) >= 60 || this.lastSavedTime === 0) {
                 this.forceSync(contentId, progressData);
                 this.lastSavedTime = currentTime;
             } else {
@@ -51,6 +51,20 @@ class WatchProgressManagerImpl {
     getProgress(contentId) {
         const data = localStorage.getItem(`vailism_progress_${contentId}`);
         return data ? JSON.parse(data) : null;
+    }
+
+    getAllProgress() {
+        const progressItems = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('vailism_progress_')) {
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    if (data) progressItems.push({ key, data });
+                } catch(e) {}
+            }
+        }
+        return progressItems;
     }
 }
 
