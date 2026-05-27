@@ -1265,7 +1265,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnList.style.display = 'flex';
             const watchlistData = await lsGet('vailism_watchlist');
             const myList = (watchlistData && Array.isArray(watchlistData.items)) ? watchlistData.items : [];
-            if (myList.some(m => String(m.id) === String(movie.id))) {
+            if (myList.some(m => String(m.id || m.tmdbId) === String(movie.id))) {
                 btnList.classList.add('added');
             }
             btnList.onclick = () => window.toggleMyList(movie, btnList);
@@ -1595,7 +1595,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rowVisibilityObserver.observe(rowSection);
 
         const fetchPromises = sortedItems.map(async item => {
-            const movieId   = item.id;
+            const movieId   = item.tmdbId || item.id;
             const typePath  = item.mediaType;
 
             try {

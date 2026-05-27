@@ -1,3 +1,5 @@
+import { WatchlistManager } from './js/watchlist.js';
+
 document.addEventListener('DOMContentLoaded', async () => {
     // ── Guard: only run on the details page ──────────────────────────────────
     if (!document.getElementById('details-view')) return;
@@ -153,16 +155,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (watchlistBtn) {
             watchlistBtn.style.display = 'flex';
             
-            // Helper to get watchlist array
-            const getWatchlist = async () => {
-                const list = await lsGet('vailism_watchlist');
-                return (list && Array.isArray(list.items)) ? list.items : [];
-            };
-            
             // Update button UI state
-            const updateWatchlistBtnUI = async () => {
-                const list = await getWatchlist();
-                const inList = list.some(item => String(item.id) === String(id) && item.mediaType === type);
+            const updateWatchlistBtnUI = () => {
+                const inList = WatchlistManager.isInWatchlist(id);
                 
                 if (inList) {
                     watchlistBtn.classList.add('in-list');
@@ -180,7 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             try {
                 const bc = new BroadcastChannel('vailism_sync');
                 bc.onmessage = (event) => {
-                    if (event.data && event.data.type === 'UPDATE' && event.data.key === 'vailism_watchlist') {
+                    if (event.data && event.data.type === 'UPDATE') {
                         updateWatchlistBtnUI();
                     }
                 };
@@ -199,17 +194,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                 watchlistBtn.style.pointerEvents = 'none';
                 setTimeout(() => { watchlistBtn.style.pointerEvents = 'auto'; }, 600);
                 
-                let list = await getWatchlist();
-                const index = list.findIndex(item => String(item.id) === String(id) && item.mediaType === type);
+                const item = {
+                    tmdbId: parseInt(id, 10),
+                    mediaType: type,
+                    title: details.title || details.name || 'Unknown Title',
+                    poster: details.poster_path || '',
+                    backdrop: details.backdrop_path || ''
+                };
                 
-                if (index > -1) {
-                    list.splice(index, 1);
-                } else {
-                    list.push({ id: parseInt(id, 10), mediaType: type, addedAt: Date.now() });
-                }
-                
-                await lsSet('vailism_watchlist', { version: 1, items: list });
+                await WatchlistManager.toggleWatchlist(item);
                 updateWatchlistBtnUI();
+                
+                // Broadcast to update other open pages/tabs
+                try {
+                    const bc = new BroadcastChannel('vailism_sync');
+                    bc.postMessage({ type: 'UPDATE' });
+                    bc.close();
+                } catch(err) {}
             };
         }
 
