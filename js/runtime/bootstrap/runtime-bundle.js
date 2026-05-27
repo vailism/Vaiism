@@ -2757,6 +2757,22 @@
             if (socket.isHost) return;
 
             var action = payload.action;
+            if (action === "SCREENSHARE_STARTED") {
+                self.theaterModeActive = true;
+                self.eventBus.emit(action);
+                var adapter = self.getAdapter();
+                if (adapter) self.sendProviderCommand(adapter, 'pause', { reason: 'theater-mode' });
+                return;
+            }
+            if (action === "SCREENSHARE_STOPPED") {
+                self.theaterModeActive = false;
+                self.eventBus.emit(action);
+                return;
+            }
+            
+            // Ignore playback sync completely while in theater mode
+            if (self.theaterModeActive) return;
+
             var currentTime = payload.currentTime;
             var playing = payload.playing;
             var ts = payload.ts;
@@ -4021,7 +4037,12 @@
                         prejoinPageEnabled: false,
                         enableWelcomePage: false,
                         disableDeepLinking: true,
-                        analytics: { disabled: true }
+                        analytics: { disabled: true },
+                        desktopSharingFrameRate: {
+                            min: 30,
+                            max: 30
+                        },
+                        resolution: 720
                     },
                     interfaceConfigOverwrite: {
                         TOOLBAR_BUTTONS: [],
@@ -4037,6 +4058,28 @@
                 self.micMuted = false;
                 self.cameraMuted = true;
                 self.screensharing = false;
+
+                self.eventBus.on("SCREENSHARE_STARTED", function() {
+                    var container = document.getElementById("jitsi-iframe-container");
+                    var playerWrap = document.getElementById("player-wrap");
+                    if (container && playerWrap) {
+                        // Move container into the main video player wrapper
+                        playerWrap.appendChild(container);
+                        container.classList.add("jitsi-theater-mode");
+                        container.style.display = "block";
+                    }
+                });
+
+                self.eventBus.on("SCREENSHARE_STOPPED", function() {
+                    var container = document.getElementById("jitsi-iframe-container");
+                    var sidebarChat = document.querySelector(".party-chat-container");
+                    if (container && sidebarChat) {
+                        // Move container back to sidebar
+                        sidebarChat.appendChild(container);
+                        container.classList.remove("jitsi-theater-mode");
+                        self.updateContainerVisibility();
+                    }
+                });
 
                 self.api.addEventListener("videoConferenceJoined", function(evt) {
                     console.log("[JitsiManager] Conference Joined", evt);
@@ -4123,6 +4166,16 @@
                     });
                     self.updateContainerVisibility();
                     self.notifyParticipantsChanged();
+                    
+                    var socket = self.kernel.get("socket");
+                    if (socket && socket.isHost) {
+                        socket.emitSyncEvent({
+                            action: self.screensharing ? "SCREENSHARE_STARTED" : "SCREENSHARE_STOPPED",
+                            currentTime: 0,
+                            playing: false,
+                            ts: Date.now()
+                        });
+                    }
                 });
 
                 self.api.addEventListener("dominantSpeakerChanged", function(evt) {
