@@ -986,7 +986,22 @@
 
             this.telemetryCount += 1;
             this.syntheticClockEnabled = false;
-            this.setCapabilities({ supportsTelemetry: true });
+            
+            // Only auto-enable telemetry if the provider actually sent time or state data.
+            // Ignore generic random iframe messages that just happen to have an 'event' key.
+            var data = event.data;
+            if (data && typeof data === 'object' && data.data && typeof data.data === 'object') data = data.data;
+            if (data && typeof data === 'string') { try { data = JSON.parse(data); } catch(e){} }
+            
+            var actuallyHasTelemetry = data && typeof data === 'object' && (
+                data.currentTime !== undefined || data.time !== undefined || data.position !== undefined ||
+                data.duration !== undefined || data.paused !== undefined || data.playing !== undefined
+            );
+
+            if (actuallyHasTelemetry) {
+                this.setCapabilities({ supportsTelemetry: true });
+            }
+            
             this.emitTelemetry({ ...snapshot, source: snapshot.source || 'iframe' }, false);
         }
         extractState(payload) {
