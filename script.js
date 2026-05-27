@@ -2097,8 +2097,8 @@ async function initAuthSync() {
             authSubmitBtn.textContent = 'Log In';
             authToggleLink.textContent = "Don't have an account? Register";
         } else {
-            authFormTitle.textContent = 'Create Local Account';
-            authSubmitBtn.textContent = 'Register Account';
+            authFormTitle.textContent = 'Create Cloud Account';
+            authSubmitBtn.textContent = 'Register Cloud Account';
             authToggleLink.textContent = 'Already have an account? Log In';
         }
         authError.textContent = '';
