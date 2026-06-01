@@ -471,13 +471,13 @@ const SERVERS = [
     },
     {
         name: 'SERVER 4',
-        description: 'Multi-audio support, stable stream.',
-        pingUrl: 'https://embed.su/',
+        description: 'Multi-source with audio track selection.',
+        pingUrl: 'https://vidsrc.cc/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
-                return 'https://embed.su/embed/tv/' + id + '/' + s + '/' + e;
+                return 'https://vidsrc.cc/v2/embed/tv/' + id + '/' + s + '/' + e;
             }
-            return 'https://embed.su/embed/movie/' + id;
+            return 'https://vidsrc.cc/v2/embed/movie/' + id;
         }
     }
 ];
