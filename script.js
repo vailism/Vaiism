@@ -471,13 +471,13 @@ const SERVERS = [
     },
     {
         name: 'SERVER 4',
-        description: 'Multi-source with audio track selection.',
-        pingUrl: 'https://vidsrc.cc/',
+        description: 'Stable stream with good subtitle support.',
+        pingUrl: 'https://vidsrc.xyz/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
-                return 'https://vidsrc.cc/v2/embed/tv/' + id + '/' + s + '/' + e;
+                return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
             }
-            return 'https://vidsrc.cc/v2/embed/movie/' + id;
+            return 'https://vidsrc.xyz/embed/movie?tmdb=' + id;
         }
     }
 ];
