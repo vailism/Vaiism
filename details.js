@@ -486,6 +486,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         </div>`;
 
                     similarContainer.appendChild(card);
+                    const imgEl = card.querySelector('img');
+                    if (imgEl && imgEl.complete) {
+                        imgEl.classList.add('loaded');
+                    }
                 });
                 if (window.lucide) window.lucide.createIcons();
             } else {

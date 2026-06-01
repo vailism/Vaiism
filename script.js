@@ -1369,6 +1369,13 @@ document.addEventListener('DOMContentLoaded', () => {
             fragment.appendChild(card);
         });
 
+        // Sync check for already loaded/cached images to prevent transition flash
+        fragment.querySelectorAll('img').forEach(img => {
+            if (img.complete) {
+                img.classList.add('loaded');
+            }
+        });
+
         container.appendChild(fragment);
         refreshIcons();
     }
@@ -1560,6 +1567,7 @@ document.addEventListener('DOMContentLoaded', () => {
                          alt="${title}"
                          loading="lazy"
                          decoding="async"
+                         onload="this.classList.add('loaded')"
                          onerror="this.src='${FALLBACK_IMG}'">
                     <div style="height:4px;width:100%;background:rgba(255,255,255,0.2);
                                 position:absolute;bottom:0;left:0;">
@@ -1584,6 +1592,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>`;
 
                 rowPosters.appendChild(card);
+
+                // Sync check for loaded
+                const imgEl = card.querySelector('img');
+                if (imgEl && imgEl.complete) {
+                    imgEl.classList.add('loaded');
+                }
 
                 // Warm SERVER 1 connection on hover (details already cached)
                 card.addEventListener('mouseenter', warmPrimaryServer, { passive: true });
@@ -1672,6 +1686,7 @@ document.addEventListener('DOMContentLoaded', () => {
                          alt="${title}"
                          loading="lazy"
                          decoding="async"
+                         onload="this.classList.add('loaded')"
                          onerror="this.src='${FALLBACK_IMG}'">
                     <div class="card-info-btn"
                          onclick="event.stopPropagation();
@@ -1691,6 +1706,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>`;
 
                 rowPosters.appendChild(card);
+
+                // Sync check for loaded
+                const imgEl = card.querySelector('img');
+                if (imgEl && imgEl.complete) {
+                    imgEl.classList.add('loaded');
+                }
 
                 // Warm SERVER 1 connection on hover
                 card.addEventListener('mouseenter', warmPrimaryServer, { passive: true });

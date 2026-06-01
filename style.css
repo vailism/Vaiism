@@ -1665,10 +1665,23 @@ html { scrollbar-width: thin; scrollbar-color: rgba(229,9,20,0.4) transparent; }
 
 /* ── Card Image Blur-In ── */
 .card img {
-    filter: blur(8px);
-    transition: opacity 0.4s ease, filter 0.5s ease;
+    opacity: 0;
+    filter: blur(4px);
+    transition: opacity 0.4s ease, filter 0.4s ease;
 }
-.card img.loaded { filter: blur(0); }
+.card img.loaded {
+    opacity: 1;
+    filter: blur(0);
+}
+
+@keyframes cardPulse {
+    0% { background-color: #1a1a1a; }
+    50% { background-color: #262626; }
+    100% { background-color: #1a1a1a; }
+}
+.card:not(:has(img.loaded)) {
+    animation: cardPulse 1.5s infinite ease-in-out;
+}
 
 /* ── Top 10 Number Badge ── */
 .top10-badge {
