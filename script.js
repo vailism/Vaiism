@@ -471,13 +471,13 @@ const SERVERS = [
     },
     {
         name: 'SERVER 4',
-        description: 'Stable stream with good subtitle support.',
-        pingUrl: 'https://superembed.stream/',
+        description: 'Multi-audio support, stable stream.',
+        pingUrl: 'https://embed.su/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
-                return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1&s=' + s + '&e=' + e;
+                return 'https://embed.su/embed/tv/' + id + '/' + s + '/' + e;
             }
-            return 'https://multiembed.mov/directstream.php?video_id=' + id + '&tmdb=1';
+            return 'https://embed.su/embed/movie/' + id;
         }
     }
 ];
