@@ -1141,8 +1141,9 @@
                     var currentS = 1;
                     var currentE = 1;
                     if (mediaType === 'tv') {
-                        currentS = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
-                        currentE = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
+                        var rawData = normalized.raw || {};
+                        currentS = parseInt(rawData.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
+                        currentE = parseInt(rawData.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
                     }
 
                     var contentId = mediaType === 'tv'
@@ -1173,8 +1174,9 @@
                 var currentS = 1;
                 var currentE = 1;
                 if (mediaType === 'tv') {
-                    currentS = parseInt(data.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
-                    currentE = parseInt(data.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
+                    var rawData = normalized.raw || {};
+                    currentS = parseInt(rawData.season  || params.get('s') || (savedData ? savedData.season : 1), 10);
+                    currentE = parseInt(rawData.episode || params.get('e') || (savedData ? savedData.episode : 1), 10);
                 }
                 var contentId = mediaType === 'tv'
                     ? (movieId + '_s' + currentS + '_e' + currentE)
@@ -1220,10 +1222,27 @@
             setTimeout(() => { modal.style.opacity = '1'; }, 10);
             
             copyBtn.onclick = function() {
-                navigator.clipboard.writeText(mirotalkUrl).then(() => {
-                    copyBtn.textContent = 'Copied!';
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(mirotalkUrl).then(() => {
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(() => { copyBtn.textContent = 'Copy Link'; }, 2000);
+                    }).catch(() => {
+                        fallbackCopy(mirotalkUrl);
+                    });
+                } else {
+                    fallbackCopy(mirotalkUrl);
+                }
+                function fallbackCopy(text) {
+                    var ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); copyBtn.textContent = 'Copied!'; } catch(e) { copyBtn.textContent = 'Failed'; }
+                    document.body.removeChild(ta);
                     setTimeout(() => { copyBtn.textContent = 'Copy Link'; }, 2000);
-                });
+                }
             };
             
             openBtn.onclick = function() {
