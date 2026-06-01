@@ -44,6 +44,10 @@
         </div>
     </nav>
 
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="offline-banner">You're offline — showing cached content</div>
+    <div id="toast-container" class="toast-container"></div>
+
     <div id="details-view" class="details-view fade-in">
         <header class="hero details-hero" id="details-hero">
             <div class="hero-vignette details-vignette"></div>
@@ -81,7 +85,7 @@
         <main class="main-content details-main">
             <!-- Episodes Section (Hidden for movies) -->
             <section id="episodes-section" class="row hidden">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div class="episodes-sticky-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2 class="row-header" style="margin-bottom: 0;">Episodes</h2>
                     <select id="season-select" class="season-select"></select>
                 </div>
@@ -126,9 +130,7 @@
         </div>
     </div>
 
-    <!-- Core App Logic -->
     <!-- App logic -->
-    <script type="module" src="js/firebase-config.js"></script>
     <script type="module" src="js/AuthManager.js"></script>
     <script type="module" src="js/cloud-sync.js"></script>
     <script type="module" src="js/watchlist.js"></script>

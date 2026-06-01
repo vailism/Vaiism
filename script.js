@@ -7,7 +7,7 @@ import { WatchProgressManager } from './js/watch-progress.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 const BASE_URL      = '/api/tmdb';
 const IMG_BASE_URL  = 'https://image.tmdb.org/t/p/w342';
-const HERO_IMG_URL  = 'https://image.tmdb.org/t/p/original';
+const HERO_IMG_URL  = 'https://image.tmdb.org/t/p/w1280';
 const FALLBACK_IMG  = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 // requestIdleCallback polyfill for Safari/older browsers
@@ -71,6 +71,22 @@ function refreshIcons() {
         lucideRafPending = false;
     });
 }
+
+// ─── Toast Notification System ────────────────────────────────────────────────
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const icons = { success: '✓', error: '✕', info: 'ℹ' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('removing');
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
+}
+window.showToast = showToast;
 
 // ─── Session Cache (survives page navigation) ─────────────────────────────────
 // Stores TMDB API responses in sessionStorage so index→details→player
@@ -1226,8 +1242,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (heroGenres && movie.genres && movie.genres.length > 0) {
             heroGenres.innerHTML = movie.genres
-                .map(g => `<span>${g.name}</span>`)
-                .join('<span class="dot">•</span>');
+                .map(g => `<span class="genre-pill">${g.name}</span>`)
+                .join('');
+            heroGenres.style.display = 'flex';
+            heroGenres.style.gap = '8px';
+            heroGenres.style.flexWrap = 'wrap';
         }
 
         // Preload hero background image before painting it
@@ -1303,6 +1322,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const imgSrc  = imgPath ? `${IMG_BASE_URL}${imgPath}` : FALLBACK_IMG;
 
             card.innerHTML = `
+                <span class="card-rating">★ ${movie.vote_average ? movie.vote_average.toFixed(1) : ''}</span>
                 <img src="${imgSrc}"
                      alt="${(movie.title || movie.name || 'Movie').replace(/"/g, '&quot;')}"
                      loading="lazy"
@@ -1310,6 +1330,7 @@ document.addEventListener('DOMContentLoaded', () => {
                      width="342"
                      height="513"
                      style="aspect-ratio:2/3;object-fit:cover;"
+                     onload="this.classList.add('loaded')"
                      onerror="this.src='${FALLBACK_IMG}'">
                 <div class="card-info-btn"
                      onclick="event.stopPropagation(); window.location.href='details.html?id=${movie.id}&amp;type=${type}'">
@@ -1324,6 +1345,26 @@ document.addEventListener('DOMContentLoaded', () => {
                         <i data-lucide="play" fill="currentColor" size="16"></i>
                     </div>
                 </div>`;
+
+            // Add progress bar if user has watched this
+            const progressKey = type === 'tv' 
+                ? `vailism_progress_${movie.id}` 
+                : `vailism_progress_${movie.id}`;
+            try {
+                const allKeys = Object.keys(localStorage);
+                for (const k of allKeys) {
+                    if (k.startsWith(`vailism_progress_${movie.id}`)) {
+                        const pd = JSON.parse(localStorage.getItem(k));
+                        if (pd && pd.progressPercent && pd.progressPercent > 2 && pd.progressPercent < 95) {
+                            const progDiv = document.createElement('div');
+                            progDiv.className = 'card-progress';
+                            progDiv.innerHTML = `<div class="card-progress-bar" style="width:${pd.progressPercent}%"></div>`;
+                            card.appendChild(progDiv);
+                            break;
+                        }
+                    }
+                }
+            } catch(e) {}
 
             fragment.appendChild(card);
         });
@@ -1872,6 +1913,40 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize Auth & Sync System
     if (typeof initAuthSync === 'function') initAuthSync();
+
+    // ── Offline Detection ────────────────────────────────────────────────────
+    const offlineBanner = document.getElementById('offline-banner');
+    function updateOnlineStatus() {
+        if (offlineBanner) {
+            if (!navigator.onLine) {
+                offlineBanner.classList.add('show');
+                showToast('You\'re offline — showing cached content', 'error');
+            } else {
+                offlineBanner.classList.remove('show');
+            }
+        }
+    }
+    window.addEventListener('online', () => { updateOnlineStatus(); showToast('Back online!', 'success'); });
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+
+    // ── Keyboard Shortcuts ───────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+        // '/' focuses search (unless already in an input)
+        if (e.key === '/' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT') {
+            e.preventDefault();
+            const sc = document.querySelector('.search-container');
+            const si = document.getElementById('search-input');
+            if (sc && si) { sc.classList.add('active'); si.focus(); }
+        }
+        // Escape closes any modal
+        if (e.key === 'Escape') {
+            const authModal = document.getElementById('account-modal');
+            if (authModal && !authModal.classList.contains('hidden')) {
+                authModal.classList.add('hidden');
+            }
+        }
+    });
 });
 
 // ── Smart TV Keyboard Navigation (Spatial Navigation) ──────────────────────

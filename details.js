@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (heroHeader) {
             const bg = details.backdrop_path || details.poster_path;
             if (bg) {
-                heroHeader.style.backgroundImage = `url(https://image.tmdb.org/t/p/original${bg})`;
+                heroHeader.style.backgroundImage = `url(https://image.tmdb.org/t/p/w1280${bg})`;
             } else {
                 heroHeader.style.backgroundImage = 'none';
                 heroHeader.style.backgroundColor = '#141414';
@@ -139,8 +139,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const genresEl = document.getElementById('details-genres');
         if (genresEl && details.genres && details.genres.length > 0) {
             genresEl.innerHTML = details.genres
-                .map(g => `<span>${g.name}</span>`)
-                .join('<span class="dot">•</span>');
+                .map(g => `<span class="genre-pill">${g.name}</span>`)
+                .join('');
+            genresEl.style.display = 'flex';
+            genresEl.style.gap = '8px';
+            genresEl.style.flexWrap = 'wrap';
         }
 
         // ── Play button ───────────────────────────────────────────────────────
@@ -204,6 +207,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 await WatchlistManager.toggleWatchlist(item);
                 updateWatchlistBtnUI();
+                const isNowInList = WatchlistManager.isInWatchlist(id);
+                if (window.showToast) window.showToast(isNowInList ? 'Added to My List' : 'Removed from My List', 'success');
                 
                 // Broadcast to update other open pages/tabs
                 try {
@@ -460,11 +465,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         `details.html?id=${movie.id}&type=${cardType}`;
 
                     card.innerHTML = `
+                        <span class="card-rating">★ ${movie.vote_average ? movie.vote_average.toFixed(1) : ''}</span>
                         <img src="https://image.tmdb.org/t/p/w342${img}"
                              alt="${altText}"
                              loading="lazy"
                              decoding="async"
                              style="aspect-ratio:2/3;object-fit:cover;"
+                             onload="this.classList.add('loaded')"
                              onerror="this.src='${FALLBACK_IMG}'">
                         <div class="card-overlay">
                             <span style="font-weight:600;font-size:14px;
