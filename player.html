@@ -13,9 +13,20 @@
     <meta name="apple-mobile-web-app-title" content="VAILISM" />
     <link rel="manifest" href="/favicon/site.webmanifest" />
 
-    <!-- Preconnect to video embed domain for faster iframe load -->
+    <!-- Preconnect to ALL video embed domains for faster iframe load & reduced buffering -->
     <link rel="dns-prefetch" href="https://vidlink.pro">
     <link rel="preconnect" href="https://vidlink.pro" crossorigin>
+    <link rel="dns-prefetch" href="https://vidsrc.to">
+    <link rel="preconnect" href="https://vidsrc.to" crossorigin>
+    <link rel="dns-prefetch" href="https://player.videasy.net">
+    <link rel="preconnect" href="https://player.videasy.net" crossorigin>
+    <link rel="dns-prefetch" href="https://vidsrc.xyz">
+    <link rel="preconnect" href="https://vidsrc.xyz" crossorigin>
+    <!-- Preconnect to common subtitle/caption CDNs to reduce CC latency -->
+    <link rel="dns-prefetch" href="https://opensubtitles.org">
+    <link rel="dns-prefetch" href="https://cdn.vidlink.pro">
+    <link rel="dns-prefetch" href="https://cc.vidsrc.to">
+    <link rel="dns-prefetch" href="https://sub.videasy.net">
 
     <!-- Watch Together Client Plane Dependencies -->
     <link rel="stylesheet" href="party.css">
@@ -262,6 +273,397 @@
             border: none;
             outline: none;
         }
+
+        /* ── Custom Progress Bar (Netflix-style) ── */
+        .vailism-progress-wrap {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 32px;
+            z-index: 110;
+            display: flex;
+            align-items: flex-end;
+            padding: 0 0 0 0;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            cursor: pointer;
+        }
+        .vailism-progress-wrap.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .vailism-progress-track {
+            position: relative;
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.15);
+            transition: height 0.15s ease;
+        }
+        .vailism-progress-wrap:hover .vailism-progress-track {
+            height: 7px;
+        }
+        .vailism-progress-buffer {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 100%;
+            background: rgba(255,255,255,0.25);
+            border-radius: 0 2px 2px 0;
+            transition: width 0.3s ease;
+        }
+        .vailism-progress-fill {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 100%;
+            background: #e50914;
+            border-radius: 0 2px 2px 0;
+            transition: width 0.25s linear;
+        }
+        .vailism-progress-thumb {
+            position: absolute;
+            bottom: -4px;
+            width: 14px;
+            height: 14px;
+            background: #e50914;
+            border-radius: 50%;
+            transform: translateX(-50%) scale(0);
+            transition: transform 0.15s ease;
+            box-shadow: 0 0 6px rgba(229,9,20,0.6);
+        }
+        .vailism-progress-wrap:hover .vailism-progress-thumb {
+            transform: translateX(-50%) scale(1);
+        }
+        .vailism-progress-tooltip {
+            position: absolute;
+            bottom: 24px;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            color: #fff;
+            font-family: 'Outfit', system-ui, sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            letter-spacing: 0.5px;
+        }
+        .vailism-progress-wrap:hover .vailism-progress-tooltip {
+            opacity: 1;
+        }
+        .vailism-time-display {
+            position: fixed;
+            bottom: 12px;
+            right: 16px;
+            z-index: 111;
+            color: rgba(255,255,255,0.6);
+            font-family: 'Outfit', system-ui, sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        .vailism-time-display.visible {
+            opacity: 1;
+        }
+
+        /* ── Buffering Overlay ── */
+        .vailism-buffer-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 105;
+            background: rgba(0,0,0,0.4);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .vailism-buffer-overlay.active {
+            opacity: 1;
+        }
+        .vailism-buffer-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid rgba(229,9,20,0.15);
+            border-top: 3px solid #e50914;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* ── Ambient Glow ── */
+        .vailism-ambient-glow {
+            position: fixed;
+            inset: -20px;
+            z-index: 9;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 1.5s ease;
+            background: radial-gradient(ellipse at 50% 50%, rgba(229,9,20,0.06) 0%, transparent 70%);
+            filter: blur(40px);
+        }
+        .vailism-ambient-glow.active {
+            opacity: 1;
+            animation: ambientPulse 4s ease-in-out infinite alternate;
+        }
+        .vailism-ambient-glow.paused {
+            opacity: 0.4;
+            animation: none;
+        }
+        @keyframes ambientPulse {
+            0% { opacity: 0.5; filter: blur(40px) brightness(0.8); }
+            50% { opacity: 0.8; filter: blur(50px) brightness(1.1); }
+            100% { opacity: 0.6; filter: blur(45px) brightness(0.9); }
+        }
+
+        /* ── Interaction Overlay (Keyboard + Double-tap) ── */
+        .vailism-interact-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 104;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .vailism-seek-indicator {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #fff;
+            font-family: 'Outfit', system-ui, sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            background: rgba(0,0,0,0.6);
+            padding: 14px 22px;
+            border-radius: 50%;
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: none;
+        }
+        .vailism-seek-indicator.left { left: 15%; }
+        .vailism-seek-indicator.right { right: 15%; }
+        .vailism-seek-indicator.flash {
+            animation: seekFlash 0.6s ease-out forwards;
+        }
+        .vailism-seek-indicator svg { width: 28px; height: 28px; }
+        .vailism-seek-indicator span { font-size: 12px; font-weight: 600; }
+        @keyframes seekFlash {
+            0% { opacity: 0; transform: translateY(-50%) scale(0.7); }
+            30% { opacity: 1; transform: translateY(-50%) scale(1.1); }
+            100% { opacity: 0; transform: translateY(-50%) scale(1); }
+        }
+        .vailism-action-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.7);
+            color: #fff;
+            background: rgba(0,0,0,0.5);
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .vailism-action-icon.flash {
+            animation: actionFlash 0.5s ease-out forwards;
+        }
+        @keyframes actionFlash {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+            25% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+        }
+
+        /* Touch zones for double-tap */
+        .vailism-touch-zone {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            width: 35%;
+            z-index: 103;
+            pointer-events: auto;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .vailism-touch-zone.left { left: 0; }
+        .vailism-touch-zone.right { right: 0; }
+        .vailism-touch-ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            width: 80px;
+            height: 80px;
+            transform: translate(-50%, -50%) scale(0);
+            pointer-events: none;
+        }
+        .vailism-touch-ripple.animate {
+            animation: touchRipple 0.5s ease-out forwards;
+        }
+        @keyframes touchRipple {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+        }
+
+        /* ── Speed Control ── */
+        .speed-popover {
+            opacity: 0;
+            visibility: hidden;
+            position: absolute;
+            top: calc(100% + 12px);
+            right: 0;
+            background: rgba(14, 14, 14, 0.98);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+            min-width: 160px;
+            z-index: 200;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            font-family: 'Outfit', sans-serif;
+            transform: translateY(-8px);
+            transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+        }
+        .speed-popover.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .speed-option {
+            display: block;
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: rgba(255,255,255,0.8);
+            padding: 8px 14px;
+            border-radius: 5px;
+            text-align: left;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.15s, color 0.15s;
+        }
+        .speed-option:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .speed-option.active { color: #e50914; font-weight: 700; }
+
+        /* ── Connection Quality Indicator ── */
+        .vailism-quality {
+            position: fixed;
+            bottom: 14px;
+            left: 16px;
+            z-index: 111;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            font-family: 'Outfit', system-ui, sans-serif;
+        }
+        .vailism-quality.visible { opacity: 1; }
+        .vailism-quality-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 14px;
+        }
+        .vailism-quality-bar {
+            width: 3px;
+            border-radius: 1px;
+            background: rgba(255,255,255,0.2);
+            transition: background 0.3s ease, height 0.3s ease;
+        }
+        .vailism-quality-bar:nth-child(1) { height: 4px; }
+        .vailism-quality-bar:nth-child(2) { height: 7px; }
+        .vailism-quality-bar:nth-child(3) { height: 10px; }
+        .vailism-quality-bar:nth-child(4) { height: 14px; }
+        .vailism-quality-bar.on { background: currentColor; }
+        .vailism-quality-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .vailism-quality.good { color: #4ade80; }
+        .vailism-quality.fair { color: #fbbf24; }
+        .vailism-quality.poor { color: #f87171; }
+
+        /* ── Subtitle Overlay ── */
+        .vailism-subtitle-overlay {
+            position: fixed;
+            bottom: 48px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 112;
+            max-width: 70%;
+            text-align: center;
+            pointer-events: none;
+        }
+        .vailism-subtitle-text {
+            display: inline-block;
+            background: rgba(0,0,0,0.75);
+            color: #fff;
+            font-family: 'Outfit', system-ui, sans-serif;
+            font-size: 22px;
+            font-weight: 500;
+            padding: 4px 14px;
+            border-radius: 4px;
+            line-height: 1.4;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        }
+        .vailism-sub-controls {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 113;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(14,14,14,0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 12px;
+            color: #fff;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+        .vailism-sub-controls.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .vailism-sub-offset-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #fff;
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s;
+        }
+        .vailism-sub-offset-btn:hover { background: rgba(255,255,255,0.15); }
     </style>
 </head>
 <body>
@@ -368,6 +770,17 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Speed Control -->
+                    <div style="position:relative;">
+                        <button class="premium-btn" id="speedBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line>
+                            </svg>
+                            <span id="speedLabel">1x</span>
+                        </button>
+                        <div class="speed-popover" id="speedPopover"></div>
+                    </div>
                 </div>
             </div>
 
@@ -378,6 +791,65 @@
 
             <div class="player-wrap" id="player-wrap" style="opacity:0; transition: opacity 0.4s ease;">
                 <!-- Iframe injected via JS -->
+            </div>
+
+            <!-- Custom Progress Bar with Hover Preview -->
+            <div class="vailism-progress-wrap" id="vailismProgress">
+                <div class="vailism-progress-track">
+                    <div class="vailism-progress-buffer" id="vailismBuffer" style="width:0%"></div>
+                    <div class="vailism-progress-fill" id="vailismFill" style="width:0%"></div>
+                    <div class="vailism-progress-thumb" id="vailismThumb" style="left:0%"></div>
+                    <div class="vailism-progress-tooltip" id="vailismTooltip">0:00</div>
+                </div>
+            </div>
+            <div class="vailism-time-display" id="vailismTimeDisplay">0:00 / 0:00</div>
+
+            <!-- Buffering Overlay -->
+            <div class="vailism-buffer-overlay" id="vailismBufferOverlay">
+                <div class="vailism-buffer-spinner"></div>
+            </div>
+
+            <!-- Ambient Glow -->
+            <div class="vailism-ambient-glow" id="vailismGlow"></div>
+
+            <!-- Interaction Overlay (keyboard/tap visual feedback) -->
+            <div class="vailism-interact-overlay" id="vailismInteract">
+                <div class="vailism-seek-indicator left" id="seekLeft">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"></polyline><polyline points="18 17 13 12 18 7"></polyline></svg>
+                    <span>10s</span>
+                </div>
+                <div class="vailism-seek-indicator right" id="seekRight">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>
+                    <span>10s</span>
+                </div>
+                <div class="vailism-action-icon" id="actionIcon"></div>
+            </div>
+
+            <!-- Double-tap Touch Zones (mobile) -->
+            <div class="vailism-touch-zone left" id="touchZoneLeft"></div>
+            <div class="vailism-touch-zone right" id="touchZoneRight"></div>
+
+            <!-- Subtitle Overlay -->
+            <div class="vailism-subtitle-overlay" id="vailismSubOverlay">
+                <span class="vailism-subtitle-text" id="vailismSubText"></span>
+            </div>
+
+            <!-- Subtitle Offset Controls -->
+            <div class="vailism-sub-controls" id="vailismSubControls">
+                <button class="vailism-sub-offset-btn" id="subOffsetMinus">−</button>
+                <span id="subOffsetLabel">Offset: 0.0s</span>
+                <button class="vailism-sub-offset-btn" id="subOffsetPlus">+</button>
+            </div>
+
+            <!-- Connection Quality Indicator -->
+            <div class="vailism-quality" id="vailismQuality">
+                <div class="vailism-quality-bars">
+                    <div class="vailism-quality-bar"></div>
+                    <div class="vailism-quality-bar"></div>
+                    <div class="vailism-quality-bar"></div>
+                    <div class="vailism-quality-bar"></div>
+                </div>
+                <span class="vailism-quality-label" id="qualityLabel">Good</span>
             </div>
 
             <!-- Binge Watch Next Episode Overlay -->
@@ -450,7 +922,9 @@
             else if (rawEvent.includes('pause')) type = 'pause';
             else if (rawEvent.includes('timeupdate') || rawEvent.includes('progress')) type = 'timeupdate';
             else if (rawEvent.includes('ended') || rawEvent.includes('complete')) type = 'ended';
-            else if (rawEvent.includes('waiting') || rawEvent.includes('buffering')) type = 'buffering';
+            else if (rawEvent.includes('waiting') || rawEvent.includes('buffering') || rawEvent.includes('stalled')) type = 'buffering';
+            else if (rawEvent.includes('canplay') || rawEvent.includes('canplaythrough')) type = 'play';
+            else if (rawEvent.includes('seeking') || rawEvent.includes('seeked')) type = 'timeupdate';
             else if (rawEvent.includes('ready') || rawEvent.includes('loaded')) type = 'ready';
 
             const currentTime = parseFloat(data.currentTime !== undefined ? data.currentTime : (data.time !== undefined ? data.time : data.position)) || 0;
@@ -868,6 +1342,8 @@
             ccTooltip.classList.remove('show');
             langTooltip.classList.remove('show');
             if (serverTooltip) serverTooltip.classList.remove('show');
+            var sp = document.getElementById('speedPopover');
+            if (sp) sp.classList.remove('show');
         }
 
         ccBtn.addEventListener('click', function(e) {
@@ -893,6 +1369,18 @@
             });
         }
 
+        // Speed button handler
+        var speedBtnEl = document.getElementById('speedBtn');
+        var speedPopover = document.getElementById('speedPopover');
+        if (speedBtnEl && speedPopover) {
+            speedBtnEl.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var isShowing = speedPopover.classList.contains('show');
+                closeAllPopovers();
+                if (!isShowing) speedPopover.classList.add('show');
+            });
+        }
+
         document.addEventListener('click', function(e) {
             var rightControls = document.getElementById('rightControls');
             if (rightControls && !rightControls.contains(e.target)) {
@@ -909,9 +1397,11 @@
             
             if (shouldHide) {
                 hideControlsTimeout = setTimeout(function() {
+                    var sp = document.getElementById('speedPopover');
                     var isPopoverShowing = ccTooltip.classList.contains('show') || 
                                            langTooltip.classList.contains('show') || 
-                                           (serverTooltip && serverTooltip.classList.contains('show'));
+                                           (serverTooltip && serverTooltip.classList.contains('show')) ||
+                                           (sp && sp.classList.contains('show'));
                     if (!isPopoverShowing) {
                         topControls.style.opacity = '0';
                     }
@@ -931,6 +1421,118 @@
         }, { passive: true });
         document.addEventListener('touchstart', resetControlsTimer, { passive: true });
         resetControlsTimer(); // Init
+
+        // ── Custom Progress Bar + Buffering Overlay Logic ────────────────
+        var progressWrap = document.getElementById('vailismProgress');
+        var progressFill = document.getElementById('vailismFill');
+        var progressBuffer = document.getElementById('vailismBuffer');
+        var progressThumb = document.getElementById('vailismThumb');
+        var progressTooltip = document.getElementById('vailismTooltip');
+        var timeDisplay = document.getElementById('vailismTimeDisplay');
+        var bufferOverlay = document.getElementById('vailismBufferOverlay');
+
+        var _pDuration = 0;
+        var _pCurrentTime = 0;
+        var _bufferCount = 0;
+        var _bufferSwitchThreshold = 4; // auto-switch after this many buffering events
+        var _bufferDebounce = null;
+        var _progressVisible = false;
+
+        function fmtTime(s) {
+            s = Math.max(0, Math.floor(s));
+            var h = Math.floor(s / 3600);
+            var m = Math.floor((s % 3600) / 60);
+            var sec = s % 60;
+            if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+            return m + ':' + String(sec).padStart(2, '0');
+        }
+
+        function updateProgressBar(currentTime, duration) {
+            if (!duration || duration <= 0) return;
+            _pDuration = duration;
+            _pCurrentTime = currentTime;
+            var pct = (currentTime / duration) * 100;
+            pct = Math.min(100, Math.max(0, pct));
+            progressFill.style.width = pct + '%';
+            progressThumb.style.left = pct + '%';
+            timeDisplay.textContent = fmtTime(currentTime) + ' / ' + fmtTime(duration);
+
+            if (!_progressVisible && duration > 0) {
+                _progressVisible = true;
+                progressWrap.classList.add('visible');
+                timeDisplay.classList.add('visible');
+            }
+        }
+
+        // Show/hide progress bar with top controls
+        var _origResetControls = resetControlsTimer;
+        resetControlsTimer = function() {
+            _origResetControls();
+            if (_progressVisible) {
+                progressWrap.classList.add('visible');
+                timeDisplay.classList.add('visible');
+            }
+        };
+
+        // Sync progress bar hide with controls hide
+        var _origHideTimeout = null;
+        (function patchHide() {
+            var origSetTimeout = window.setTimeout;
+            // We'll hook via MutationObserver on topControls opacity instead
+            var observer = new MutationObserver(function() {
+                if (topControls.style.opacity === '0') {
+                    progressWrap.classList.remove('visible');
+                    timeDisplay.classList.remove('visible');
+                } else if (_progressVisible) {
+                    progressWrap.classList.add('visible');
+                    timeDisplay.classList.add('visible');
+                }
+            });
+            observer.observe(topControls, { attributes: true, attributeFilter: ['style'] });
+        })();
+
+        // Hover tooltip on progress bar
+        progressWrap.addEventListener('mousemove', function(e) {
+            if (_pDuration <= 0) return;
+            var rect = progressWrap.getBoundingClientRect();
+            var x = e.clientX - rect.left;
+            var pct = Math.min(1, Math.max(0, x / rect.width));
+            var hoverTime = pct * _pDuration;
+            progressTooltip.textContent = fmtTime(hoverTime);
+            // Clamp tooltip position
+            var tipX = Math.min(rect.width - 40, Math.max(40, x));
+            progressTooltip.style.left = tipX + 'px';
+        });
+
+        // Buffering overlay helpers
+        function showBuffering() {
+            if (bufferOverlay) bufferOverlay.classList.add('active');
+        }
+        function hideBuffering() {
+            if (bufferOverlay) bufferOverlay.classList.remove('active');
+        }
+
+        function handleBufferingEvent() {
+            _bufferCount++;
+            showBuffering();
+            // Clear previous debounce
+            if (_bufferDebounce) clearTimeout(_bufferDebounce);
+            // Auto-switch server after too many buffering events
+            if (_bufferCount >= _bufferSwitchThreshold) {
+                console.warn('[VAILISM] Excessive buffering (' + _bufferCount + ' events). Auto-switching server...');
+                _bufferCount = 0;
+                hideBuffering();
+                tryNextServer();
+            }
+        }
+
+        function handlePlayingEvent() {
+            hideBuffering();
+            // Reset buffer count slowly
+            if (_bufferDebounce) clearTimeout(_bufferDebounce);
+            _bufferDebounce = setTimeout(function() { _bufferCount = Math.max(0, _bufferCount - 1); }, 10000);
+        }
+
 
         // ── Embed Provider URLs ───────────────────────────────────────────
         function getEmbedUrl(s, e, ts) {
@@ -959,11 +1561,21 @@
             iframe.setAttribute('allowfullscreen', 'true');
             iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
             iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+            iframe.setAttribute('loading', 'eager');
+            iframe.setAttribute('fetchpriority', 'high');
 
             var loaded = false;
             if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
             if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
             hasReceivedPlaybackEvent = false;
+            // Reset progress bar and buffering state on server switch
+            _progressVisible = false;
+            progressFill.style.width = '0%';
+            progressThumb.style.left = '0%';
+            progressWrap.classList.remove('visible');
+            timeDisplay.classList.remove('visible');
+            hideBuffering();
+            _bufferCount = 0;
 
             function onPlayerLoad() {
                 if (loaded) return;
@@ -978,24 +1590,24 @@
                 if (currentServer.name === 'SERVER 1' && !currentAltUrl) {
                     playbackCheckTimer = setTimeout(function() {
                         if (!hasReceivedPlaybackEvent) {
-                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 8s. Auto-switching...');
+                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 6s. Auto-switching...');
                             tryNextServer();
                         }
-                    }, 8000);
+                    }, 6000);
                 }
             }
 
             iframe.addEventListener('load', onPlayerLoad);
 
-            // ── Stall detection: if iframe doesn't load in 8s, auto-switch to next server ──
+            // ── Stall detection: if iframe doesn't load in 6s, auto-switch ──
             stallTimer = setTimeout(function() {
                 if (!loaded) {
-                    console.warn('[VAILISM] Stall detected on current server in player.html. Triggering auto-fallback...');
+                    console.warn('[VAILISM] Stall detected. Auto-switching server...');
                     var textSpan = loader.querySelector('.loader-text');
                     if (textSpan) textSpan.textContent = 'Server stalled. Switching server...';
                     tryNextServer();
                 }
-            }, 8000);
+            }, 6000);
 
             playerWrap.appendChild(iframe);
         }
@@ -1072,6 +1684,18 @@
             var evtName = normalized.type;
             var currentTime = normalized.currentTime;
             var duration = normalized.duration;
+
+            // ── Feed custom progress bar ──
+            if (evtName === 'timeupdate' || evtName === 'play' || evtName === 'pause') {
+                updateProgressBar(currentTime, duration);
+            }
+
+            // ── Buffering overlay ──
+            if (evtName === 'buffering') {
+                handleBufferingEvent();
+            } else if (evtName === 'play' || evtName === 'timeupdate') {
+                handlePlayingEvent();
+            }
 
             // Throttle debug logging to once every 30s to keep console clean
             if (evtName === 'timeupdate') {
@@ -1274,7 +1898,540 @@
             showMirotalkModal(targetRoomId);
         }
 
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Playback Speed Control ──────────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var _currentSpeed = 1.0;
+        var _speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+        var speedPopoverEl = document.getElementById('speedPopover');
+        var speedLabelEl = document.getElementById('speedLabel');
+
+        function renderSpeedMenu() {
+            if (!speedPopoverEl) return;
+            speedPopoverEl.innerHTML = '';
+            _speedOptions.forEach(function(spd) {
+                var btn = document.createElement('button');
+                btn.className = 'speed-option' + (spd === _currentSpeed ? ' active' : '');
+                btn.textContent = spd === 1.0 ? '1x (Normal)' : spd + 'x';
+                btn.onclick = function(e) {
+                    e.stopPropagation();
+                    _currentSpeed = spd;
+                    if (speedLabelEl) speedLabelEl.textContent = spd === 1.0 ? '1x' : spd + 'x';
+                    renderSpeedMenu();
+                    closeAllPopovers();
+                    // Try sending speed to iframe via postMessage
+                    var iframe = playerWrap.querySelector('iframe');
+                    if (iframe && iframe.contentWindow) {
+                        try {
+                            iframe.contentWindow.postMessage({ type: 'SET_PLAYBACK_RATE', rate: spd }, '*');
+                            iframe.contentWindow.postMessage({ event: 'setPlaybackRate', playbackRate: spd }, '*');
+                        } catch(ex) {}
+                    }
+                };
+                speedPopoverEl.appendChild(btn);
+            });
+        }
+        renderSpeedMenu();
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Ambient Glow Effect ─────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var glowEl = document.getElementById('vailismGlow');
+        var _isPlaying = false;
+
+        function setGlowState(playing) {
+            if (!glowEl) return;
+            _isPlaying = playing;
+            glowEl.classList.remove('active', 'paused');
+            if (playing) {
+                glowEl.classList.add('active');
+            } else {
+                glowEl.classList.add('paused');
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Keyboard Shortcuts ──────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var seekLeftEl = document.getElementById('seekLeft');
+        var seekRightEl = document.getElementById('seekRight');
+        var actionIconEl = document.getElementById('actionIcon');
+
+        function flashElement(el) {
+            if (!el) return;
+            el.classList.remove('flash');
+            void el.offsetWidth; // force reflow
+            el.classList.add('flash');
+        }
+
+        function showActionIcon(svgHtml) {
+            if (!actionIconEl) return;
+            actionIconEl.innerHTML = svgHtml;
+            flashElement(actionIconEl);
+        }
+
+        var _pauseSvg = '<svg width="32" height="32" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+        var _playSvg = '<svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+        var _muteSvg = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+        var _volSvg = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+
+        function sendIframeCommand(cmd) {
+            var iframe = playerWrap.querySelector('iframe');
+            if (!iframe || !iframe.contentWindow) return;
+            try {
+                // Multiple formats for different embed providers
+                iframe.contentWindow.postMessage(cmd, '*');
+                iframe.contentWindow.postMessage(JSON.stringify(cmd), '*');
+            } catch(ex) {}
+        }
+
+        var _isMuted = false;
+
+        document.addEventListener('keydown', function(e) {
+            // Don't trigger when typing in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            // Don't trigger when modals are open
+            var modal = document.getElementById('mirotalkWatchModal');
+            if (modal && modal.style.display !== 'none') return;
+
+            switch(e.key) {
+                case ' ':
+                case 'k':
+                case 'K':
+                    e.preventDefault();
+                    if (_isPlaying) {
+                        showActionIcon(_pauseSvg);
+                        sendIframeCommand({ event: 'pause', type: 'pause' });
+                    } else {
+                        showActionIcon(_playSvg);
+                        sendIframeCommand({ event: 'play', type: 'play' });
+                    }
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    flashElement(seekLeftEl);
+                    sendIframeCommand({ event: 'seek', type: 'seek', seekBy: -10, time: Math.max(0, _pCurrentTime - 10) });
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    flashElement(seekRightEl);
+                    sendIframeCommand({ event: 'seek', type: 'seek', seekBy: 10, time: Math.min(_pDuration, _pCurrentTime + 10) });
+                    break;
+                case 'f':
+                case 'F':
+                    e.preventDefault();
+                    var iframe = playerWrap.querySelector('iframe');
+                    if (iframe) {
+                        if (document.fullscreenElement) {
+                            document.exitFullscreen();
+                        } else {
+                            (iframe.requestFullscreen || iframe.webkitRequestFullscreen || iframe.msRequestFullscreen).call(iframe);
+                        }
+                    }
+                    break;
+                case 'm':
+                case 'M':
+                    e.preventDefault();
+                    _isMuted = !_isMuted;
+                    showActionIcon(_isMuted ? _muteSvg : _volSvg);
+                    sendIframeCommand({ event: 'mute', type: 'mute', muted: _isMuted });
+                    break;
+            }
+        });
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Double-tap to Seek (Mobile) ─────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var touchLeft = document.getElementById('touchZoneLeft');
+        var touchRight = document.getElementById('touchZoneRight');
+
+        function setupDoubleTap(zone, direction) {
+            if (!zone) return;
+            var lastTap = 0;
+            zone.addEventListener('touchend', function(e) {
+                var now = Date.now();
+                if (now - lastTap < 300) {
+                    // Double tap detected
+                    e.preventDefault();
+                    var indicator = direction === 'left' ? seekLeftEl : seekRightEl;
+                    flashElement(indicator);
+
+                    // Ripple effect
+                    var touch = e.changedTouches[0];
+                    var ripple = document.createElement('div');
+                    ripple.className = 'vailism-touch-ripple';
+                    ripple.style.left = touch.clientX - zone.getBoundingClientRect().left + 'px';
+                    ripple.style.top = touch.clientY - zone.getBoundingClientRect().top + 'px';
+                    zone.appendChild(ripple);
+                    ripple.classList.add('animate');
+                    setTimeout(function() { ripple.remove(); }, 600);
+
+                    var seekBy = direction === 'left' ? -10 : 10;
+                    sendIframeCommand({ event: 'seek', type: 'seek', seekBy: seekBy, time: Math.max(0, Math.min(_pDuration, _pCurrentTime + seekBy)) });
+                    lastTap = 0;
+                } else {
+                    lastTap = now;
+                }
+            }, { passive: false });
+
+            // Single tap passes through to iframe after a delay
+            zone.addEventListener('touchstart', function(e) {
+                // Let single taps through for play/pause
+            }, { passive: true });
+        }
+        setupDoubleTap(touchLeft, 'left');
+        setupDoubleTap(touchRight, 'right');
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Connection Quality Indicator ────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var qualityEl = document.getElementById('vailismQuality');
+        var qualityLabelEl = document.getElementById('qualityLabel');
+        var _qualityHistory = []; // timestamps of buffer events
+        var _qualityInterval = null;
+
+        function updateQualityIndicator() {
+            if (!qualityEl) return;
+            var now = Date.now();
+            // Count buffer events in the last 60 seconds
+            _qualityHistory = _qualityHistory.filter(function(t) { return now - t < 60000; });
+            var count = _qualityHistory.length;
+
+            var level, label, barsOn;
+            if (count === 0) { level = 'good'; label = 'Good'; barsOn = 4; }
+            else if (count <= 2) { level = 'good'; label = 'Good'; barsOn = 3; }
+            else if (count <= 4) { level = 'fair'; label = 'Fair'; barsOn = 2; }
+            else { level = 'poor'; label = 'Poor'; barsOn = 1; }
+
+            qualityEl.className = 'vailism-quality visible ' + level;
+            if (qualityLabelEl) qualityLabelEl.textContent = label;
+
+            var bars = qualityEl.querySelectorAll('.vailism-quality-bar');
+            bars.forEach(function(bar, i) {
+                bar.classList.toggle('on', i < barsOn);
+            });
+        }
+
+        function recordBufferEvent() {
+            _qualityHistory.push(Date.now());
+            updateQualityIndicator();
+        }
+
+        // Sync quality with controls visibility
+        (function() {
+            var qObserver = new MutationObserver(function() {
+                if (topControls.style.opacity === '0') {
+                    qualityEl.classList.remove('visible');
+                } else if (_progressVisible) {
+                    qualityEl.classList.add('visible');
+                }
+            });
+            qObserver.observe(topControls, { attributes: true, attributeFilter: ['style'] });
+        })();
+
+        // Periodic quality update
+        _qualityInterval = setInterval(updateQualityIndicator, 15000);
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Preload Next Episode ────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var _nextEpPreloaded = false;
+
+        function preloadNextEpisode(currentTime, duration) {
+            if (_nextEpPreloaded || mediaType !== 'tv' || !nextSeasonNum || !nextEpisodeNum) return;
+            if (duration <= 0) return;
+            var progress = currentTime / duration;
+            if (progress >= 0.80) {
+                _nextEpPreloaded = true;
+                // Preconnect to current server for next episode
+                var nextUrl = currentServer.buildUrl(movieId, mediaType, nextSeasonNum, nextEpisodeNum, 0);
+                try {
+                    var url = new URL(nextUrl);
+                    var link = document.createElement('link');
+                    link.rel = 'preconnect';
+                    link.href = url.origin;
+                    link.crossOrigin = 'anonymous';
+                    document.head.appendChild(link);
+                    // Also prefetch the actual page
+                    var prefetch = document.createElement('link');
+                    prefetch.rel = 'prefetch';
+                    prefetch.href = nextUrl;
+                    document.head.appendChild(prefetch);
+                    console.log('[VAILISM] Pre-loading next episode:', nextUrl);
+                } catch(ex) {}
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Adaptive Server Memory ──────────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var _serverBufferScores = {};
+        try {
+            _serverBufferScores = JSON.parse(sessionStorage.getItem('vailism_server_scores') || '{}');
+        } catch(e) { _serverBufferScores = {}; }
+
+        function recordServerBuffer(serverName) {
+            if (!_serverBufferScores[serverName]) _serverBufferScores[serverName] = 0;
+            _serverBufferScores[serverName]++;
+            try { sessionStorage.setItem('vailism_server_scores', JSON.stringify(_serverBufferScores)); } catch(e) {}
+        }
+
+        function recordServerSuccess(serverName) {
+            // Reward good playback: reduce score
+            if (_serverBufferScores[serverName] && _serverBufferScores[serverName] > 0) {
+                _serverBufferScores[serverName] = Math.max(0, _serverBufferScores[serverName] - 0.5);
+                try { sessionStorage.setItem('vailism_server_scores', JSON.stringify(_serverBufferScores)); } catch(e) {}
+            }
+        }
+
+        function getBestServer() {
+            var best = SERVERS[0];
+            var bestScore = Infinity;
+            SERVERS.forEach(function(sv) {
+                var score = _serverBufferScores[sv.name] || 0;
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = sv;
+                }
+            });
+            return best;
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: Subtitle Overlay + Offset Control ───────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var subOverlay = document.getElementById('vailismSubOverlay');
+        var subTextEl = document.getElementById('vailismSubText');
+        var subControls = document.getElementById('vailismSubControls');
+        var subOffsetLabel = document.getElementById('subOffsetLabel');
+        var _subtitleOffset = parseFloat(localStorage.getItem('vailism_sub_offset') || '0');
+        var _subtitleCues = []; // Array of {start, end, text}
+        var _subtitlesActive = false;
+
+        function updateSubOffsetLabel() {
+            if (subOffsetLabel) {
+                subOffsetLabel.textContent = 'Offset: ' + (_subtitleOffset >= 0 ? '+' : '') + _subtitleOffset.toFixed(1) + 's';
+            }
+        }
+        updateSubOffsetLabel();
+
+        var subMinusBtn = document.getElementById('subOffsetMinus');
+        var subPlusBtn = document.getElementById('subOffsetPlus');
+        if (subMinusBtn) {
+            subMinusBtn.onclick = function(e) {
+                e.stopPropagation();
+                _subtitleOffset -= 0.5;
+                localStorage.setItem('vailism_sub_offset', _subtitleOffset.toString());
+                updateSubOffsetLabel();
+            };
+        }
+        if (subPlusBtn) {
+            subPlusBtn.onclick = function(e) {
+                e.stopPropagation();
+                _subtitleOffset += 0.5;
+                localStorage.setItem('vailism_sub_offset', _subtitleOffset.toString());
+                updateSubOffsetLabel();
+            };
+        }
+
+        // Parse SRT/VTT subtitle text
+        function parseSubtitles(text) {
+            var cues = [];
+            // Remove BOM and normalize
+            text = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            // Remove WEBVTT header
+            text = text.replace(/^WEBVTT[^\n]*\n/i, '');
+            var blocks = text.split(/\n\n+/);
+            blocks.forEach(function(block) {
+                var lines = block.trim().split('\n');
+                for (var i = 0; i < lines.length; i++) {
+                    var match = lines[i].match(/(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})/);
+                    if (match) {
+                        var start = parseInt(match[1])*3600 + parseInt(match[2])*60 + parseInt(match[3]) + parseInt(match[4])/1000;
+                        var end = parseInt(match[5])*3600 + parseInt(match[6])*60 + parseInt(match[7]) + parseInt(match[8])/1000;
+                        var txt = lines.slice(i+1).join('\n').replace(/<[^>]+>/g, '').trim();
+                        if (txt) cues.push({ start: start, end: end, text: txt });
+                        break;
+                    }
+                }
+            });
+            return cues;
+        }
+
+        // Update subtitle display based on current time
+        function updateSubtitleDisplay(currentTime) {
+            if (!_subtitlesActive || _subtitleCues.length === 0 || !subTextEl) return;
+            var adjustedTime = currentTime + _subtitleOffset;
+            var found = '';
+            for (var i = 0; i < _subtitleCues.length; i++) {
+                if (adjustedTime >= _subtitleCues[i].start && adjustedTime <= _subtitleCues[i].end) {
+                    found = _subtitleCues[i].text;
+                    break;
+                }
+            }
+            subTextEl.textContent = found;
+            subOverlay.style.display = found ? 'block' : 'none';
+        }
+
+        // Load subtitles from URL (SRT/VTT)
+        window.loadVailismSubtitles = function(url) {
+            fetch(url).then(function(r) { return r.text(); }).then(function(text) {
+                _subtitleCues = parseSubtitles(text);
+                _subtitlesActive = _subtitleCues.length > 0;
+                if (_subtitlesActive && subControls) subControls.classList.add('show');
+                console.log('[VAILISM] Loaded ' + _subtitleCues.length + ' subtitle cues');
+            }).catch(function(err) {
+                console.warn('[VAILISM] Failed to load subtitles:', err);
+            });
+        };
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── FEATURE: IndexedDB Offline Resume ────────────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        var _idb = null;
+        var _idbReady = false;
+
+        function openIDB() {
+            return new Promise(function(resolve, reject) {
+                if (!window.indexedDB) return reject('No IndexedDB');
+                var req = indexedDB.open('VailismProgress', 1);
+                req.onupgradeneeded = function(e) {
+                    var db = e.target.result;
+                    if (!db.objectStoreNames.contains('progress')) {
+                        db.createObjectStore('progress', { keyPath: 'contentId' });
+                    }
+                };
+                req.onsuccess = function(e) {
+                    _idb = e.target.result;
+                    _idbReady = true;
+                    resolve(_idb);
+                };
+                req.onerror = function() { reject('IDB open failed'); };
+            });
+        }
+
+        function saveToIDB(contentId, data) {
+            if (!_idbReady || !_idb) return;
+            try {
+                var tx = _idb.transaction('progress', 'readwrite');
+                var store = tx.objectStore('progress');
+                store.put(Object.assign({ contentId: contentId }, data));
+            } catch(e) {}
+        }
+
+        function loadFromIDB(contentId) {
+            return new Promise(function(resolve) {
+                if (!_idbReady || !_idb) return resolve(null);
+                try {
+                    var tx = _idb.transaction('progress', 'readonly');
+                    var store = tx.objectStore('progress');
+                    var req = store.get(contentId);
+                    req.onsuccess = function() { resolve(req.result || null); };
+                    req.onerror = function() { resolve(null); };
+                } catch(e) { resolve(null); }
+            });
+        }
+
+        // Initialize IndexedDB and check for offline resume data
+        openIDB().then(function() {
+            console.log('[VAILISM] IndexedDB ready for offline resume');
+            // If localStorage has no saved data, try loading from IDB
+            if (!savedData) {
+                var contentId = mediaType === 'tv'
+                    ? (movieId + '_s' + (params.get('s') || '1') + '_e' + (params.get('e') || '1'))
+                    : String(movieId);
+                loadFromIDB(contentId).then(function(idbData) {
+                    if (idbData && idbData.timestamp && idbData.duration) {
+                        console.log('[VAILISM] Restored progress from IndexedDB');
+                        savedData = idbData;
+                    }
+                });
+            }
+        }).catch(function(err) {
+            console.warn('[VAILISM] IndexedDB unavailable:', err);
+        });
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── Hook all features into onPlayerMessage ───────────────────────
+        // ══════════════════════════════════════════════════════════════════
+        // We override handlePlayingEvent and handleBufferingEvent to
+        // integrate new features without modifying the existing handler.
+        var _origHandlePlaying = handlePlayingEvent;
+        handlePlayingEvent = function() {
+            _origHandlePlaying();
+            setGlowState(true);
+            recordServerSuccess(currentServer.name);
+        };
+
+        var _origHandleBuffering = handleBufferingEvent;
+        handleBufferingEvent = function() {
+            _origHandleBuffering();
+            recordBufferEvent();
+            recordServerBuffer(currentServer.name);
+        };
+
+        // Hook into updateProgressBar for preload + subtitle
+        var _origUpdateProgress = updateProgressBar;
+        updateProgressBar = function(currentTime, duration) {
+            _origUpdateProgress(currentTime, duration);
+            preloadNextEpisode(currentTime, duration);
+            updateSubtitleDisplay(currentTime);
+        };
+
+        // Hook pause state into ambient glow via existing message flow
+        var _origOnPlayerMessage = onPlayerMessage;
+        window.removeEventListener('message', _origOnPlayerMessage);
+        function enhancedPlayerMessage(event) {
+            _origOnPlayerMessage(event);
+            // Check for pause event to dim glow
+            var payload = event.data;
+            if (!payload) return;
+            try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch(e) { return; }
+            if (payload && typeof payload === 'object') {
+                var raw = payload;
+                if (payload.type === 'PLAYER_EVENT' && payload.data) raw = payload.data;
+                var evt = ((raw.event || raw.type || '') + '').toLowerCase();
+                if (evt.includes('pause')) setGlowState(false);
+                else if (evt.includes('play') || evt.includes('playing')) setGlowState(true);
+
+                // Mirror progress to IndexedDB
+                if ((evt.includes('timeupdate') || evt.includes('pause')) && _idbReady) {
+                    var ct = parseFloat(raw.currentTime || raw.time || raw.position) || 0;
+                    var dur = parseFloat(raw.duration || raw.length) || 0;
+                    if (ct > 0 && dur > 0) {
+                        var cId = mediaType === 'tv'
+                            ? (movieId + '_s' + (params.get('s') || '1') + '_e' + (params.get('e') || '1'))
+                            : String(movieId);
+                        saveToIDB(cId, { timestamp: ct, duration: dur, mediaType: mediaType, tmdbId: movieId, updatedAt: Date.now() });
+                    }
+                }
+            }
+        }
+        window.addEventListener('message', enhancedPlayerMessage);
+
+        // Update the tryNextServer to use adaptive memory
+        var _origTryNext = tryNextServer;
+        tryNextServer = function() {
+            // Before cycling, check if there's a clearly better server
+            var best = getBestServer();
+            if (best.name !== currentServer.name && (_serverBufferScores[currentServer.name] || 0) > 2) {
+                console.log('[VAILISM] Adaptive: switching to best server ' + best.name + ' (score: ' + (_serverBufferScores[best.name] || 0) + ')');
+                currentServer = best;
+                localStorage.setItem('vailism_preferred_server', best.name);
+                var serverLabel = document.getElementById('currentServerLabel');
+                if (serverLabel) serverLabel.textContent = best.name;
+                hasReceivedPlaybackEvent = false;
+                if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
+                resetControlsTimer();
+                renderServerMenu();
+                buildIframe();
+                return;
+            }
+            _origTryNext();
+        };
+
         function cleanup() {
+            window.removeEventListener('message', enhancedPlayerMessage);
             window.removeEventListener('message', onPlayerMessage);
             if (saveThrottle) {
                 clearTimeout(saveThrottle);
@@ -1287,6 +2444,17 @@
             if (playbackCheckTimer) {
                 clearTimeout(playbackCheckTimer);
                 playbackCheckTimer = null;
+            }
+            if (_qualityInterval) {
+                clearInterval(_qualityInterval);
+                _qualityInterval = null;
+            }
+            if (_bufferDebounce) {
+                clearTimeout(_bufferDebounce);
+                _bufferDebounce = null;
+            }
+            if (_idb) {
+                try { _idb.close(); } catch(e) {}
             }
         }
         window.addEventListener('pagehide',    cleanup);
