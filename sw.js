@@ -7,7 +7,7 @@ const ASSETS_TO_CACHE = [
     '/party.css',
     '/script.js',
     '/details.js',
-    '/favicon.ico',
+    '/favicon/favicon.ico',
     '/logo.png'
 ];
 
