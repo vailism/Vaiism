@@ -1,6 +1,9 @@
 {
   "name": "VAILISM",
   "short_name": "VAILISM",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
   "icons": [
     {
       "src": "/favicon/web-app-manifest-192x192.png",
