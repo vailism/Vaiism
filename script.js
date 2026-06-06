@@ -284,9 +284,9 @@ async function getLatestProgressForShow(showId) {
 
 function isValidProgress(data) {
     if (!data || typeof data !== 'object') return false;
-    const id = parseInt(data.id, 10);
+    const id = parseInt(data.id !== undefined ? data.id : data.tmdbId, 10);
     const mediaType = data.mediaType;
-    const ts = parseFloat(data.timestamp);
+    const ts = parseFloat(data.timestamp !== undefined ? data.timestamp : data.currentTime);
     const dur = parseFloat(data.duration);
     
     if (isNaN(id) || !mediaType || (mediaType !== 'movie' && mediaType !== 'tv')) return false;
