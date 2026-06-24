@@ -595,15 +595,6 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 Back
             </button>
             <div class="vailism-modal-right">
-                <button class="vailism-server-btn" id="modal-party-btn" style="margin-right: 12px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.15);">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; display: inline-block; vertical-align: middle;">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="9" cy="7" r="4"></circle>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                    </svg>
-                    Watch Together (beta)
-                </button>
                 <button class="vailism-server-btn" id="modal-next-ep-btn" style="display:none; margin-right: 12px; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
                     Next Ep
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px;">
@@ -767,20 +758,6 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     const backBtn = modal.querySelector('#modal-back');
     if (backBtn) {
         backBtn.onclick = (ev) => { ev.stopPropagation(); closeModalPlayer(); };
-    }
-
-    // ── Watch Together (Party) Button ─────────────────────────────────────
-    const modalPartyBtn = modal.querySelector('#modal-party-btn');
-    if (modalPartyBtn) {
-        modalPartyBtn.onclick = (ev) => {
-            ev.stopPropagation();
-            closeModalPlayer();
-            const partyUrl = 'player.html?id=' + movieId + '&type=' + mediaType + 
-                (modal._season ? '&s=' + modal._season : '') + 
-                (modal._episode ? '&e=' + modal._episode : '') + 
-                '&startParty=true';
-            window.location.href = partyUrl;
-        };
     }
 
     // ── ESC to close ──────────────────────────────────────────────────────

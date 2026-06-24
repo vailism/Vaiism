@@ -1,10 +1,9 @@
-const CACHE_NAME = 'vailism-shell-v6';
+const CACHE_NAME = 'vailism-shell-v7';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
     '/details.html',
     '/style.css',
-    '/party.css',
     '/script.js',
     '/details.js',
     '/favicon/favicon.ico',

@@ -27,10 +27,6 @@
     <link rel="dns-prefetch" href="https://cdn.vidlink.pro">
     <link rel="dns-prefetch" href="https://cc.vidsrc.to">
     <link rel="dns-prefetch" href="https://sub.videasy.net">
-
-    <!-- Watch Together Client Plane Dependencies -->
-    <link rel="stylesheet" href="party.css">
-
     <style>
         html, body {
             margin: 0;
@@ -493,8 +489,8 @@
         .vailism-touch-zone {
             position: fixed;
             top: 0;
-            bottom: 0;
-            width: 35%;
+            bottom: 80px; /* Leave room for embed player's native controls */
+            width: 25%;
             z-index: 103;
             pointer-events: auto;
             -webkit-tap-highlight-color: transparent;
@@ -664,10 +660,63 @@
             transition: background 0.15s;
         }
         .vailism-sub-offset-btn:hover { background: rgba(255,255,255,0.15); }
+
+        /* ── Binge Watch Overlay ── */
+        .binge-overlay {
+            position: fixed;
+            bottom: 60px;
+            right: 24px;
+            z-index: 120;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: rgba(14, 14, 14, 0.95);
+            border: 1px solid rgba(229, 9, 20, 0.3);
+            border-radius: 10px;
+            padding: 16px 22px;
+            font-family: 'Outfit', system-ui, sans-serif;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(20px);
+            transition: opacity 0.4s ease, visibility 0.4s ease, transform 0.4s ease;
+        }
+        .binge-overlay.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .binge-info h4 {
+            margin: 0 0 4px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .binge-info p {
+            margin: 0;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .binge-btn {
+            background: #e50914;
+            border: none;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Outfit', system-ui, sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .binge-btn:hover {
+            background: #f40612;
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
-    <div class="vailism-party-wrapper" id="partyWrapper">
         <div class="vailism-player-container" id="vailismPlayerContainer">
             <div class="top-controls" id="topControls">
                 <a href="index.html" class="back-button">
@@ -676,17 +725,6 @@
                 </a>
 
                 <div class="right-controls" id="rightControls">
-                    <!-- Watch Together (Party Mode) Button -->
-                    <button class="premium-btn" id="partyBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="9" cy="7" r="4"></circle>
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                        </svg>
-                        Watch Together (beta)
-                    </button>
-
                     <!-- Next Episode Button -->
                     <button class="premium-btn" id="nextEpBtn" style="display:none; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
                         Next Ep
@@ -861,46 +899,11 @@
                 <button class="binge-btn" id="bingeNextBtn">Play Now</button>
             </div>
         </div>
-
-        <!-- MiroTalk Watch Together Modal -->
-        <div id="mirotalkWatchModal" class="vailism-modal-overlay" style="display: none; opacity: 0; transition: opacity 0.3s ease;">
-            <div class="vailism-modal-card">
-                <button class="close-modal-btn" id="closeMirotalkModalBtn" aria-label="Close">&times;</button>
-                <h2>🍿 Watch Together</h2>
-                <p>We've generated a dedicated MiroTalk room for your watch party. Share this link with your friends to voice/video chat and screenshare this movie!</p>
-                
-                <div class="link-box-wrapper">
-                    <input type="text" id="mirotalkRoomLink" readonly value="">
-                    <button id="copyMirotalkLinkBtn" class="primary-btn">Copy Link</button>
-                </div>
-
-                <div class="modal-actions">
-                    <button id="openMirotalkBtn" class="premium-btn">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
-                            <path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-                        </svg>
-                        Open MiroTalk Room
-                    </button>
-                </div>
-                
-                <div class="host-instructions">
-                    <strong>Host Instructions:</strong> Once in the room, click <strong>Share Screen</strong> (desktop icon at the bottom), select the <strong>Chrome Tab</strong> containing this movie, and make sure to check <strong>Share tab audio</strong> before sharing!
-                </div>
-            </div>
-        </div>
-    </div><script type="module">
+    <script type="module">
         import { WatchProgressManager } from './js/watch-progress.js';
         
         (function () {
         'use strict';
-
-        // ── Watch Together Helpers & Classes ────────────────────────────────
-        function escapeHTML(str) {
-            if (!str) return "";
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
 
         // --- Standalone Player Message Normalizer (Single Player Fallback) ---
         function normalizePlayerMessage(payload, iframe) {
@@ -939,14 +942,9 @@
         var params    = new URLSearchParams(window.location.search);
         var movieId   = params.get('id');
         var mediaType = params.get('type') || 'movie';
-        var partyId   = params.get('partyId');
-        var startParty = params.get('startParty') === 'true';
 
         var loader     = document.getElementById('loader');
         var playerWrap = document.getElementById('player-wrap');
-
-        var roomManager = null;
-        var playbackSyncer = null;
 
         // ── Storage key ──────────────────────────────────────────────────
         var storageKey = mediaType === 'tv'
@@ -1074,6 +1072,7 @@
         var hasReceivedPlaybackEvent = false;
 
         function tryNextServer() {
+            serverSwitchCount++;
             if (serverSwitchCount >= SERVERS.length) {
                 console.error('[VAILISM] Tried all servers, none loaded.');
                 var loaderText = document.getElementById('loader');
@@ -1087,8 +1086,6 @@
                 if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
                 return;
             }
-
-            serverSwitchCount++;
 
             var currentIndex = SERVERS.findIndex(function(sv) { return sv.name === currentServer.name; });
             var nextIndex = (currentIndex + 1) % SERVERS.length;
@@ -1241,6 +1238,7 @@
                     window.history.replaceState({}, '', newUrl.href);
                     
                     params = newUrl.searchParams;
+                    storageKey = 'vailism_progress_' + movieId + '_s' + nextSeasonNum + '_e' + nextEpisodeNum;
                     savedData = null; // Clear local saved data state
                     
                     nextEpBtn.style.display = 'none';
@@ -1282,35 +1280,40 @@
             
             var hasAlts = Object.keys(alts).length > 0;
 
+            // Safe button factory — avoids inline onclick with unescaped strings
+            function createLangButton(name, url, desc, isActive) {
+                var btn = document.createElement('button');
+                btn.className = 'source-option' + (isActive ? ' active' : '');
+                var titleSpan = document.createElement('span');
+                titleSpan.className = 'source-title';
+                titleSpan.textContent = name;
+                var descSpan = document.createElement('span');
+                descSpan.className = 'source-desc';
+                descSpan.textContent = desc;
+                btn.appendChild(titleSpan);
+                btn.appendChild(descSpan);
+                btn.addEventListener('click', function() {
+                    window.switchLanguage(name, url, btn);
+                });
+                return btn;
+            }
+
             if (hasAlts) {
                 // Show button if alternatives exist
                 langBtn.style.display = 'flex';
                 
                 // Add Default English
-                langList.innerHTML += 
-                    '<button class="source-option ' + (currentLang === 'English (Default)' ? 'active' : '') + '" onclick="switchLanguage(\'English (Default)\', null, this)">' +
-                        '<span class="source-title">English (Default)</span>' +
-                        '<span class="source-desc">Native fast server.</span>' +
-                    '</button>';
+                langList.appendChild(createLangButton('English (Default)', null, 'Native fast server.', currentLang === 'English (Default)'));
                 
                 // Add Alternatives
                 for (var lang in alts) {
-                    var url = alts[lang];
-                    langList.innerHTML += 
-                        '<button class="source-option ' + (currentLang === lang ? 'active' : '') + '" onclick="switchLanguage(\'' + lang + '\', \'' + url + '\', this)">' +
-                            '<span class="source-title">' + lang + '</span>' +
-                            '<span class="source-desc">Alternative source. May be slower.</span>' +
-                        '</button>';
+                    langList.appendChild(createLangButton(lang, alts[lang], 'Alternative source. May be slower.', currentLang === lang));
                 }
                 langFallback.style.display = 'none';
             } else {
                 // If no alternatives, show button but clarify it's only English
                 langBtn.style.display = 'flex';
-                langList.innerHTML = 
-                    '<button class="source-option active">' +
-                        '<span class="source-title">English (Default)</span>' +
-                        '<span class="source-desc">Native fast server.</span>' +
-                    '</button>';
+                langList.appendChild(createLangButton('English (Default)', null, 'Native fast server.', true));
                 langFallback.style.display = 'block';
             }
         }
@@ -1677,23 +1680,18 @@
             }
 
             // Normalize message
-            var normalized = null;
-            if (window.VailRuntime) {
-                const syncEngine = window.VailRuntime.get("sync");
-                if (syncEngine && typeof syncEngine.normalizeMessage === 'function') {
-                    normalized = syncEngine.normalizeMessage(payload);
-                }
-            }
-            if (!normalized) {
-                const iframe = playerWrap.querySelector("iframe");
-                normalized = normalizePlayerMessage(payload, iframe);
-            }
+            const iframe = playerWrap.querySelector("iframe");
+            var normalized = normalizePlayerMessage(payload, iframe);
 
             if (!normalized || !normalized.type) return;
 
             var evtName = normalized.type;
             var currentTime = normalized.currentTime;
             var duration = normalized.duration;
+
+            // Keep _isPlaying in sync so keyboard shortcuts send the correct command
+            if (evtName === 'play') _isPlaying = true;
+            else if (evtName === 'pause' || evtName === 'ended') _isPlaying = false;
 
             // ── Feed custom progress bar ──
             if (evtName === 'timeupdate' || evtName === 'play' || evtName === 'pause') {
@@ -1715,20 +1713,6 @@
                 }
             } else {
                 console.log('[VAILISM][' + evtName + '] time=' + currentTime.toFixed(1));
-            }
-
-            // Feed to watch-party sync system
-            if (window.VailRuntime) {
-                try {
-                    console.log('[VAILISM PROVIDER] Provider event received', normalized.raw || payload);
-                    window.VailRuntime.get("eventBus").emit("PLAYER_MESSAGE_RECEIVED", payload);
-                    const syncEngine = window.VailRuntime.get("sync");
-                    if (syncEngine && typeof syncEngine.handleLocalPlayerEvent === 'function') {
-                        syncEngine.handleLocalPlayerEvent(evtName, currentTime, duration, normalized);
-                    }
-                } catch (ex) {
-                    console.error("[VAILISM] Error handling watch-party sync event:", ex);
-                }
             }
 
             // Binge-Watch Auto-Skip Logic
@@ -1838,76 +1822,6 @@
 
         window.addEventListener('message', onPlayerMessage);
 
-        // ── Watch Together Initializations ────────────────────────────────
-        var partyBtn = document.getElementById('partyBtn');
-
-        // --- MiroTalk Modal Logic ---
-        function showMirotalkModal(roomId) {
-            const modal = document.getElementById('mirotalkWatchModal');
-            const linkInput = document.getElementById('mirotalkRoomLink');
-            const copyBtn = document.getElementById('copyMirotalkLinkBtn');
-            const openBtn = document.getElementById('openMirotalkBtn');
-            const closeBtn = document.getElementById('closeMirotalkModalBtn');
-            
-            const mirotalkUrl = 'https://p2p.mirotalk.com/join/' + roomId;
-            linkInput.value = mirotalkUrl;
-            
-            modal.style.display = 'flex';
-            setTimeout(() => { modal.style.opacity = '1'; }, 10);
-            
-            copyBtn.onclick = function() {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(mirotalkUrl).then(() => {
-                        copyBtn.textContent = 'Copied!';
-                        setTimeout(() => { copyBtn.textContent = 'Copy Link'; }, 2000);
-                    }).catch(() => {
-                        fallbackCopy(mirotalkUrl);
-                    });
-                } else {
-                    fallbackCopy(mirotalkUrl);
-                }
-                function fallbackCopy(text) {
-                    var ta = document.createElement('textarea');
-                    ta.value = text;
-                    ta.style.position = 'fixed';
-                    ta.style.left = '-9999px';
-                    document.body.appendChild(ta);
-                    ta.select();
-                    try { document.execCommand('copy'); copyBtn.textContent = 'Copied!'; } catch(e) { copyBtn.textContent = 'Failed'; }
-                    document.body.removeChild(ta);
-                    setTimeout(() => { copyBtn.textContent = 'Copy Link'; }, 2000);
-                }
-            };
-            
-            openBtn.onclick = function() {
-                window.open(mirotalkUrl, '_blank');
-            };
-            
-            closeBtn.onclick = function() {
-                modal.style.opacity = '0';
-                setTimeout(() => { modal.style.display = 'none'; }, 300);
-                
-                // Clear URL parameters to prevent modal from re-opening on refresh
-                const url = new URL(window.location);
-                url.searchParams.delete('startParty');
-                url.searchParams.delete('partyId');
-                window.history.replaceState({}, '', url);
-            };
-        }
-
-        if (partyBtn) {
-            partyBtn.onclick = function() {
-                const newRoomId = 'Vailism-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-                showMirotalkModal(newRoomId);
-            };
-        }
-
-        // Auto-show modal if started from details page
-        if (startParty || partyId) {
-            const targetRoomId = partyId || ('Vailism-' + Math.random().toString(36).substr(2, 6).toUpperCase());
-            showMirotalkModal(targetRoomId);
-        }
-
         // ══════════════════════════════════════════════════════════════════
         // ── FEATURE: Playback Speed Control ──────────────────────────────
         // ══════════════════════════════════════════════════════════════════
@@ -1996,13 +1910,52 @@
         }
 
         var _isMuted = false;
+        var _isFullscreen = false;
+
+        // ── Cross-browser Fullscreen API helpers ──
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+        }
+
+        function requestFS(el) {
+            if (!el) return;
+            var fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+            if (fn) {
+                // webkitRequestFullscreen accepts a flag for keyboard input
+                fn.call(el, { navigationUI: 'hide' });
+            }
+        }
+
+        function exitFS() {
+            var fn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+            if (fn) fn.call(document);
+        }
+
+        function toggleFullscreen() {
+            if (getFullscreenElement()) {
+                exitFS();
+            } else {
+                // Fullscreen the WRAPPER, not the iframe.
+                // iOS blocks requestFullscreen on cross-origin iframes,
+                // but allows it on the parent container. The iframe is
+                // already 100% width/height inside, so it fills naturally.
+                requestFS(playerWrap);
+            }
+        }
+
+        // ── Sync UI when fullscreen state changes (including native gestures) ──
+        function onFullscreenChange() {
+            _isFullscreen = !!getFullscreenElement();
+            // Show controls briefly when entering/exiting fullscreen
+            resetControlsTimer();
+        }
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+        document.addEventListener('MSFullscreenChange', onFullscreenChange);
 
         document.addEventListener('keydown', function(e) {
             // Don't trigger when typing in inputs
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            // Don't trigger when modals are open
-            var modal = document.getElementById('mirotalkWatchModal');
-            if (modal && modal.style.display !== 'none') return;
 
             switch(e.key) {
                 case ' ':
@@ -2030,14 +1983,7 @@
                 case 'f':
                 case 'F':
                     e.preventDefault();
-                    var iframe = playerWrap.querySelector('iframe');
-                    if (iframe) {
-                        if (document.fullscreenElement) {
-                            document.exitFullscreen();
-                        } else {
-                            (iframe.requestFullscreen || iframe.webkitRequestFullscreen || iframe.msRequestFullscreen).call(iframe);
-                        }
-                    }
+                    toggleFullscreen();
                     break;
                 case 'm':
                 case 'M':
@@ -2352,8 +2298,10 @@
                     : String(movieId);
                 loadFromIDB(contentId).then(function(idbData) {
                     if (idbData && idbData.timestamp && idbData.duration) {
-                        console.log('[VAILISM] Restored progress from IndexedDB');
+                        console.log('[VAILISM] Restored progress from IndexedDB — rebuilding iframe with resume data');
                         savedData = idbData;
+                        // Rebuild iframe now that we have resume data
+                        buildIframe();
                     }
                 });
             }
@@ -2375,9 +2323,13 @@
 
         var _origHandleBuffering = handleBufferingEvent;
         handleBufferingEvent = function() {
+            var serverBeforeSwitch = currentServer.name;
             _origHandleBuffering();
-            recordBufferEvent();
-            recordServerBuffer(currentServer.name);
+            // Only record metrics if the original handler didn't auto-switch servers
+            if (currentServer.name === serverBeforeSwitch) {
+                recordBufferEvent();
+                recordServerBuffer(currentServer.name);
+            }
         };
 
         // Hook into updateProgressBar for preload + subtitle
@@ -2466,6 +2418,9 @@
             if (_idb) {
                 try { _idb.close(); } catch(e) {}
             }
+            document.removeEventListener('fullscreenchange', onFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+            document.removeEventListener('MSFullscreenChange', onFullscreenChange);
         }
         window.addEventListener('pagehide',    cleanup);
         window.addEventListener('beforeunload', cleanup);
