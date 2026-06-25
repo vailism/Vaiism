@@ -1,11 +1,20 @@
-const CACHE_NAME = 'vailism-shell-v7';
+// ── DEPLOY VERSION ────────────────────────────────────────────────────────────
+// INCREMENT THIS ON EVERY PRODUCTION DEPLOY so users receive the latest files.
+// Format: vailism-shell-vN  (N = deploy number)
+const CACHE_NAME = 'vailism-shell-v8';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
     '/details.html',
+    '/player.html',          // was missing — player not served offline
     '/style.css',
     '/script.js',
     '/details.js',
+    '/js/storage.js',        // new shared storage module
+    '/js/watch-progress.js',
+    '/js/watchlist.js',
+    '/js/AuthManager.js',
+    '/js/cloud-sync.js',
     '/favicon/favicon.ico',
     '/logo.png'
 ];
@@ -13,7 +22,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => {
-            console.log('[SW] Caching app shell v7');
+            console.log('[SW] Caching app shell v8');
             return cache.addAll(ASSETS_TO_CACHE);
         })
     );

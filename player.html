@@ -895,8 +895,9 @@
         </div>
     <script type="module">
         import { WatchProgressManager } from './js/watch-progress.js';
+        import { lsGet, lsSet } from './js/storage.js';
         
-        (function () {
+        (async function () {
         'use strict';
 
         // --- Standalone Player Message Normalizer (Single Player Fallback) ---
@@ -963,12 +964,7 @@
         }
 
         // ── Load saved progress ───────────────────────────────────────────
-        var savedData = null;
-        try {
-            savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
-        } catch (e) {
-            savedData = null;
-        }
+        var savedData = await lsGet(storageKey);
 
         // ── Validate saved data ───────────────────────────────────────────
         if (savedData) {
@@ -1690,8 +1686,13 @@
             var duration = normalized.duration;
 
             // Keep _isPlaying in sync so keyboard shortcuts send the correct command
-            if (evtName === 'play') _isPlaying = true;
-            else if (evtName === 'pause' || evtName === 'ended') _isPlaying = false;
+            if (evtName === 'play') {
+                _isPlaying = true;
+                setGlowState(true);
+            } else if (evtName === 'pause' || evtName === 'ended') {
+                _isPlaying = false;
+                setGlowState(false);
+            }
 
             // ── Feed custom progress bar ──
             if (evtName === 'timeupdate' || evtName === 'play' || evtName === 'pause') {
@@ -2161,161 +2162,7 @@
         var subControls = document.getElementById('vailismSubControls');
         var subOffsetLabel = document.getElementById('subOffsetLabel');
         var _subtitleOffset = parseFloat(localStorage.getItem('vailism_sub_offset') || '0');
-        var _subtitleCues = []; // Array of {start, end, text}
-        var _subtitlesActive = false;
-
-        function updateSubOffsetLabel() {
-            if (subOffsetLabel) {
-                subOffsetLabel.textContent = 'Offset: ' + (_subtitleOffset >= 0 ? '+' : '') + _subtitleOffset.toFixed(1) + 's';
-            }
-        }
-        updateSubOffsetLabel();
-
-        var subMinusBtn = document.getElementById('subOffsetMinus');
-        var subPlusBtn = document.getElementById('subOffsetPlus');
-        if (subMinusBtn) {
-            subMinusBtn.onclick = function(e) {
-                e.stopPropagation();
-                _subtitleOffset -= 0.5;
-                localStorage.setItem('vailism_sub_offset', _subtitleOffset.toString());
-                updateSubOffsetLabel();
-            };
-        }
-        if (subPlusBtn) {
-            subPlusBtn.onclick = function(e) {
-                e.stopPropagation();
-                _subtitleOffset += 0.5;
-                localStorage.setItem('vailism_sub_offset', _subtitleOffset.toString());
-                updateSubOffsetLabel();
-            };
-        }
-
-        // Parse SRT/VTT subtitle text
-        function parseSubtitles(text) {
-            var cues = [];
-            // Remove BOM and normalize
-            text = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-            // Remove WEBVTT header
-            text = text.replace(/^WEBVTT[^\n]*\n/i, '');
-            var blocks = text.split(/\n\n+/);
-            blocks.forEach(function(block) {
-                var lines = block.trim().split('\n');
-                for (var i = 0; i < lines.length; i++) {
-                    var match = lines[i].match(/(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})/);
-                    if (match) {
-                        var start = parseInt(match[1])*3600 + parseInt(match[2])*60 + parseInt(match[3]) + parseInt(match[4])/1000;
-                        var end = parseInt(match[5])*3600 + parseInt(match[6])*60 + parseInt(match[7]) + parseInt(match[8])/1000;
-                        var txt = lines.slice(i+1).join('\n').replace(/<[^>]+>/g, '').trim();
-                        if (txt) cues.push({ start: start, end: end, text: txt });
-                        break;
-                    }
-                }
-            });
-            return cues;
-        }
-
-        // Update subtitle display based on current time
-        function updateSubtitleDisplay(currentTime) {
-            if (!_subtitlesActive || _subtitleCues.length === 0 || !subTextEl) return;
-            var adjustedTime = currentTime + _subtitleOffset;
-            var found = '';
-            for (var i = 0; i < _subtitleCues.length; i++) {
-                if (adjustedTime >= _subtitleCues[i].start && adjustedTime <= _subtitleCues[i].end) {
-                    found = _subtitleCues[i].text;
-                    break;
-                }
-            }
-            subTextEl.textContent = found;
-            subOverlay.style.display = found ? 'block' : 'none';
-        }
-
-        // Load subtitles from URL (SRT/VTT)
-        window.loadVailismSubtitles = function(url) {
-            fetch(url).then(function(r) { return r.text(); }).then(function(text) {
-                _subtitleCues = parseSubtitles(text);
-                _subtitlesActive = _subtitleCues.length > 0;
-                if (_subtitlesActive && subControls) subControls.classList.add('show');
-                console.log('[VAILISM] Loaded ' + _subtitleCues.length + ' subtitle cues');
-            }).catch(function(err) {
-                console.warn('[VAILISM] Failed to load subtitles:', err);
-            });
-        };
-
-        // ══════════════════════════════════════════════════════════════════
-        // ── FEATURE: IndexedDB Offline Resume ────────────────────────────
-        // ══════════════════════════════════════════════════════════════════
-        var _idb = null;
-        var _idbReady = false;
-
-        function openIDB() {
-            return new Promise(function(resolve, reject) {
-                if (!window.indexedDB) return reject('No IndexedDB');
-                var req = indexedDB.open('VailismProgress', 1);
-                req.onupgradeneeded = function(e) {
-                    var db = e.target.result;
-                    if (!db.objectStoreNames.contains('progress')) {
-                        db.createObjectStore('progress', { keyPath: 'contentId' });
-                    }
-                };
-                req.onsuccess = function(e) {
-                    _idb = e.target.result;
-                    _idbReady = true;
-                    resolve(_idb);
-                };
-                req.onerror = function() { reject('IDB open failed'); };
-            });
-        }
-
-        function saveToIDB(contentId, data) {
-            if (!_idbReady || !_idb) return;
-            try {
-                var tx = _idb.transaction('progress', 'readwrite');
-                var store = tx.objectStore('progress');
-                store.put(Object.assign({ contentId: contentId }, data));
-            } catch(e) {}
-        }
-
-        function loadFromIDB(contentId) {
-            return new Promise(function(resolve) {
-                if (!_idbReady || !_idb) return resolve(null);
-                try {
-                    var tx = _idb.transaction('progress', 'readonly');
-                    var store = tx.objectStore('progress');
-                    var req = store.get(contentId);
-                    req.onsuccess = function() { resolve(req.result || null); };
-                    req.onerror = function() { resolve(null); };
-                } catch(e) { resolve(null); }
-            });
-        }
-
-        // Initialize IndexedDB and check for offline resume data
-        openIDB().then(function() {
-            console.log('[VAILISM] IndexedDB ready for offline resume');
-            // If localStorage has no saved data, try loading from IDB
-            if (!savedData) {
-                var contentId = mediaType === 'tv'
-                    ? (movieId + '_s' + (params.get('s') || '1') + '_e' + (params.get('e') || '1'))
-                    : String(movieId);
-                loadFromIDB(contentId).then(function(idbData) {
-                    if (idbData && idbData.timestamp && idbData.duration) {
-                        savedData = idbData;
-                        // BUG 1 fix: only rebuild if fast-start / initPlayer() haven't
-                        // already built the iframe. Prevents the IDB Promise resolving
-                        // ~50 ms later and destroying an already-loaded player.
-                        if (!_iframeBuilt) {
-                            console.log('[VAILISM] IDB resume: building iframe with saved progress');
-                            buildIframe();
-                        } else {
-                            console.log('[VAILISM] IDB resume: iframe already loaded, progress cached for next load');
-                        }
-                    }
-                });
-            }
-        }).catch(function(err) {
-            console.warn('[VAILISM] IndexedDB unavailable:', err);
-        });
-
-        // ══════════════════════════════════════════════════════════════════
+        var _subtitleCues = []; // Array of {start, en        // ══════════════════════════════════════════════════════════════════
         // ── Hook all features into onPlayerMessage ───────────────────────
         // ══════════════════════════════════════════════════════════════════
         // We override handlePlayingEvent and handleBufferingEvent to
@@ -2346,42 +2193,6 @@
             updateSubtitleDisplay(currentTime);
         };
 
-        // Hook pause state into ambient glow via existing message flow
-        var _origOnPlayerMessage = onPlayerMessage;
-        window.removeEventListener('message', _origOnPlayerMessage);
-        function enhancedPlayerMessage(event) {
-            _origOnPlayerMessage(event);
-            // Check for pause event to dim glow
-            var payload = event.data;
-            if (!payload) return;
-            try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch(e) { return; }
-            if (payload && typeof payload === 'object') {
-                var raw = payload;
-                if (payload.type === 'PLAYER_EVENT' && payload.data) raw = payload.data;
-                var evt = ((raw.event || raw.type || '') + '').toLowerCase();
-                if (evt.includes('pause')) setGlowState(false);
-                else if (evt.includes('play') || evt.includes('playing')) setGlowState(true);
-
-                // Mirror progress to IndexedDB
-                if ((evt.includes('timeupdate') || evt.includes('pause')) && _idbReady) {
-                    var ct = parseFloat(raw.currentTime || raw.time || raw.position) || 0;
-                    var dur = parseFloat(raw.duration || raw.length) || 0;
-                    if (ct > 0 && dur > 0) {
-                        // BUG 7 fix: derive episode from player message payload first,
-                        // then fall back to params. Using params alone breaks after a
-                        // Next Episode transition updates the URLSearchParams object.
-                        var idbS = parseInt(raw.season  || params.get('s') || 1, 10);
-                        var idbE = parseInt(raw.episode || params.get('e') || 1, 10);
-                        var cId = mediaType === 'tv'
-                            ? (movieId + '_s' + idbS + '_e' + idbE)
-                            : String(movieId);
-                        saveToIDB(cId, { timestamp: ct, duration: dur, mediaType: mediaType, tmdbId: movieId, updatedAt: Date.now() });
-                    }
-                }
-            }
-        }
-        window.addEventListener('message', enhancedPlayerMessage);
-
         // Update the tryNextServer to use adaptive memory
         var _origTryNext = tryNextServer;
         tryNextServer = function() {
@@ -2404,7 +2215,6 @@
         };
 
         function cleanup() {
-            window.removeEventListener('message', enhancedPlayerMessage);
             window.removeEventListener('message', onPlayerMessage);
             if (saveThrottle) {
                 clearTimeout(saveThrottle);
@@ -2425,9 +2235,6 @@
             if (_bufferDebounce) {
                 clearTimeout(_bufferDebounce);
                 _bufferDebounce = null;
-            }
-            if (_idb) {
-                try { _idb.close(); } catch(e) {}
             }
             document.removeEventListener('fullscreenchange', onFullscreenChange);
             document.removeEventListener('webkitfullscreenchange', onFullscreenChange);

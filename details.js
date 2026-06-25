@@ -43,20 +43,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (e) {}
     }
 
-    // ── TMDB fetch with session cache ──────────────────────────────────────────
-    async function fetchApi(path) {
-        // Check session cache first (data may already exist from index page)
+    // ── TMDB fetch: session-cached, with timeout + 1 retry ────────────────────
+    async function fetchApi(path, retrying = false) {
         const cacheKey = 'detail_' + path.replace(/^\//,'').replace(/\//g, '_');
         const cached = sessionCacheGet(cacheKey);
         if (cached) return cached;
 
-        const res = await fetch(`/api/tmdb?path=${encodeURIComponent(path)}`);
-        if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
-        const data = await res.json();
-        if (data && typeof data === 'object') {
-            sessionCacheSet(cacheKey, data);
+        const controller = new AbortController();
+        const timeoutId  = setTimeout(() => controller.abort(), 8000); // 8s hard timeout
+
+        try {
+            const res = await fetch(`/api/tmdb?path=${encodeURIComponent(path)}`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+            const data = await res.json();
+            if (data && typeof data === 'object') sessionCacheSet(cacheKey, data);
+            return data;
+        } catch (e) {
+            clearTimeout(timeoutId);
+            if (!retrying) {
+                // One retry after 800 ms (handles transient failures and slow cold starts)
+                await new Promise(r => setTimeout(r, 800));
+                return fetchApi(path, true);
+            }
+            throw e;
         }
-        return data;
     }
 
     // ── Show error state without crashing ────────────────────────────────────

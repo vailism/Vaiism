@@ -2,6 +2,11 @@ import { authManager } from './js/AuthManager.js';
 import { CloudSyncManager } from './js/cloud-sync.js';
 import { WatchlistManager } from './js/watchlist.js';
 import { WatchProgressManager } from './js/watch-progress.js';
+import {
+    lsGet, lsSet, lsRemove, lsKeys,
+    getProgressKey, isValidProgress,
+    migrateFromLocalStorage, getLatestProgressForShow, autoCleanup
+} from './js/storage.js';
 
 // VAILISM - Netflix Clone Logic
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -121,201 +126,39 @@ function sessionCacheSet(key, data) {
     }
 }
 
-// ─── Safe localStorage helpers ────────────────────────────────────────────────────
-function getProgressKey(movieId, mediaType, season, episode) {
-    if (mediaType === 'tv') {
-        const s = season !== undefined ? season : 1;
-        const e = episode !== undefined ? episode : 1;
-        return 'vailism_progress_' + movieId + '_s' + s + '_e' + e;
+// ─── API Cache (LRU, capped at 120 entries) ───────────────────────────────────
+// A plain Map has no eviction. After a long browsing session it can hold
+// hundreds of TMDB responses. This LRU cache auto-evicts the oldest entry
+// whenever the cap is reached, keeping memory use bounded.
+class LRUCache {
+    constructor(maxSize = 120) {
+        this._map     = new Map();
+        this._maxSize = maxSize;
     }
-    return 'vailism_progress_' + movieId;
-}
-
-// ─── IndexedDB Storage ─────────────────────────────────────────────────────────
-const DB_NAME = 'vailism_db';
-const DB_VERSION = 1;
-const STORE_NAME = 'vailism_store';
-
-function openDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-        request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME);
-            }
-        };
-    });
-}
-
-async function lsGet(key) {
-    try {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readonly');
-            const store = tx.objectStore(STORE_NAME);
-            const request = store.get(key);
-            request.onsuccess = () => resolve(request.result !== undefined ? request.result : null);
-            request.onerror = () => reject(request.error);
-        });
-    } catch(e) { return null; }
-}
-
-async function lsSet(key, value, skipBroadcast = false) {
-    if (!key || value === undefined) return;
-    
-    if (key.startsWith('vailism_progress_')) {
-        if (!isValidProgress(value)) return;
-        value.id = parseInt(value.id, 10);
-        value.timestamp = Math.max(0, Math.min(parseFloat(value.timestamp), parseFloat(value.duration)));
-        value.duration = parseFloat(value.duration);
-        value.updatedAt = Date.now();
-        if (value.mediaType === 'tv') {
-            value.season = parseInt(value.season, 10) || 1;
-            value.episode = parseInt(value.episode, 10) || 1;
+    has(key)        { return this._map.has(key); }
+    get(key) {
+        if (!this._map.has(key)) return undefined;
+        // Refresh recency: delete + re-insert
+        const val = this._map.get(key);
+        this._map.delete(key);
+        this._map.set(key, val);
+        return val;
+    }
+    set(key, val) {
+        if (this._map.has(key)) this._map.delete(key);
+        else if (this._map.size >= this._maxSize) {
+            // Evict the oldest (first) entry
+            this._map.delete(this._map.keys().next().value);
         }
+        this._map.set(key, val);
     }
-    try {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readwrite');
-            const store = tx.objectStore(STORE_NAME);
-            const request = store.put(value, key);
-            request.onsuccess = () => {
-                if (!skipBroadcast && key.startsWith('vailism_')) {
-                    try {
-                        const bc = new BroadcastChannel('vailism_sync');
-                        bc.postMessage({ type: 'UPDATE', key: key });
-                        bc.close();
-                    } catch(e) {}
-                }
-                // Push to Firestore if logged in
-                if (auth_firebase && auth_firebase.currentUser && db_firestore && (key.startsWith('vailism_progress_') || key === 'vailism_watchlist')) {
-                    const uid = auth_firebase.currentUser.uid;
-                    db_firestore.collection('users').doc(uid).set({ [key]: value }, { merge: true })
-                        .catch(err => console.error('[Sync] Firestore set failed:', err));
-                }
-                resolve();
-            };
-            request.onerror = () => reject(request.error);
-        });
-    } catch(e) {
-        console.warn('[VAILISM] IDB Set failed:', e);
-    }
-}
-
-async function lsRemove(key, skipBroadcast = false) {
-    try {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readwrite');
-            const store = tx.objectStore(STORE_NAME);
-            const request = store.delete(key);
-            request.onsuccess = () => {
-                if (!skipBroadcast && key.startsWith('vailism_')) {
-                    try {
-                        const bc = new BroadcastChannel('vailism_sync');
-                        bc.postMessage({ type: 'UPDATE', key: key });
-                        bc.close();
-                    } catch(e) {}
-                }
-                // Remove from Firestore if logged in
-                if (auth_firebase && auth_firebase.currentUser && db_firestore && (key.startsWith('vailism_progress_') || key === 'vailism_watchlist')) {
-                    const uid = auth_firebase.currentUser.uid;
-                    db_firestore.collection('users').doc(uid).update({
-                        [key]: firebase.firestore.FieldValue.delete()
-                    }).catch(err => console.error('[Sync] Firestore delete failed:', err));
-                }
-                resolve();
-            };
-            request.onerror = () => reject(request.error);
-        });
-    } catch(e) {
-        console.warn('[VAILISM] IDB Remove failed:', e);
-    }
-}
-
-async function lsKeys() {
-    try {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readonly');
-            const store = tx.objectStore(STORE_NAME);
-            const request = store.getAllKeys();
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        });
-    } catch(e) { return []; }
-}
-
-async function migrateFromLocalStorage() {
-    try {
-        const migrated = localStorage.getItem('vailism_idb_migrated');
-        if (migrated) return;
-        const keys = Object.keys(localStorage);
-        for (const key of keys) {
-            if (key.startsWith('vailism_')) {
-                try {
-                    let value = localStorage.getItem(key);
-                    try { value = JSON.parse(value); } catch(e) {}
-                    await lsSet(key, value, true);
-                } catch(e) {}
-            }
-        }
-        localStorage.setItem('vailism_idb_migrated', 'true');
-        console.log('[VAILISM] Storage migrated to IndexedDB.');
-    } catch(e) {}
-}
-
-async function getLatestProgressForShow(showId) {
-    const keys = await lsKeys();
-    const progressKeys = [];
-    for (const k of keys) {
-        if (k.startsWith('vailism_progress_' + showId)) {
-            const data = await lsGet(k);
-            if (data && data.updatedAt) progressKeys.push({ key: k, data: data });
-        }
-    }
-    progressKeys.sort((a, b) => b.data.updatedAt - a.data.updatedAt);
-    return progressKeys.length > 0 ? progressKeys[0].data : null;
-}
-
-function isValidProgress(data) {
-    if (!data || typeof data !== 'object') return false;
-    const id = parseInt(data.id !== undefined ? data.id : data.tmdbId, 10);
-    const mediaType = data.mediaType;
-    const ts = parseFloat(data.timestamp !== undefined ? data.timestamp : data.currentTime);
-    const dur = parseFloat(data.duration);
-    
-    if (isNaN(id) || !mediaType || (mediaType !== 'movie' && mediaType !== 'tv')) return false;
-    if (isNaN(ts) || isNaN(dur) || dur <= 0) return false;
-    return true;
-}
-
-async function autoCleanup() {
-    const keys = await lsKeys();
-    const progressKeys = keys.filter(k => k.startsWith('vailism_progress_'));
-    const now = Date.now();
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-
-    for (const key of progressKeys) {
-        const data = await lsGet(key);
-        if (!data || !isValidProgress(data)) {
-            await lsRemove(key, true);
-            continue;
-        }
-
-        const age = now - (data.updatedAt || 0);
-        if (age > thirtyDaysMs || data.timestamp <= 0 || data.timestamp >= data.duration) {
-            await lsRemove(key, true);
-        }
-    }
+    delete(key)     { this._map.delete(key); }
+    clear()         { this._map.clear(); }
 }
 
 // ─── API Cache & Fetch ────────────────────────────────────────────────────────
-const apiCache = new Map();
+const apiCache = new LRUCache(120);
+
 
 async function fetchMovies(endpoint, page = 1) {
     // Block all fetches during playback to reserve bandwidth
@@ -1472,53 +1315,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Continue Watching ─────────────────────────────────────────────────────
     async function loadContinueWatching() {
-        const rawKeys = await lsKeys();
-        const keys = rawKeys.filter(k => k.startsWith('vailism_progress_'));
-
         const mainContent = document.getElementById('main-content');
         if (!mainContent) return;
 
-        // Progress lives in TWO stores:
-        //  1. localStorage  — written by WatchProgressManager.saveProgress() in player.html (live write path)
-        //  2. IndexedDB     — written by lsSet() for migrated/legacy data
-        // We must read both, then merge by key (localStorage wins as it is always fresher).
-        const itemMap = new Map(); // key → { key, data }
+        // Single source of truth: IDB via the unified WatchProgressManager
+        const allItems = await WatchProgressManager.getAllProgress();
+        if (allItems.length === 0) return;
 
-        // Source 1: localStorage (WatchProgressManager)
-        for (const item of WatchProgressManager.getAllProgress()) {
-            if (item && item.key && item.data) {
-                itemMap.set(item.key, item);
-            }
-        }
+        // Deduplicate: for TV shows keep only the most-recently-watched episode
+        const byId = new Map();
+        allItems
+            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0))
+            .forEach(item => {
+                const mid = item.data.tmdbId || item.data.id;
+                if (!byId.has(mid)) byId.set(mid, item);
+            });
 
-        // Source 2: IndexedDB (lsKeys/lsGet) — adds keys NOT already in localStorage
-        for (const key of keys) {
-            if (!itemMap.has(key)) {
-                const data = await lsGet(key);
-                if (data) itemMap.set(key, { key, data });
-            }
-        }
-
-        const items = Array.from(itemMap.values());
-        if (items.length === 0) return;
-
-        const validatedEntries = items
-            .filter(item => isValidProgress(item.data))
-            .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
-
-        // Group by show/movie ID to only keep the most recently updated progress for each title
-        const groupedMap = new Map();
-        validatedEntries.forEach(item => {
-            const mappedId = item.data.tmdbId || item.data.id;
-            if (!groupedMap.has(mappedId)) {
-                groupedMap.set(mappedId, item);
-            }
-        });
-
-        const progressEntries = Array.from(groupedMap.values()).slice(0, 10);
-
+        const progressEntries = Array.from(byId.values()).slice(0, 10);
         if (progressEntries.length === 0) return;
 
+        // ── Build the row shell immediately ───────────────────────────────────
         const rowSection = document.createElement('section');
         rowSection.classList.add('row');
         const rowHeader = document.createElement('h2');
@@ -1532,16 +1348,40 @@ document.addEventListener('DOMContentLoaded', () => {
         rowSection.appendChild(rowPosters);
         rowVisibilityObserver.observe(rowSection);
 
-        const fetchPromises = progressEntries.map(async item => {
-            const savedData = item.data;
-            const movieId   = savedData.tmdbId || savedData.id;
-            const typePath  = savedData.mediaType;
-            const ts        = savedData.currentTime || savedData.timestamp;
-            const dur       = savedData.duration;
+        // ── Insert skeleton placeholders so the row appears instantly ─────────
+        const skeletonCards = progressEntries.map(() => {
+            const sk = document.createElement('div');
+            sk.className = 'card card-skeleton';
+            sk.style.cssText = 'background:rgba(255,255,255,0.07);border-radius:4px;aspect-ratio:2/3;animation:skeleton-pulse 1.5s ease-in-out infinite;';
+            rowPosters.appendChild(sk);
+            return sk;
+        });
+
+        // ── Fetch TMDB data and swap skeletons for real cards ─────────────────
+        const fetchWithRetry = async (type, id) => {
+            let data = await fetchDetails(type, id);
+            if (!data) {
+                // One retry after 600 ms (handles transient network hiccups)
+                await new Promise(r => setTimeout(r, 600));
+                data = await fetchDetails(type, id);
+            }
+            return data;
+        };
+
+        const fetchPromises = progressEntries.map(async (item, idx) => {
+            const skeleton    = skeletonCards[idx];
+            const savedData   = item.data;
+            const movieId     = savedData.tmdbId || savedData.id;
+            const typePath    = savedData.mediaType;
+            const ts          = savedData.currentTime || savedData.timestamp;
+            const dur         = savedData.duration;
 
             try {
-                const data = await fetchDetails(typePath, movieId);
-                if (!data || (!data.poster_path && !data.backdrop_path)) return;
+                const data = await fetchWithRetry(typePath, movieId);
+                if (!data || (!data.poster_path && !data.backdrop_path)) {
+                    skeleton.remove();
+                    return;
+                }
 
                 const imgPath        = data.poster_path || data.backdrop_path;
                 const percentComplete = Math.min(100, Math.max(0, (ts / dur) * 100));
@@ -1549,9 +1389,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const card = document.createElement('div');
                 card.classList.add('card');
-                card.dataset.id = movieId;
+                card.dataset.id   = movieId;
                 card.dataset.type = typePath;
-                // Set onclick as HTML attribute to survive virtualization serialization
                 card.setAttribute('onclick', `window.location.href='details.html?id=${movieId}&type=${typePath}'`);
 
                 card.innerHTML = `
@@ -1583,30 +1422,28 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>`;
 
-                rowPosters.appendChild(card);
+                // Replace skeleton with real card (preserves position order)
+                rowPosters.replaceChild(card, skeleton);
 
-                // Sync check for loaded
                 const imgEl = card.querySelector('img');
-                if (imgEl && imgEl.complete) {
-                    imgEl.classList.add('loaded');
-                }
-
-                // Warm SERVER 1 connection on hover (details already cached)
+                if (imgEl && imgEl.complete) imgEl.classList.add('loaded');
                 card.addEventListener('mouseenter', warmPrimaryServer, { passive: true });
             } catch (e) {
                 console.warn('[VAILISM] Continue Watching fetch failed for', item.key, e);
+                skeleton.remove();
             }
         });
 
         await Promise.all(fetchPromises);
 
-        // Remove the section entirely if nothing loaded
+        // Remove the section if nothing loaded successfully
         if (rowPosters.children.length === 0) {
             rowSection.remove();
         } else {
             refreshIcons();
         }
     }
+
 
     // ── Watchlist / My List ──────────────────────────────────────────────────
     async function loadWatchlist() {
