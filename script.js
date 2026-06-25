@@ -1478,17 +1478,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const mainContent = document.getElementById('main-content');
         if (!mainContent) return;
 
-        // BUG 5 fix: Previously merged WatchProgressManager.getAllProgress() AND
-        // lsKeys() — same data from two sources caused double TMDB fetches.
-        // Use only lsKeys() as the single source of truth.
-        const items = [];
-        for (const key of keys) {
-            const data = await lsGet(key);
-            if (data) items.push({ key, data });
+        // Progress lives in TWO stores:
+        //  1. localStorage  — written by WatchProgressManager.saveProgress() in player.html (live write path)
+        //  2. IndexedDB     — written by lsSet() for migrated/legacy data
+        // We must read both, then merge by key (localStorage wins as it is always fresher).
+        const itemMap = new Map(); // key → { key, data }
+
+        // Source 1: localStorage (WatchProgressManager)
+        for (const item of WatchProgressManager.getAllProgress()) {
+            if (item && item.key && item.data) {
+                itemMap.set(item.key, item);
+            }
         }
-        
+
+        // Source 2: IndexedDB (lsKeys/lsGet) — adds keys NOT already in localStorage
+        for (const key of keys) {
+            if (!itemMap.has(key)) {
+                const data = await lsGet(key);
+                if (data) itemMap.set(key, { key, data });
+            }
+        }
+
+        const items = Array.from(itemMap.values());
         if (items.length === 0) return;
-        
+
         const validatedEntries = items
             .filter(item => isValidProgress(item.data))
             .sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
