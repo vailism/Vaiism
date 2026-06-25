@@ -1478,11 +1478,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const mainContent = document.getElementById('main-content');
         if (!mainContent) return;
 
-        // Fetch and validate entries
-        const items = WatchProgressManager.getAllProgress();
+        // BUG 5 fix: Previously merged WatchProgressManager.getAllProgress() AND
+        // lsKeys() — same data from two sources caused double TMDB fetches.
+        // Use only lsKeys() as the single source of truth.
+        const items = [];
         for (const key of keys) {
             const data = await lsGet(key);
-            items.push({ key, data });
+            if (data) items.push({ key, data });
         }
         
         if (items.length === 0) return;

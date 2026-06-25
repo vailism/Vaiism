@@ -13,7 +13,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => {
-            console.log('[SW] Caching app shell v6');
+            console.log('[SW] Caching app shell v7');
             return cache.addAll(ASSETS_TO_CACHE);
         })
     );
