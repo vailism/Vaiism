@@ -1430,9 +1430,7 @@
 
         var _pDuration = 0;
         var _pCurrentTime = 0;
-        var _bufferCount = 0;
-        var _bufferSwitchThreshold = 4; // auto-switch after this many buffering events
-        var _bufferDebounce = null;
+        var sustainedBufferTimer = null;
         var _progressVisible = false;
 
         function fmtTime(s) {
@@ -1521,24 +1519,25 @@
         }
 
         function handleBufferingEvent() {
-            _bufferCount++;
             showBuffering();
-            // Clear previous debounce
-            if (_bufferDebounce) clearTimeout(_bufferDebounce);
-            // Auto-switch server after too many buffering events
-            if (_bufferCount >= _bufferSwitchThreshold) {
-                console.warn('[VAILISM] Excessive buffering (' + _bufferCount + ' events). Auto-switching server...');
-                _bufferCount = 0;
-                hideBuffering();
-                tryNextServer();
+            if (!sustainedBufferTimer) {
+                console.log('[VAILISM] Buffering detected. Starting 25s sustained buffering timer...');
+                sustainedBufferTimer = setTimeout(function() {
+                    console.warn('[VAILISM] Sustained buffering (>25s) detected. Auto-switching server...');
+                    sustainedBufferTimer = null;
+                    hideBuffering();
+                    tryNextServer();
+                }, 25000);
             }
         }
 
         function handlePlayingEvent() {
             hideBuffering();
-            // Reset buffer count slowly
-            if (_bufferDebounce) clearTimeout(_bufferDebounce);
-            _bufferDebounce = setTimeout(function() { _bufferCount = Math.max(0, _bufferCount - 1); }, 10000);
+            if (sustainedBufferTimer) {
+                console.log('[VAILISM] Playback resumed. Clearing sustained buffering timer.');
+                clearTimeout(sustainedBufferTimer);
+                sustainedBufferTimer = null;
+            }
         }
 
 
@@ -1584,7 +1583,10 @@
             progressWrap.classList.remove('visible');
             timeDisplay.classList.remove('visible');
             hideBuffering();
-            _bufferCount = 0;
+            if (sustainedBufferTimer) {
+                clearTimeout(sustainedBufferTimer);
+                sustainedBufferTimer = null;
+            }
 
             function onPlayerLoad() {
                 if (loaded) return;
@@ -1599,16 +1601,16 @@
                 if (currentServer.name === 'SERVER 1' && !currentAltUrl) {
                     playbackCheckTimer = setTimeout(function() {
                         if (!hasReceivedPlaybackEvent) {
-                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 6s. Auto-switching...');
+                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 25s. Auto-switching...');
                             tryNextServer();
                         }
-                    }, 6000);
+                    }, 25000);
                 }
             }
 
             iframe.addEventListener('load', onPlayerLoad);
 
-            // ── Stall detection: if iframe doesn't load in 6s, auto-switch ──
+            // ── Stall detection: if iframe doesn't load in 25s, auto-switch ──
             stallTimer = setTimeout(function() {
                 if (!loaded) {
                     console.warn('[VAILISM] Stall detected. Auto-switching server...');
@@ -1616,7 +1618,7 @@
                     if (textSpan) textSpan.textContent = 'Server stalled. Switching server...';
                     tryNextServer();
                 }
-            }, 6000);
+            }, 25000);
 
             playerWrap.appendChild(iframe);
         }

@@ -380,7 +380,13 @@ async function findFastestServer() {
             }
         });
 
-        const validResults = results.filter(r => !r.server.isOffline);
+        let validResults = results.filter(r => !r.server.isOffline);
+        if (validResults.length === 0) {
+            // If all servers seem offline, it's likely a local slow/low bandwidth connection.
+            // Do not disable them in the UI. Reset all to online.
+            SERVERS.forEach(s => s.isOffline = false);
+            validResults = results;
+        }
         validResults.sort((a, b) => a.latency - b.latency);
         
         if (validResults.length > 0) {
@@ -828,18 +834,18 @@ function loadIframeInModal(modal, embedUrl) {
         if (modal._currentServerName === 'SERVER 1') {
             modal._playbackCheckTimer = setTimeout(() => {
                 if (!modal._hasReceivedPlaybackEvent) {
-                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 8s. Content may be unavailable. Auto-switching...');
+                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 25s. Content may be unavailable. Auto-switching...');
                     if (typeof modal._tryNextServer === 'function') {
                         modal._tryNextServer();
                     }
                 }
-            }, 8000); // 8 seconds post-load check
+            }, 25000); // 25 seconds post-load check
         }
     }
 
     iframe.addEventListener('load', revealPlayer);
 
-    // ── Stall detection: if iframe doesn't load in 8s, auto-switch to next server ──
+    // ── Stall detection: if iframe doesn't load in 25s, auto-switch to next server ──
     modal._stallTimer = setTimeout(() => {
         if (!loaded) {
             console.warn('[VAILISM] Stall detected on current server. Triggering auto-fallback...');
@@ -854,7 +860,7 @@ function loadIframeInModal(modal, embedUrl) {
                 revealPlayer();
             }
         }
-    }, 8000);
+    }, 25000);
 
     // Set src LAST (starts loading after everything is wired up)
     iframe.src = embedUrl;
