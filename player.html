@@ -819,6 +819,7 @@
             <div class="loader" id="loader">
                 <div class="netflix-spinner"></div>
                 <span class="loader-text">Loading...</span>
+                <span class="loader-network" id="loader-network" style="color:rgba(255,255,255,0.35);font-size:11px;margin-top:8px;font-family:'Outfit',system-ui,sans-serif;"></span>
             </div>
 
             <div class="player-wrap" id="player-wrap" style="opacity:0; transition: opacity 0.4s ease;">
@@ -1054,9 +1055,19 @@
         ];
 
         var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
+        // Prefer last working server from this session (if available)
+        var lastWorking = sessionStorage.getItem('vailism_last_working_server');
+        if (lastWorking) {
+            var lastWorkingServer = SERVERS.find(function(sv) { return sv.name === lastWorking; });
+            if (lastWorkingServer) {
+                preferredServerName = lastWorking;
+                console.log('[VAILISM] Using last working server from session:', lastWorking);
+            }
+        }
         var currentServer = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
 
         var serverSwitchCount = 0;
+        var _retryAttempted = false; // Track if we've retried the current server
         // Prevents IDB async callback from calling buildIframe() a second time
         // after fast-start / initPlayer() already loaded the iframe (BUG 1 fix)
         var _iframeBuilt = false;
@@ -1064,18 +1075,88 @@
         var playbackCheckTimer = null;
         var hasReceivedPlaybackEvent = false;
 
+        // ── Network Info Helper ──────────────────────────────────────────
+        function getNetworkInfoText() {
+            try {
+                var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                if (conn) {
+                    var dl = conn.downlink; // Mbps
+                    var etype = conn.effectiveType;
+                    if (dl && dl > 0) {
+                        return dl.toFixed(1) + ' Mbps (' + (etype || 'unknown').toUpperCase() + ')';
+                    }
+                    if (etype) return etype.toUpperCase() + ' connection';
+                }
+            } catch(e) {}
+            return '';
+        }
+
+        // Show network info on loader
+        (function() {
+            var netLabel = document.getElementById('loader-network');
+            if (netLabel) {
+                var info = getNetworkInfoText();
+                if (info) netLabel.textContent = info;
+            }
+        })();
+
         function tryNextServer() {
             // Always clear any pending stall timer first to prevent double-firing (BUG 2 fix)
             if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+
+            // ── Retry same server once before cycling ──
+            if (!_retryAttempted) {
+                _retryAttempted = true;
+                console.log('[VAILISM] Retrying current server before switching:', currentServer.name);
+                var loaderEl = document.getElementById('loader');
+                if (loaderEl) {
+                    var textSpan = loaderEl.querySelector('.loader-text');
+                    if (textSpan) textSpan.textContent = 'Retrying ' + currentServer.name + '...';
+                }
+                hasReceivedPlaybackEvent = false;
+                if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
+                buildIframe();
+                return;
+            }
+            _retryAttempted = false; // Reset for next server
+
             serverSwitchCount++;
             if (serverSwitchCount >= SERVERS.length) {
                 console.error('[VAILISM] Tried all servers, none loaded.');
                 var loaderText = document.getElementById('loader');
                 if (loaderText) {
                     var textSpan = loaderText.querySelector('.loader-text');
-                    if (textSpan) textSpan.textContent = 'All streams failed. Please check connection.';
+                    if (textSpan) textSpan.textContent = 'All streams failed.';
                     var spinner = loaderText.querySelector('.netflix-spinner');
                     if (spinner) spinner.style.display = 'none';
+                    // Add Retry button
+                    var existingBtn = loaderText.querySelector('.vailism-retry-btn');
+                    if (!existingBtn) {
+                        var netInfo = getNetworkInfoText();
+                        var retryBtn = document.createElement('button');
+                        retryBtn.className = 'vailism-retry-btn';
+                        retryBtn.style.cssText = 'margin-top:20px;padding:12px 32px;background:#e50914;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;font-family:Outfit,system-ui,sans-serif;transition:background 0.2s;';
+                        retryBtn.textContent = 'Retry All Servers';
+                        retryBtn.onmouseenter = function() { retryBtn.style.background = '#ff1a2b'; };
+                        retryBtn.onmouseleave = function() { retryBtn.style.background = '#e50914'; };
+                        retryBtn.onclick = function() {
+                            serverSwitchCount = 0;
+                            _retryAttempted = false;
+                            if (spinner) spinner.style.display = '';
+                            if (textSpan) textSpan.textContent = 'Retrying...';
+                            retryBtn.remove();
+                            if (netInfoEl) netInfoEl.remove();
+                            buildIframe();
+                        };
+                        loaderText.appendChild(retryBtn);
+                        // Show connection info below retry button
+                        if (netInfo) {
+                            var netInfoEl = document.createElement('span');
+                            netInfoEl.style.cssText = 'display:block;margin-top:12px;color:rgba(255,255,255,0.4);font-size:12px;font-family:Outfit,system-ui,sans-serif;';
+                            netInfoEl.textContent = 'Your connection: ' + netInfo;
+                            loaderText.appendChild(netInfoEl);
+                        }
+                    }
                 }
                 if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
                 if (playbackCheckTimer) { clearTimeout(playbackCheckTimer); playbackCheckTimer = null; }
@@ -1541,6 +1622,20 @@
         }
 
 
+        // ── Adaptive Quality Hint ────────────────────────────────────────────
+        function getQualityHint() {
+            try {
+                var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                if (conn) {
+                    var dl = conn.downlink;
+                    var etype = conn.effectiveType;
+                    if (etype === '2g' || etype === 'slow-2g' || (dl && dl < 1.5)) return '360';
+                    if (etype === '3g' || (dl && dl < 4)) return '480';
+                }
+            } catch(e) {}
+            return '';
+        }
+
         // ── Embed Provider URLs ───────────────────────────────────────────
         function getEmbedUrl(s, e, ts) {
             // If an alternative language URL is selected, use it directly.
@@ -1548,7 +1643,13 @@
             if (currentAltUrl) {
                 return currentAltUrl;
             }
-            return currentServer.buildUrl(movieId, mediaType, s, e, ts);
+            var url = currentServer.buildUrl(movieId, mediaType, s, e, ts);
+            // Append quality hint on slow connections
+            var qHint = getQualityHint();
+            if (qHint) {
+                url += (url.includes('?') ? '&' : '?') + 'quality=' + qHint;
+            }
+            return url;
         }
 
         function buildIframeWithUrl(embedUrl, s, e) {
@@ -1561,6 +1662,16 @@
             loader.style.opacity = '1';
             loader.style.pointerEvents = 'auto';
             playerWrap.style.opacity = '0';
+
+            // Update loader text with network info
+            var loaderTextSpan = loader.querySelector('.loader-text');
+            var netInfo = getNetworkInfoText();
+            if (loaderTextSpan) {
+                loaderTextSpan.textContent = netInfo ? ('Loading on ' + netInfo + '...') : 'Loading...';
+            }
+            var netLabel = document.getElementById('loader-network');
+            if (netLabel) netLabel.textContent = netInfo || '';
+
 
             var iframe = document.createElement('iframe');
             iframe.src = embedUrl;
@@ -2172,11 +2283,60 @@
         // We override handlePlayingEvent and handleBufferingEvent to
         // integrate new features without modifying the existing handler.
         var _origHandlePlaying = handlePlayingEvent;
+        var _lastWorkingSaved = false;
         handlePlayingEvent = function() {
             _origHandlePlaying();
             setGlowState(true);
             recordServerSuccess(currentServer.name);
+            // Save last working server for this session (Feature 5)
+            if (!_lastWorkingSaved) {
+                _lastWorkingSaved = true;
+                try {
+                    sessionStorage.setItem('vailism_last_working_server', currentServer.name);
+                    console.log('[VAILISM] Saved last working server:', currentServer.name);
+                } catch(e) {}
+            }
         };
+
+        // Feature 6: Toast suggestion when too many buffers
+        var _bufferToastShown = false;
+        var _recentBufferTimestamps = [];
+
+        function checkBufferToast() {
+            if (_bufferToastShown) return;
+            var now = Date.now();
+            // Keep only last 2 minutes
+            _recentBufferTimestamps = _recentBufferTimestamps.filter(function(t) { return now - t < 120000; });
+            if (_recentBufferTimestamps.length >= 5) {
+                _bufferToastShown = true;
+                // Find best alternative server
+                var best = getBestServer();
+                var suggestion = (best.name !== currentServer.name)
+                    ? 'Try switching to ' + best.name + ' for smoother playback.'
+                    : 'Try a different server from the server menu.';
+                showPlayerToast('Frequent buffering detected. ' + suggestion, 8000);
+            }
+        }
+
+        // Simple toast for player page
+        function showPlayerToast(msg, duration) {
+            var existing = document.querySelector('.vailism-player-toast');
+            if (existing) existing.remove();
+            var toast = document.createElement('div');
+            toast.className = 'vailism-player-toast';
+            toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(20,20,20,0.95);color:#fff;padding:12px 24px;border-radius:8px;font-size:13px;font-family:Outfit,system-ui,sans-serif;z-index:9999;border:1px solid rgba(229,9,20,0.4);backdrop-filter:blur(10px);max-width:90vw;text-align:center;animation:fadeInUp 0.3s ease;';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            // Add fadeInUp animation
+            var style = document.createElement('style');
+            style.textContent = '@keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+            document.head.appendChild(style);
+            setTimeout(function() {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(function() { toast.remove(); style.remove(); }, 300);
+            }, duration || 5000);
+        }
 
         var _origHandleBuffering = handleBufferingEvent;
         handleBufferingEvent = function() {
@@ -2186,6 +2346,9 @@
             if (currentServer.name === serverBeforeSwitch) {
                 recordBufferEvent();
                 recordServerBuffer(currentServer.name);
+                // Track for toast suggestion
+                _recentBufferTimestamps.push(Date.now());
+                checkBufferToast();
             }
         };
 

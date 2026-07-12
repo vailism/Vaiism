@@ -230,17 +230,35 @@ async function fetchDetails(type, id, signal) {
 }
 
 // ─── Connection Warmup ────────────────────────────────────────────────────────
-// Inject <link rel="preconnect"> for SERVER 1 on first user interaction.
+// Inject <link rel="preconnect"> for ALL embed server domains.
 // This warms up DNS + TLS handshake before they click Play (~200-400ms saved).
-let server1Warmed = false;
+let serversWarmed = false;
 function warmPrimaryServer() {
-    if (server1Warmed) return;
-    server1Warmed = true;
-    const link = document.createElement('link');
-    link.rel = 'preconnect';
-    link.href = 'https://vidlink.pro';
-    link.crossOrigin = 'anonymous';
-    document.head.appendChild(link);
+    if (serversWarmed) return;
+    serversWarmed = true;
+    const domains = ['https://vidlink.pro', 'https://vidsrc.to', 'https://player.videasy.net', 'https://vidsrc.xyz'];
+    domains.forEach(href => {
+        const link = document.createElement('link');
+        link.rel = 'preconnect';
+        link.href = href;
+        link.crossOrigin = 'anonymous';
+        document.head.appendChild(link);
+    });
+    console.log('[VAILISM] Warmed all embed server connections');
+}
+
+// ─── Network Info Helper ──────────────────────────────────────────────────────
+function getNetworkInfoText() {
+    try {
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (conn) {
+            const dl = conn.downlink;
+            const etype = conn.effectiveType;
+            if (dl && dl > 0) return dl.toFixed(1) + ' Mbps (' + (etype || 'unknown').toUpperCase() + ')';
+            if (etype) return etype.toUpperCase() + ' connection';
+        }
+    } catch(e) {}
+    return '';
 }
 
 // ─── Predictive Prefetch ──────────────────────────────────────────────────────
@@ -411,11 +429,33 @@ async function findFastestServer() {
         console.error('[VAILISM] Server speed test failed', e);
     }
 }
+// ─── Adaptive Quality Hint ────────────────────────────────────────────────────
+// Detect slow connections and hint embed servers to start at lower quality.
+function getQualityHint() {
+    try {
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (conn) {
+            const dl = conn.downlink;
+            const etype = conn.effectiveType;
+            if (etype === '2g' || etype === 'slow-2g' || (dl && dl < 1.5)) return '360';
+            if (etype === '3g' || (dl && dl < 4)) return '480';
+        }
+    } catch(e) {}
+    return ''; // No hint needed — let server pick
+}
 
 function buildEmbedUrl(id, type, s, e, ts) {
-    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
+    // Check session's last working server first
+    var lastWorking = sessionStorage.getItem('vailism_last_working_server');
+    var preferredServerName = lastWorking || localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
     var server = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
-    return server.buildUrl(id, type, s, e, ts);
+    var url = server.buildUrl(id, type, s, e, ts);
+    // Append quality hint on slow connections (servers may or may not honor it)
+    var qualityHint = getQualityHint();
+    if (qualityHint) {
+        url += (url.includes('?') ? '&' : '?') + 'quality=' + qualityHint;
+    }
+    return url;
 }
 
 function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
@@ -430,9 +470,13 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     savedScrollY = window.scrollY;
     warmPrimaryServer();
 
-    // Determine current preferred server
-    var preferredServerName = localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
+    // Determine current preferred server — check session's last-working first
+    var lastWorking = sessionStorage.getItem('vailism_last_working_server');
+    var preferredServerName = lastWorking || localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
     var currentServer = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
+
+    // Get network info for loader display
+    var netInfoMsg = getNetworkInfoText();
 
     // Create modal DOM
     const modal = document.createElement('div');
@@ -465,7 +509,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         </div>
         <div class="vailism-modal-loader" id="modal-loader">
             <div class="vailism-modal-spinner"></div>
-            <span>Loading...</span>
+            <span>${netInfoMsg ? ('Loading on ' + netInfoMsg + '...') : 'Loading...'}</span>
         </div>`;
 
     document.body.appendChild(modal);
@@ -477,6 +521,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     modal._episode = episodeNum;
     modal._retryCount = 0;
     modal._serverSwitchCount = 0;
+    modal._retryAttempted = false;
     modal._currentServerName = currentServer.name;
     modal._hasReceivedPlaybackEvent = false;
     modal._playbackCheckTimer = null;
@@ -535,12 +580,71 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
     modal._checkNextEpisode();
 
     modal._tryNextServer = function() {
+        // ── Retry same server once before cycling ──
+        if (!modal._retryAttempted) {
+            modal._retryAttempted = true;
+            console.log('[VAILISM] Retrying current server before switching:', currentServer.name);
+            const loader = modal.querySelector('#modal-loader');
+            if (loader) {
+                var statusSpan = loader.querySelector('span');
+                if (statusSpan) statusSpan.textContent = 'Retrying ' + currentServer.name + '...';
+            }
+            modal._hasReceivedPlaybackEvent = false;
+            if (modal._playbackCheckTimer) { clearTimeout(modal._playbackCheckTimer); modal._playbackCheckTimer = null; }
+            var ts = 0;
+            var storageKey = getProgressKey(movieId, mediaType, modal._season || seasonNum, modal._episode || episodeNum);
+            try {
+                var savedData = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                if (savedData && savedData.timestamp && savedData.duration) {
+                    var rawTs = parseFloat(savedData.timestamp);
+                    var dur = parseFloat(savedData.duration);
+                    if (rawTs > 0 && dur > 0 && rawTs < (dur - 10)) ts = Math.min(rawTs, dur - 5);
+                }
+            } catch (err) {}
+            var retryUrl = currentServer.buildUrl(movieId, mediaType, modal._season || 1, modal._episode || 1, ts);
+            loadIframeInModal(modal, retryUrl);
+            return;
+        }
+        modal._retryAttempted = false;
+
         if (modal._serverSwitchCount >= SERVERS.length) {
             console.error('[VAILISM] Tried all servers, none loaded.');
             const loader = modal.querySelector('#modal-loader');
             if (loader) {
                 var statusSpan = loader.querySelector('span');
-                if (statusSpan) statusSpan.textContent = 'All streams failed. Please check connection.';
+                if (statusSpan) statusSpan.textContent = 'All streams failed.';
+                // Hide spinner
+                var spinner = loader.querySelector('.vailism-modal-spinner');
+                if (spinner) spinner.style.display = 'none';
+                // Add Retry button
+                var existingBtn = loader.querySelector('.vailism-retry-btn');
+                if (!existingBtn) {
+                    var netInfo = getNetworkInfoText();
+                    var retryBtn = document.createElement('button');
+                    retryBtn.className = 'vailism-retry-btn';
+                    retryBtn.style.cssText = 'margin-top:20px;padding:12px 32px;background:#e50914;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;font-family:Outfit,system-ui,sans-serif;transition:background 0.2s;';
+                    retryBtn.textContent = 'Retry All Servers';
+                    retryBtn.onmouseenter = function() { retryBtn.style.background = '#ff1a2b'; };
+                    retryBtn.onmouseleave = function() { retryBtn.style.background = '#e50914'; };
+                    retryBtn.onclick = function() {
+                        modal._serverSwitchCount = 0;
+                        modal._retryAttempted = false;
+                        if (spinner) spinner.style.display = '';
+                        if (statusSpan) statusSpan.textContent = 'Retrying...';
+                        retryBtn.remove();
+                        if (netInfoEl) netInfoEl.remove();
+                        var ts = 0;
+                        var retryUrl = currentServer.buildUrl(movieId, mediaType, modal._season || 1, modal._episode || 1, ts);
+                        loadIframeInModal(modal, retryUrl);
+                    };
+                    loader.appendChild(retryBtn);
+                    if (netInfo) {
+                        var netInfoEl = document.createElement('span');
+                        netInfoEl.style.cssText = 'display:block;margin-top:12px;color:rgba(255,255,255,0.4);font-size:12px;font-family:Outfit,system-ui,sans-serif;';
+                        netInfoEl.textContent = 'Your connection: ' + netInfo;
+                        loader.appendChild(netInfoEl);
+                    }
+                }
             }
             if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
             if (modal._playbackCheckTimer) { clearTimeout(modal._playbackCheckTimer); modal._playbackCheckTimer = null; }
@@ -749,6 +853,10 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 modal._playbackCheckTimer = null;
             }
             resetModalControlsTimer();
+            // Save last working server for this session
+            try {
+                sessionStorage.setItem('vailism_last_working_server', modal._currentServerName);
+            } catch(e) {}
         }
 
         var data = (payload.type === 'PLAYER_EVENT' && payload.data) ? payload.data : payload;
@@ -996,6 +1104,9 @@ window.toggleMyList = async function (movie, btn) {
 
 // ─── DOM Ready ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+
+    // Warm all embed server connections immediately on page load
+    warmPrimaryServer();
 
     // ── Navbar scroll effect (throttled, null-safe) ─────────────────────
     // Defer autoCleanup to idle time — not critical for first paint
