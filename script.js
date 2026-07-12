@@ -283,13 +283,13 @@ function getBufferGraceMs() {
         if (conn) {
             const etype = conn.effectiveType;
             const downlink = conn.downlink; // Mbps estimate
-            if (etype === '4g' && downlink >= 10) return 800;   // Very fast: short grace
-            if (etype === '4g') return 1500;                     // Normal 4G / WiFi
-            if (etype === '3g') return 3000;                     // 3G: long buffer
-            if (etype === '2g' || etype === 'slow-2g') return 5000; // Very slow
+            if (etype === '4g' && downlink >= 10) return 1500;   // Very fast: short grace
+            if (etype === '4g') return 3000;                      // Normal 4G / WiFi
+            if (etype === '3g') return 6000;                      // 3G: long buffer
+            if (etype === '2g' || etype === 'slow-2g') return 10000; // Very slow
         }
     } catch (e) {}
-    return 2000; // Default: ~7 Mbps range needs solid buffer time
+    return 4000; // Default: low bandwidth needs more buffer time
 }
 
 const SERVERS = [
@@ -831,28 +831,30 @@ function loadIframeInModal(modal, embedUrl) {
         if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
 
         // Start playback verification timer ONLY for SERVER 1
+        // 60s — slow connections take longer to send their first event
         if (modal._currentServerName === 'SERVER 1') {
             modal._playbackCheckTimer = setTimeout(() => {
                 if (!modal._hasReceivedPlaybackEvent) {
-                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 25s. Content may be unavailable. Auto-switching...');
+                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 60s. Content may be unavailable. Auto-switching...');
                     if (typeof modal._tryNextServer === 'function') {
                         modal._tryNextServer();
                     }
                 }
-            }, 25000); // 25 seconds post-load check
+            }, 60000); // 60 seconds post-load check
         }
     }
 
     iframe.addEventListener('load', revealPlayer);
 
-    // ── Stall detection: if iframe doesn't load in 25s, auto-switch to next server ──
+    // ── Stall detection: if iframe doesn't load in 60s, auto-switch to next server ──
+    // 60s is needed for low-bandwidth connections where the iframe itself loads slowly
     modal._stallTimer = setTimeout(() => {
         if (!loaded) {
             console.warn('[VAILISM] Stall detected on current server. Triggering auto-fallback...');
             if (typeof modal._tryNextServer === 'function') {
                 if (loader) {
                     var statusSpan = loader.querySelector('span');
-                    if (statusSpan) statusSpan.textContent = 'Server stalled. Switching server...';
+                    if (statusSpan) statusSpan.textContent = 'Taking too long. Switching server...';
                 }
                 modal._tryNextServer();
             } else {
@@ -860,7 +862,7 @@ function loadIframeInModal(modal, embedUrl) {
                 revealPlayer();
             }
         }
-    }, 25000);
+    }, 60000);
 
     // Set src LAST (starts loading after everything is wired up)
     iframe.src = embedUrl;

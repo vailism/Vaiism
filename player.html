@@ -1521,13 +1521,13 @@
         function handleBufferingEvent() {
             showBuffering();
             if (!sustainedBufferTimer) {
-                console.log('[VAILISM] Buffering detected. Starting 25s sustained buffering timer...');
+                console.log('[VAILISM] Buffering detected. Starting 90s sustained buffering timer (low-bandwidth tolerant)...');
                 sustainedBufferTimer = setTimeout(function() {
-                    console.warn('[VAILISM] Sustained buffering (>25s) detected. Auto-switching server...');
+                    console.warn('[VAILISM] Sustained buffering (>90s) detected. Auto-switching server...');
                     sustainedBufferTimer = null;
                     hideBuffering();
                     tryNextServer();
-                }, 25000);
+                }, 90000);
             }
         }
 
@@ -1598,27 +1598,29 @@
                 if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
 
                 // Start playback verification timer ONLY for SERVER 1
+                // 60s timeout — slow connections need time to actually start sending events
                 if (currentServer.name === 'SERVER 1' && !currentAltUrl) {
                     playbackCheckTimer = setTimeout(function() {
                         if (!hasReceivedPlaybackEvent) {
-                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 25s. Auto-switching...');
+                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 60s. Auto-switching...');
                             tryNextServer();
                         }
-                    }, 25000);
+                    }, 60000);
                 }
             }
 
             iframe.addEventListener('load', onPlayerLoad);
 
-            // ── Stall detection: if iframe doesn't load in 25s, auto-switch ──
+            // ── Stall detection: if iframe doesn't load in 60s, auto-switch ──
+            // 60s timeout — on low bandwidth, iframe loading can take much longer
             stallTimer = setTimeout(function() {
                 if (!loaded) {
-                    console.warn('[VAILISM] Stall detected. Auto-switching server...');
+                    console.warn('[VAILISM] Stall detected (60s timeout). Auto-switching server...');
                     var textSpan = loader.querySelector('.loader-text');
-                    if (textSpan) textSpan.textContent = 'Server stalled. Switching server...';
+                    if (textSpan) textSpan.textContent = 'Taking too long. Switching server...';
                     tryNextServer();
                 }
-            }, 25000);
+            }, 60000);
 
             playerWrap.appendChild(iframe);
         }
