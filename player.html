@@ -2175,6 +2175,12 @@
             else if (count <= 4) { level = 'fair'; label = 'Fair'; barsOn = 2; }
             else { level = 'poor'; label = 'Poor'; barsOn = 1; }
 
+            // Append real-time internet speed to the quality indicator label
+            var speedText = getNetworkInfoText();
+            if (speedText) {
+                label += ' (' + speedText + ')';
+            }
+
             qualityEl.className = 'vailism-quality visible ' + level;
             if (qualityLabelEl) qualityLabelEl.textContent = label;
 
@@ -2196,13 +2202,22 @@
                     qualityEl.classList.remove('visible');
                 } else if (_progressVisible) {
                     qualityEl.classList.add('visible');
+                    updateQualityIndicator(); // update immediately when visible
                 }
             });
             qObserver.observe(topControls, { attributes: true, attributeFilter: ['style'] });
         })();
 
-        // Periodic quality update
-        _qualityInterval = setInterval(updateQualityIndicator, 15000);
+        // Listen for network connection changes
+        try {
+            var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (conn) {
+                conn.addEventListener('change', updateQualityIndicator);
+            }
+        } catch(e) {}
+
+        // Periodic quality update - now every 3 seconds to constantly display real-time speed
+        _qualityInterval = setInterval(updateQualityIndicator, 3000);
 
         // ══════════════════════════════════════════════════════════════════
         // ── FEATURE: Preload Next Episode ────────────────────────────────
@@ -2269,7 +2284,6 @@
             return best;
         }
 
-        // ══════════════════════════════════════════════════════════════════
         // ── FEATURE: Subtitle Overlay + Offset Control ───────────────────
         // ══════════════════════════════════════════════════════════════════
         var subOverlay = document.getElementById('vailismSubOverlay');
@@ -2277,7 +2291,87 @@
         var subControls = document.getElementById('vailismSubControls');
         var subOffsetLabel = document.getElementById('subOffsetLabel');
         var _subtitleOffset = parseFloat(localStorage.getItem('vailism_sub_offset') || '0');
-        var _subtitleCues = []; // Array of {start, en        // ══════════════════════════════════════════════════════════════════
+        var _subtitleCues = []; // Array of {start, end, text}
+        var _subtitlesActive = false;
+
+        function updateSubOffsetLabel() {
+            if (subOffsetLabel) {
+                subOffsetLabel.textContent = 'Offset: ' + (_subtitleOffset >= 0 ? '+' : '') + _subtitleOffset.toFixed(1) + 's';
+            }
+        }
+        updateSubOffsetLabel();
+
+        var subMinusBtn = document.getElementById('subOffsetMinus');
+        var subPlusBtn = document.getElementById('subOffsetPlus');
+        if (subMinusBtn) {
+            subMinusBtn.onclick = function(e) {
+                e.stopPropagation();
+                _subtitleOffset -= 0.5;
+                localStorage.setItem('vailism_sub_offset', _subtitleOffset.toString());
+                updateSubOffsetLabel();
+            };
+        }
+        if (subPlusBtn) {
+            subPlusBtn.onclick = function(e) {
+                e.stopPropagation();
+                _subtitleOffset += 0.5;
+                localStorage.setItem('vailism_sub_offset', _subtitleOffset.toString());
+                updateSubOffsetLabel();
+            };
+        }
+
+        // Parse SRT/VTT subtitle text
+        function parseSubtitles(text) {
+            var cues = [];
+            // Remove BOM and normalize
+            text = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            // Remove WEBVTT header
+            text = text.replace(/^WEBVTT[^\n]*\n/i, '');
+            var blocks = text.split(/\n\n+/);
+            blocks.forEach(function(block) {
+                var lines = block.trim().split('\n');
+                for (var i = 0; i < lines.length; i++) {
+                    var match = lines[i].match(/(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})/);
+                    if (match) {
+                        var start = parseInt(match[1])*3600 + parseInt(match[2])*60 + parseInt(match[3]) + parseInt(match[4])/1000;
+                        var end = parseInt(match[5])*3600 + parseInt(match[6])*60 + parseInt(match[7]) + parseInt(match[8])/1000;
+                        var txt = lines.slice(i+1).join('\n').replace(/<[^>]+>/g, '').trim();
+                        if (txt) cues.push({ start: start, end: end, text: txt });
+                        break;
+                    }
+                }
+            });
+            return cues;
+        }
+
+        // Update subtitle display based on current time
+        function updateSubtitleDisplay(currentTime) {
+            if (!_subtitlesActive || _subtitleCues.length === 0 || !subTextEl) return;
+            var adjustedTime = currentTime + _subtitleOffset;
+            var found = '';
+            for (var i = 0; i < _subtitleCues.length; i++) {
+                if (adjustedTime >= _subtitleCues[i].start && adjustedTime <= _subtitleCues[i].end) {
+                    found = _subtitleCues[i].text;
+                    break;
+                }
+            }
+            subTextEl.textContent = found;
+            subOverlay.style.display = found ? 'block' : 'none';
+        }
+
+        // Load subtitles from URL (SRT/VTT)
+        window.loadVailismSubtitles = function(url) {
+            fetch(url).then(function(r) { return r.text(); }).then(function(text) {
+                _subtitleCues = parseSubtitles(text);
+                _subtitlesActive = _subtitleCues.length > 0;
+                if (_subtitlesActive && subControls) subControls.classList.add('show');
+                console.log('[VAILISM] Loaded ' + _subtitleCues.length + ' subtitle cues');
+            }).catch(function(err) {
+                console.warn('[VAILISM] Failed to load subtitles:', err);
+            });
+        };
+
+        // ══════════════════════════════════════════════════════════════════
         // ── Hook all features into onPlayerMessage ───────────────────────
         // ══════════════════════════════════════════════════════════════════
         // We override handlePlayingEvent and handleBufferingEvent to
