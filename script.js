@@ -939,16 +939,16 @@ function loadIframeInModal(modal, embedUrl) {
         if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
 
         // Start playback verification timer ONLY for SERVER 1
-        // 60s — slow connections take longer to send their first event
+        // 35s — slow connections take longer to send their first event, but faster to switch on 404
         if (modal._currentServerName === 'SERVER 1') {
             modal._playbackCheckTimer = setTimeout(() => {
                 if (!modal._hasReceivedPlaybackEvent) {
-                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 60s. Content may be unavailable. Auto-switching...');
+                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 35s. Content may be unavailable. Auto-switching...');
                     if (typeof modal._tryNextServer === 'function') {
                         modal._tryNextServer();
                     }
                 }
-            }, 60000); // 60 seconds post-load check
+            }, 35000); // 35 seconds post-load check
         }
     }
 
