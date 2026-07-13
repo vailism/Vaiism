@@ -418,10 +418,10 @@ async function findFastestServer() {
             var preferredServerName = localStorage.getItem('vailism_preferred_server');
             var preferredServerObj = SERVERS.find(s => s.name === preferredServerName);
 
-            // Override if user never picked a server, OR if their picked server is currently offline
-            if (!preferredServerName || (preferredServerObj && preferredServerObj.isOffline)) {
+            // Override only if user never picked a server
+            if (!preferredServerName) {
                 localStorage.setItem('vailism_preferred_server', fastest.name);
-                console.log(`[VAILISM] Auto-selected fastest server (or previous was offline): ${fastest.name}`);
+                console.log(`[VAILISM] Auto-selected fastest server: ${fastest.name}`);
             }
         }
         sessionStorage.setItem('vailism_server_tested', 'true');
