@@ -654,15 +654,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         modal._serverSwitchCount++;
         
         var currentIndex = SERVERS.findIndex(function(sv) { return sv.name === currentServer.name; });
-        var nextIndex = currentIndex;
-        
-        // Find the next server that is NOT offline
-        for (var i = 0; i < SERVERS.length; i++) {
-            nextIndex = (nextIndex + 1) % SERVERS.length;
-            if (!SERVERS[nextIndex].isOffline) {
-                break;
-            }
-        }
+        var nextIndex = (currentIndex + 1) % SERVERS.length;
         
         currentServer = SERVERS[nextIndex];
 
@@ -727,19 +719,13 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         listEl.innerHTML = '';
         SERVERS.forEach(function(server) {
             var btn = document.createElement('button');
-            btn.className = 'vailism-server-option' + (server.name === currentServer.name ? ' active' : '') + (server.isOffline ? ' offline' : '');
-            if (server.isOffline) {
-                btn.disabled = true;
-                btn.style.opacity = '0.5';
-                btn.style.cursor = 'not-allowed';
-            }
+            btn.className = 'vailism-server-option' + (server.name === currentServer.name ? ' active' : '');
             btn.innerHTML = `
-                <span class="vailism-server-title">${server.name} ${server.isOffline ? '<span style="color:#ff4444;font-size:10px;margin-left:6px">(OFFLINE)</span>' : ''}</span>
+                <span class="vailism-server-title">${server.name}</span>
                 <span class="vailism-server-desc">${server.description}</span>
             `;
             btn.onclick = async function(e) {
                 e.stopPropagation();
-                if (server.isOffline) return;
                 if (server.name === currentServer.name) return;
                 currentServer = server;
                 localStorage.setItem('vailism_preferred_server', server.name);
