@@ -719,6 +719,12 @@
                 </a>
 
                 <div class="right-controls" id="rightControls">
+                    <!-- Always-On Speed Badge -->
+                    <div class="vailism-speed-badge" id="player-speed-badge" title="Real-time Connection Speed" style="margin-right: 6px;">
+                        <span class="vailism-speed-dot" id="player-speed-dot"></span>
+                        <span id="player-speed-text">-- Mbps</span>
+                    </div>
+
                     <!-- Next Episode Button -->
                     <button class="premium-btn" id="nextEpBtn" style="display:none; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
                         Next Ep
@@ -1091,14 +1097,53 @@
             return '';
         }
 
-        // Show network info on loader
-        (function() {
-            var netLabel = document.getElementById('loader-network');
-            if (netLabel) {
-                var info = getNetworkInfoText();
-                if (info) netLabel.textContent = info;
+        // Show network info on loader & always-on badge
+        function startAlwaysOnSpeedMonitor() {
+            function updateSpeedBadges() {
+                try {
+                    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                    var text = 'Online';
+                    var qualityClass = '';
+                    if (conn) {
+                        var dl = conn.downlink;
+                        var etype = (conn.effectiveType || '').toLowerCase();
+                        if (dl && dl > 0) {
+                            text = dl.toFixed(1) + ' Mbps';
+                            if (etype) text += ' (' + etype.toUpperCase() + ')';
+                            if (dl < 3 || etype === '2g' || etype === 'slow-2g') {
+                                qualityClass = 'low';
+                            } else if (dl < 8 || etype === '3g') {
+                                qualityClass = 'medium';
+                            }
+                        } else if (etype) {
+                            text = etype.toUpperCase();
+                        }
+                    } else if (navigator.onLine === false) {
+                        text = 'Offline';
+                        qualityClass = 'low';
+                    }
+
+                    var textElements = document.querySelectorAll('#net-speed-text, #player-speed-text, #modal-speed-text');
+                    textElements.forEach(function(el) { if (el) el.textContent = text; });
+
+                    var dotElements = document.querySelectorAll('#net-speed-dot, #player-speed-dot, #modal-speed-dot');
+                    dotElements.forEach(function(dot) {
+                        if (dot) dot.className = 'vailism-speed-dot ' + qualityClass;
+                    });
+                } catch(e) {}
             }
-        })();
+
+            updateSpeedBadges();
+            setInterval(updateSpeedBadges, 2000);
+
+            if (navigator.connection && navigator.connection.addEventListener) {
+                navigator.connection.addEventListener('change', updateSpeedBadges);
+            }
+            window.addEventListener('online', updateSpeedBadges);
+            window.addEventListener('offline', updateSpeedBadges);
+        }
+
+        startAlwaysOnSpeedMonitor();
 
         function tryNextServer() {
             // Always clear any pending stall timer first to prevent double-firing (BUG 2 fix)

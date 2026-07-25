@@ -247,7 +247,7 @@ function warmPrimaryServer() {
     console.log('[VAILISM] Warmed all embed server connections');
 }
 
-// ─── Network Info Helper ──────────────────────────────────────────────────────
+// ─── Network Info & Always-On Speed Monitor ──────────────────────────────────
 function getNetworkInfoText() {
     try {
         const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -259,6 +259,57 @@ function getNetworkInfoText() {
         }
     } catch(e) {}
     return '';
+}
+
+function startAlwaysOnSpeedMonitor() {
+    function updateSpeedBadges() {
+        try {
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            let text = 'Online';
+            let qualityClass = '';
+            if (conn) {
+                const dl = conn.downlink;
+                const etype = (conn.effectiveType || '').toLowerCase();
+                if (dl && dl > 0) {
+                    text = dl.toFixed(1) + ' Mbps';
+                    if (etype) text += ' (' + etype.toUpperCase() + ')';
+                    if (dl < 3 || etype === '2g' || etype === 'slow-2g') {
+                        qualityClass = 'low';
+                    } else if (dl < 8 || etype === '3g') {
+                        qualityClass = 'medium';
+                    }
+                } else if (etype) {
+                    text = etype.toUpperCase();
+                }
+            } else if (navigator.onLine === false) {
+                text = 'Offline';
+                qualityClass = 'low';
+            }
+
+            const textElements = document.querySelectorAll('#net-speed-text, #player-speed-text, #modal-speed-text');
+            textElements.forEach(el => { if (el) el.textContent = text; });
+
+            const dotElements = document.querySelectorAll('#net-speed-dot, #player-speed-dot, #modal-speed-dot');
+            dotElements.forEach(dot => {
+                if (dot) dot.className = 'vailism-speed-dot ' + qualityClass;
+            });
+        } catch(e) {}
+    }
+
+    updateSpeedBadges();
+    setInterval(updateSpeedBadges, 2000);
+
+    if (navigator.connection && navigator.connection.addEventListener) {
+        navigator.connection.addEventListener('change', updateSpeedBadges);
+    }
+    window.addEventListener('online', updateSpeedBadges);
+    window.addEventListener('offline', updateSpeedBadges);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startAlwaysOnSpeedMonitor);
+} else {
+    startAlwaysOnSpeedMonitor();
 }
 
 // ─── Predictive Prefetch ──────────────────────────────────────────────────────
@@ -482,6 +533,10 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                 Back
             </button>
             <div class="vailism-modal-right">
+                <div class="vailism-speed-badge" id="modal-speed-badge" title="Real-time Network Speed" style="margin-right: 10px;">
+                    <span class="vailism-speed-dot" id="modal-speed-dot"></span>
+                    <span id="modal-speed-text">-- Mbps</span>
+                </div>
                 <button class="vailism-server-btn" id="modal-next-ep-btn" style="display:none; margin-right: 12px; background: rgba(229, 9, 20, 0.85); border-color: #e50914;">
                     Next Ep
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px;">
