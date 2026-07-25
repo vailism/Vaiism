@@ -626,6 +626,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                     retryBtn.textContent = 'Retry All Servers';
                     retryBtn.onmouseenter = function() { retryBtn.style.background = '#ff1a2b'; };
                     retryBtn.onmouseleave = function() { retryBtn.style.background = '#e50914'; };
+                    var netInfoEl = null;
                     retryBtn.onclick = function() {
                         modal._serverSwitchCount = 0;
                         modal._retryAttempted = false;
@@ -639,7 +640,7 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
                     };
                     loader.appendChild(retryBtn);
                     if (netInfo) {
-                        var netInfoEl = document.createElement('span');
+                        netInfoEl = document.createElement('span');
                         netInfoEl.style.cssText = 'display:block;margin-top:12px;color:rgba(255,255,255,0.4);font-size:12px;font-family:Outfit,system-ui,sans-serif;';
                         netInfoEl.textContent = 'Your connection: ' + netInfo;
                         loader.appendChild(netInfoEl);
