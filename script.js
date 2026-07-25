@@ -970,11 +970,17 @@ function loadIframeInModal(modal, embedUrl) {
         }, graceMs);
         // Clear stall timer
         if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
-        modal._hasReceivedPlaybackEvent = true;
-        if (modal._playbackCheckTimer) {
-            clearTimeout(modal._playbackCheckTimer);
-            modal._playbackCheckTimer = null;
-        }
+        
+        // 15s stream verification: if stream remains stuck/empty/404 with no playback events, auto-switch server
+        if (modal._playbackCheckTimer) clearTimeout(modal._playbackCheckTimer);
+        modal._playbackCheckTimer = setTimeout(() => {
+            if (!modal._hasReceivedPlaybackEvent) {
+                console.warn('[VAILISM] Modal: No playback events received within 15s. Auto-switching server...');
+                if (typeof modal._tryNextServer === 'function') {
+                    modal._tryNextServer();
+                }
+            }
+        }, 15000);
     }
 
     iframe.addEventListener('load', revealPlayer);

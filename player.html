@@ -1744,13 +1744,17 @@
                 loader.style.opacity = '0';
                 loader.style.pointerEvents = 'none';
                 playerWrap.style.opacity = '1';
-                console.log('[VAILISM] Player loaded successfully.');
+                console.log('[VAILISM] Player loaded.');
                 if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
-                hasReceivedPlaybackEvent = true;
-                if (playbackCheckTimer) {
-                    clearTimeout(playbackCheckTimer);
-                    playbackCheckTimer = null;
-                }
+
+                // 15s stream verification: if stream remains stuck/empty/404 with no playback events, auto-switch server
+                if (playbackCheckTimer) clearTimeout(playbackCheckTimer);
+                playbackCheckTimer = setTimeout(function() {
+                    if (!hasReceivedPlaybackEvent) {
+                        console.warn('[VAILISM] No playback events received within 15s. Auto-switching to next server...');
+                        tryNextServer();
+                    }
+                }, 15000);
             }
 
             iframe.addEventListener('load', onPlayerLoad);
