@@ -367,11 +367,10 @@ const SERVERS = [
         description: 'Fastest server, supports Auto-Resume & Auto-Play.',
         pingUrl: 'https://vidlink.pro/',
         buildUrl: function(id, type, s, e, ts) {
-            var startTimeParam = ts > 0 ? ('&startAt=' + Math.floor(ts)) : '';
             if (type === 'tv') {
-                return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+                return 'https://vidlink.pro/tv/' + id + '/' + s + '/' + e + '?primaryColor=e50914&autoplay=true';
             }
-            return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true' + startTimeParam;
+            return 'https://vidlink.pro/movie/' + id + '?primaryColor=e50914&autoplay=true';
         }
     },
     {
