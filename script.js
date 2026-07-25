@@ -236,7 +236,7 @@ let serversWarmed = false;
 function warmPrimaryServer() {
     if (serversWarmed) return;
     serversWarmed = true;
-    const domains = ['https://vidlink.pro', 'https://vidsrc.to', 'https://player.videasy.net', 'https://vidsrc.xyz'];
+    const domains = ['https://vidlink.pro', 'https://vidsrc.su', 'https://player.videasy.net', 'https://www.2embed.cc'];
     domains.forEach(href => {
         const link = document.createElement('link');
         link.rel = 'preconnect';
@@ -907,7 +907,6 @@ function loadIframeInModal(modal, embedUrl) {
     modal._hasReceivedPlaybackEvent = false;
 
     const iframe = document.createElement('iframe');
-    iframe.setAttribute('allowfullscreen', 'true');
     iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
     iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
 
