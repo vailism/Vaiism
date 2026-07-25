@@ -1705,18 +1705,12 @@
                 loader.style.opacity = '0';
                 loader.style.pointerEvents = 'none';
                 playerWrap.style.opacity = '1';
-                console.log('[VAILISM] Player loaded.');
+                console.log('[VAILISM] Player loaded successfully.');
                 if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
-
-                // Start playback verification timer ONLY for SERVER 1
-                // 35s timeout — enough for slow connections, but faster to switch on 404
-                if (currentServer.name === 'SERVER 1' && !currentAltUrl) {
-                    playbackCheckTimer = setTimeout(function() {
-                        if (!hasReceivedPlaybackEvent) {
-                            console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 35s. Auto-switching...');
-                            tryNextServer();
-                        }
-                    }, 35000);
+                hasReceivedPlaybackEvent = true;
+                if (playbackCheckTimer) {
+                    clearTimeout(playbackCheckTimer);
+                    playbackCheckTimer = null;
                 }
             }
 
@@ -1781,14 +1775,12 @@
 
             if (!payload || typeof payload !== 'object') return;
 
-            if (payload.type === 'PLAYER_EVENT') {
-                hasReceivedPlaybackEvent = true;
-                if (playbackCheckTimer) {
-                    clearTimeout(playbackCheckTimer);
-                    playbackCheckTimer = null;
-                }
-                resetControlsTimer();
+            hasReceivedPlaybackEvent = true;
+            if (playbackCheckTimer) {
+                clearTimeout(playbackCheckTimer);
+                playbackCheckTimer = null;
             }
+            resetControlsTimer();
 
             // Normalize message
             const iframe = playerWrap.querySelector("iframe");

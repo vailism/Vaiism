@@ -833,18 +833,16 @@ function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {
         try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch (e) { return; }
         if (!payload || typeof payload !== 'object') return;
 
-        if (payload.type === 'PLAYER_EVENT') {
-            modal._hasReceivedPlaybackEvent = true;
-            if (modal._playbackCheckTimer) {
-                clearTimeout(modal._playbackCheckTimer);
-                modal._playbackCheckTimer = null;
-            }
-            resetModalControlsTimer();
-            // Save last working server for this session
-            try {
-                sessionStorage.setItem('vailism_last_working_server', modal._currentServerName);
-            } catch(e) {}
+        modal._hasReceivedPlaybackEvent = true;
+        if (modal._playbackCheckTimer) {
+            clearTimeout(modal._playbackCheckTimer);
+            modal._playbackCheckTimer = null;
         }
+        resetModalControlsTimer();
+        // Save last working server for this session
+        try {
+            sessionStorage.setItem('vailism_last_working_server', modal._currentServerName);
+        } catch(e) {}
 
         var data = (payload.type === 'PLAYER_EVENT' && payload.data) ? payload.data : payload;
         if (!data || typeof data !== 'object') return;
@@ -923,18 +921,10 @@ function loadIframeInModal(modal, embedUrl) {
         }, graceMs);
         // Clear stall timer
         if (modal._stallTimer) { clearTimeout(modal._stallTimer); modal._stallTimer = null; }
-
-        // Start playback verification timer ONLY for SERVER 1
-        // 35s — slow connections take longer to send their first event, but faster to switch on 404
-        if (modal._currentServerName === 'SERVER 1') {
-            modal._playbackCheckTimer = setTimeout(() => {
-                if (!modal._hasReceivedPlaybackEvent) {
-                    console.warn('[VAILISM] SERVER 1 loaded but no playback events received within 35s. Content may be unavailable. Auto-switching...');
-                    if (typeof modal._tryNextServer === 'function') {
-                        modal._tryNextServer();
-                    }
-                }
-            }, 35000); // 35 seconds post-load check
+        modal._hasReceivedPlaybackEvent = true;
+        if (modal._playbackCheckTimer) {
+            clearTimeout(modal._playbackCheckTimer);
+            modal._playbackCheckTimer = null;
         }
     }
 
