@@ -449,13 +449,7 @@ function buildEmbedUrl(id, type, s, e, ts) {
     var lastWorking = sessionStorage.getItem('vailism_last_working_server');
     var preferredServerName = lastWorking || localStorage.getItem('vailism_preferred_server') || 'SERVER 1';
     var server = SERVERS.find(function(sv) { return sv.name === preferredServerName; }) || SERVERS[0];
-    var url = server.buildUrl(id, type, s, e, ts);
-    // Append quality hint on slow connections (servers may or may not honor it)
-    var qualityHint = getQualityHint();
-    if (qualityHint) {
-        url += (url.includes('?') ? '&' : '?') + 'quality=' + qualityHint;
-    }
-    return url;
+    return server.buildUrl(id, type, s, e, ts);
 }
 
 function openModalPlayer(embedUrl, movieId, mediaType, seasonNum, episodeNum) {

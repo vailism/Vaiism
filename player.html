@@ -1205,6 +1205,7 @@
                 btn.onclick = function() {
                     if (server.name === currentServer.name) return;
                     currentServer = server;
+                    currentAltUrl = null; // Clear alternative language lock when switching servers
                     localStorage.setItem('vailism_preferred_server', server.name);
                     serverSwitchCount = 0; // Reset auto-switch count on manual selection!
                     closeAllPopovers();
@@ -1640,17 +1641,10 @@
         // ── Embed Provider URLs ───────────────────────────────────────────
         function getEmbedUrl(s, e, ts) {
             // If an alternative language URL is selected, use it directly.
-            // Alternative scrapers rarely support startAt natively.
             if (currentAltUrl) {
                 return currentAltUrl;
             }
-            var url = currentServer.buildUrl(movieId, mediaType, s, e, ts);
-            // Append quality hint on slow connections
-            var qHint = getQualityHint();
-            if (qHint) {
-                url += (url.includes('?') ? '&' : '?') + 'quality=' + qHint;
-            }
-            return url;
+            return currentServer.buildUrl(movieId, mediaType, s, e, ts);
         }
 
         function buildIframeWithUrl(embedUrl, s, e) {
