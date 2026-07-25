@@ -326,12 +326,12 @@ const SERVERS = [
     {
         name: 'SERVER 2',
         description: 'Extremely reliable, fast streaming & high quality.',
-        pingUrl: 'https://vidsrc.to/',
+        pingUrl: 'https://vidsrc.su/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
-                return 'https://vidsrc.to/embed/tv/' + id + '/' + s + '/' + e;
+                return 'https://vidsrc.su/embed/tv/' + id + '/' + s + '/' + e;
             }
-            return 'https://vidsrc.to/embed/movie/' + id;
+            return 'https://vidsrc.su/embed/movie/' + id;
         }
     },
     {
@@ -349,12 +349,12 @@ const SERVERS = [
     {
         name: 'SERVER 4',
         description: 'Stable stream with good subtitle support.',
-        pingUrl: 'https://vidsrc.xyz/',
+        pingUrl: 'https://www.2embed.cc/',
         buildUrl: function(id, type, s, e, ts) {
             if (type === 'tv') {
-                return 'https://vidsrc.xyz/embed/tv?tmdb=' + id + '&season=' + s + '&episode=' + e;
+                return 'https://www.2embed.cc/embedtv/' + id + '&s=' + s + '&e=' + e;
             }
-            return 'https://vidsrc.xyz/embed/movie?tmdb=' + id;
+            return 'https://www.2embed.cc/embed/' + id;
         }
     }
 ];
